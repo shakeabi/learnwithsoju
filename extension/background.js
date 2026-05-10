@@ -1,6 +1,7 @@
 import { lemmaCandidates } from './lemmatizer.js';
 import { buildKrdictUrl, buildOpendictUrl, looksEmpty } from './api.js';
 import { createCache, chromeStorageAdapter } from './cache.js';
+import init, { Mecab } from './vendor/mecab-ko/mecab_ko_wasm.js';
 
 const STORAGE_KEYS = {
   KRDICT_KEY: 'krdictApiKey',
@@ -8,7 +9,39 @@ const STORAGE_KEYS = {
   ENABLED: 'enabled',
 };
 
+const MECAB_VENDOR = 'vendor/mecab-ko/';
+const MECAB_FILES = ['sys.dic.gz', 'matrix.bin.gz', 'entries.bin.gz'];
+const MECAB_WASM = 'mecab_ko_wasm_bg.wasm';
+
 const cache = createCache(chromeStorageAdapter(chrome.storage.local));
+
+let mecabInstance = null;
+let mecabReadyPromise = null;
+
+async function fetchAndGunzip(path) {
+  const url = chrome.runtime.getURL(path);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fetch ${path}: HTTP ${res.status}`);
+  // DecompressionStream is built into MV3 service workers (Chrome 80+).
+  // Stream the gzipped response through it and reassemble the bytes.
+  const stream = res.body.pipeThrough(new DecompressionStream('gzip'));
+  const buf = await new Response(stream).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+async function ensureMecab() {
+  if (mecabInstance) return mecabInstance;
+  if (mecabReadyPromise) return mecabReadyPromise;
+  mecabReadyPromise = (async () => {
+    await init({ module_or_path: chrome.runtime.getURL(MECAB_VENDOR + MECAB_WASM) });
+    const [trie, matrix, entries] = await Promise.all(
+      MECAB_FILES.map((f) => fetchAndGunzip(MECAB_VENDOR + f)),
+    );
+    mecabInstance = Mecab.withDictBytes(trie, matrix, entries);
+    return mecabInstance;
+  })();
+  return mecabReadyPromise;
+}
 
 async function fetchXml(url) {
   const res = await fetch(url);
@@ -16,10 +49,24 @@ async function fetchXml(url) {
   return res.text();
 }
 
+async function lemmasFor(surface) {
+  // Best-effort: if mecab fails to init or tokenize, fall back to surface-only.
+  // The extension still works, just with weaker lemma resolution.
+  try {
+    const mecab = await ensureMecab();
+    const tokens = mecab.tokenize(surface);
+    return lemmaCandidates(tokens, surface);
+  } catch (err) {
+    console.warn('[learnwithsoju] mecab unavailable, falling back:', err);
+    return [surface];
+  }
+}
+
 async function handleLookup(surface) {
-  const candidates = lemmaCandidates(surface);
   const cached = await cache.get(surface);
   if (cached) return cached;
+
+  const candidates = await lemmasFor(surface);
 
   const settings = await chrome.storage.sync.get([STORAGE_KEYS.KRDICT_KEY, STORAGE_KEYS.OPENDICT_KEY]);
   const krKey = settings[STORAGE_KEYS.KRDICT_KEY];

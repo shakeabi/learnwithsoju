@@ -1,64 +1,50 @@
 /**
- * Lemmatizer interface — given a Korean surface form (어절), return one or more
- * candidate dictionary forms (lemmas) to try against KRDict, in priority order.
+ * Lemmatizer — given a Korean surface form (어절) and a list of mecab-ko
+ * tokens for that surface, return ordered dictionary-form candidates to
+ * try against KRDict.
  *
- * V1 implementation: heuristic suffix stripping. Handles all nouns correctly
- * (nouns are their own lemma) and many common verb/adjective conjugations.
- * Misses irregular verbs and complex inflection.
+ * Token shape (from mecab-ko-wasm `Mecab.tokenize(surface)`):
+ *   { surface: string, pos: string, lemma?: string, reading?: string, start, end }
  *
- * V2 plan: replace with a real morphological analyzer. Two viable swaps:
- *   - mecab-ko-wasm rebuilt from source with dict embedded (upstream npm
- *     release is currently broken — only ships the engine, not the dict).
- *   - Kiwi (kiwi-nlp) loaded inside a sandboxed iframe (~84 MB model + offscreen
- *     doc + postMessage broker, since kiwi's wasm-bindgen output uses
- *     `new Function()` which MV3 CSP forbids in extension pages).
+ * `pos` carries Sejong POS tags, sometimes merged with `+` for fused
+ * morphemes (e.g. `VV+EP`, `XSV+EF`). We split on `+` and look at the
+ * leading tag to decide what role each morpheme plays.
  *
- * The single export is `lemmaCandidates(surface) => string[]`. Callers should
- * try each candidate against the dictionary in order; first hit wins.
+ * Strategy
+ * --------
+ *   1. Walk tokens left-to-right, collect content morphemes.
+ *      - Verb / adjective stems (VV, VA, VX, VCN, VCP, XSV, XSA): append `다`
+ *        to form the lemma.
+ *      - Nouns / pronouns / numerals (NNG, NNP, NR, NP, SL, SH, SN): the
+ *        morpheme itself is the lemma.
+ *      - Anything else (particles JK*, endings E*, suffixes XSN, marks SF/SP):
+ *        skip — these aren't dictionary headwords.
+ *   2. Always include the original surface as a fallback candidate so
+ *      multi-syllable nouns like 한국말 still resolve when mecab splits
+ *      them into 한국 + 말.
+ *   3. De-duplicate while preserving insertion order — the caller tries
+ *      candidates against KRDict in this order; first hit wins.
+ *
+ * Pure function: takes `tokens` and `surface`, returns `string[]`. No
+ * dependency on mecab itself, so this module is unit-testable in Node
+ * with hand-built token arrays.
  */
 
-const PARTICLES = [
-  '으로부터', '으로서', '으로써',
-  '에서부터', '으로',
-  '이라고', '라고',
-  '에서', '에게', '한테', '께',
-  '까지', '부터', '마다', '조차', '마저',
-  '이나', '이라', '이며', '이든', '이야', '이오', '이지', '이고',
-  '들', '도', '은', '는', '이', '가', '을', '를', '와', '과',
-  '의', '에', '나', '랑', '보다', '처럼', '같이', '하고',
-];
+const VERB_LEAD_TAGS = new Set(['VV', 'VA', 'VX', 'VCN', 'VCP', 'XSV', 'XSA']);
+const NOUN_LEAD_TAGS = new Set(['NNG', 'NNP', 'NR', 'NP', 'SL', 'SH', 'SN']);
 
-const VERB_ENDINGS = [
-  '었습니다', '았습니다', '했습니다',
-  '었어요', '았어요', '였어요', '했어요',
-  '으세요', '으셔요', '으십시오', '으십니다',
-  '습니까', '습니다',
-  '으면서', '으니까', '으니라', '으려고', '으려면',
-  '으면', '으나', '으며', '으시',
-  '겠습니다', '겠어요', '겠다',
-  '었다', '았다', '였다', '했다',
-  '어요', '아요', '여요',
-  '세요', '셔요', '시오', '시다',
-  '네요', '군요', '나요', '죠', '지요',
-  '는다', '느냐', '는데', '는다고',
-  '는', '은', '을', '던',
-  '면서', '니까', '려고', '려면', '면',
-  '아', '어', '여', '서',
-  '죠', '죵',
-  '다', '다고', '다는',
-];
-
-function stripSuffix(word, suffixes) {
-  for (const s of suffixes) {
-    if (word.length > s.length && word.endsWith(s)) {
-      return word.slice(0, -s.length);
-    }
-  }
-  return null;
+function leadTag(pos) {
+  if (!pos) return '';
+  const plus = pos.indexOf('+');
+  return plus >= 0 ? pos.slice(0, plus) : pos;
 }
 
-export function lemmaCandidates(surface) {
-  if (!surface) return [];
+/**
+ * @param {Array<{surface: string, pos: string, lemma?: string}>} tokens
+ * @param {string} surface
+ * @returns {string[]} ordered candidate lemmas
+ */
+export function lemmaCandidates(tokens, surface) {
   const seen = new Set();
   const out = [];
   const push = (w) => {
@@ -68,20 +54,25 @@ export function lemmaCandidates(surface) {
     }
   };
 
-  push(surface);
-
-  const nounStem = stripSuffix(surface, PARTICLES);
-  if (nounStem) push(nounStem);
-
-  const verbStem = stripSuffix(surface, VERB_ENDINGS);
-  if (verbStem) {
-    push(verbStem + '다');
-    push(verbStem);
+  if (Array.isArray(tokens)) {
+    for (const t of tokens) {
+      const tag = leadTag(t.pos || '');
+      const stem = t.lemma || t.surface || '';
+      if (!stem) continue;
+      if (VERB_LEAD_TAGS.has(tag)) {
+        // Verb/adjective stems become headwords with -다 appended.
+        // Mecab returns the surface stem (e.g. 먹/VV for "먹었어요"); we add 다.
+        push(stem.endsWith('다') ? stem : stem + '다');
+      } else if (NOUN_LEAD_TAGS.has(tag)) {
+        push(stem);
+      }
+      // Particles, endings, and other non-content tags are skipped.
+    }
   }
 
-  if (surface.length > 2) push(surface.slice(0, -1) + '다');
-  if (surface.length > 1) push(surface.slice(0, -1));
-  if (surface.length > 2) push(surface.slice(0, -2));
+  // Surface fallback handles compound nouns mecab split apart and any
+  // word the dictionary indexes whole (e.g. 컴퓨터, 한국말).
+  if (surface) push(String(surface).trim());
 
   return out;
 }

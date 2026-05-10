@@ -1,0 +1,27 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_mecab_free: (a: number, b: number) => void;
+export const __wbg_wasmtoken_free: (a: number, b: number) => void;
+export const mecab_morphs: (a: number, b: number, c: number) => [number, number];
+export const mecab_new: () => [number, number, number];
+export const mecab_nouns: (a: number, b: number, c: number) => [number, number];
+export const mecab_pos: (a: number, b: number, c: number) => [number, number, number, number];
+export const mecab_tokenize: (a: number, b: number, c: number) => [number, number];
+export const mecab_wakati: (a: number, b: number, c: number) => [number, number];
+export const mecab_withDictBytes: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+export const wasmtoken_end: (a: number) => number;
+export const wasmtoken_lemma: (a: number) => [number, number];
+export const wasmtoken_pos: (a: number) => [number, number];
+export const wasmtoken_reading: (a: number) => [number, number];
+export const wasmtoken_start: (a: number) => number;
+export const wasmtoken_surface: (a: number) => [number, number];
+export const wasmtoken_toJSON: (a: number) => [number, number, number, number];
+export const init: () => void;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __externref_drop_slice: (a: number, b: number) => void;
+export const __externref_table_dealloc: (a: number) => void;
+export const __wbindgen_start: () => void;

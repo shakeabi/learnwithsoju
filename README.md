@@ -7,7 +7,7 @@ A free, OSS Chrome/Firefox extension that adds a hover-popup Korean dictionary t
 ## Features
 
 - Hover any Korean word, see the dictionary entry inline.
-- Heuristic lemmatizer that recovers dictionary forms from common particle suffixes and verb endings (e.g. `학교에서` → `학교`, `먹었어요` → `먹다`). See [Lemmatization quality](#lemmatization-quality) below.
+- Real morpheme-level POS tagging via mecab-ko (vendored WASM), so irregular verbs, conjugated forms, and compound nouns all resolve to the right dictionary form (`먹었어요` → `먹다`, `학교에서` → `학교`, `친구들과` → `친구`, `한국말` → `한국말` or `한국`).
 - KRDict (with English translations) as primary dictionary; OpenDict (우리말샘) as optional **experimental** fallback for words KRDict doesn't cover.
 - No backend, no telemetry, no tracking.
 
@@ -38,7 +38,8 @@ content.js (per tab)
    │  surface form (e.g. 먹었어요)
    ▼
 background.js (service worker)
-   ├─ lemmatizer.js → candidate dictionary forms [먹다, 먹었, 먹]
+   ├─ mecab-ko WASM (lazy-init on first hover) → POS-tagged morpheme tokens
+   ├─ lemmatizer.js → candidate dictionary forms [먹다, 먹었어요]
    ├─ try each against KRDict /api/search → XML
    └─ fall back to OpenDict /api/search → XML if no KRDict hit (experimental)
    │
@@ -46,26 +47,20 @@ background.js (service worker)
 content.js parses XML, renders popup inside a Shadow DOM
 ```
 
-Extension footprint is tiny (~30 KB code total — no WASM, no model files in V1).
+Extension footprint is ~22 MB on disk: 145 KB WASM + 22 MB gzipped dict (sys.dic + matrix.bin + entries.bin). Decompresses to ~90 MB in service worker memory at first hover; subsequent hovers reuse the in-memory tokenizer.
 
-## Lemmatization quality
+## Lemmatization
 
-V1 uses a heuristic suffix stripper in `extension/lemmatizer.js`. It generates a list of candidate dictionary forms by stripping common particles (`에서`, `이/가`, `을/를`, etc.) and verb/adjective endings (`습니다`, `어요`, `었어요`, etc.), and tries each candidate against KRDict in order.
+The extension uses a forked build of [mecab-ko-wasm](https://github.com/hephaex/mecab-ko) with a `from_bytes`/`withDictBytes` constructor we added so the dict can be supplied at runtime (the upstream npm release ships the engine without `mecab-ko-dic`, so `new Mecab()` errors in browsers — see [`docs/MECAB_INTEGRATION.md`](docs/MECAB_INTEGRATION.md)).
 
-What this **handles well:**
-- Plain nouns (`사람`, `학교`) — the surface form *is* the dictionary form.
-- Inflected nouns (`학교에서`, `친구들이`) — particle gets stripped.
-- Regular verb conjugations (`먹었어요` → `먹다`, `갔습니다` → `가다`).
+Concretely, `extension/lemmatizer.js` walks mecab's POS-tagged morphemes:
 
-What it **misses:**
-- Irregular verbs and adjectives where the stem itself changes (e.g. `예뻐요` should resolve to `예쁘다` but the suffix stripper only gets to `예뻐`).
-- Compound endings the table doesn't cover.
-- Distinguishing homographs.
+- Verb / adjective stems (`VV`, `VA`, `VX`, `VCN`, `VCP`, `XSV`, `XSA`) → append `다` to form the dictionary headword.
+- Nouns / pronouns / numerals (`NNG`, `NNP`, `NR`, `NP`, `SL`, `SH`, `SN`) → the morpheme itself is the lemma.
+- Particles (`JK*`, `JX`), endings (`E*`), and other non-content tags are skipped.
+- The original surface form is always included as a fallback so compound nouns mecab splits apart (`한국말` → `한국` + `말`) still resolve when KRDict indexes the whole word.
 
-**V2 plan:** swap the lemmatizer for a real morphological analyzer. The interface in `lemmatizer.js` (`lemmaCandidates(surface) => string[]`) stays the same; only the implementation changes. Two viable swap-in libraries:
-
-- **mecab-ko-wasm** — would be ideal (small WASM, fast, MIT/Apache-2.0). Currently the upstream npm release ships the analyzer engine only — the dictionary is missing — so `new Mecab()` errors at runtime in the browser. Would need to fork and rebuild from Rust source with `mecab-ko-dic` embedded.
-- **kiwi-nlp (Kiwi)** — best-in-class accuracy. ~3.8 MB WASM + ~84 MB model. Its wasm-bindgen output uses `new Function()` which MV3 CSP blocks in extension pages, so it needs a sandboxed iframe inside an offscreen document. Adds an extra messaging hop but works.
+If mecab fails to initialize for any reason, the service worker falls back to surface-only lookup so the extension still works (with weaker resolution).
 
 ## Permissions
 
@@ -88,9 +83,9 @@ The extension itself ships with no build step or runtime dependencies — `packa
 ```
 extension/
   manifest.json
-  background.js          ← service worker: orchestrates lemmatizer + fetches
+  background.js          ← service worker: mecab init + orchestrates lookup
   api.js                 ← URL builders + looksEmpty (pure)
-  lemmatizer.js          ← surface form → candidate dictionary forms (pure)
+  lemmatizer.js          ← mecab tokens → candidate dictionary forms (pure)
   parsers.js             ← KRDict/OpenDict XML → entry objects (DOMParser injected)
   content.js             ← DOM walker, hover, popup rendering
   content.css            ← styles for wrapped Korean spans
@@ -98,6 +93,9 @@ extension/
   options.{html,js,css}  ← settings page
   popup.{html,js,css}    ← toolbar action popup
   icons/                 ← 16/48/128 PNGs
+  vendor/mecab-ko/       ← vendored mecab-ko-wasm + gzipped dict
+                           ↳ mecab_ko_wasm{.js,.d.ts,_bg.wasm}  (built from our fork)
+                           ↳ {sys.dic,matrix.bin,entries.bin}.gz  (mecab-ko-dic 2.1.1)
 tests/
   *.test.js              ← node:test suite (run with `npm test`)
   fixtures/              ← KRDict/OpenDict sample XML
@@ -114,7 +112,7 @@ Open any page with Korean (Naver news, namu.wiki, Wikipedia ko, etc.) and hover 
 
 ## Limitations & known gaps (V1)
 
-- Lemmatization is heuristic — see [Lemmatization quality](#lemmatization-quality). Irregular verbs and adjectives often fall through.
+- First hover after the service worker wakes is slow (~1–2 s) while the dict loads. Subsequent hovers are instant.
 - Per-domain disable list — not yet (toggle is global). Coming next.
 - OpenDict popup toggle button — not yet (OpenDict appears automatically when KRDict has no result, marked "experimental").
 - Pronunciation audio — not yet.
@@ -129,4 +127,9 @@ The OSS extension is intentionally scoped to *static, client-side lookup*. Featu
 
 This extension's own code is released under the [MIT License](LICENSE).
 
-V1 has no vendored third-party code. KRDict and OpenDict data is fetched live from the user's API key — no NIKL data is bundled. See [`docs/THIRD-PARTY.md`](docs/THIRD-PARTY.md) for the full attribution policy.
+Vendored third-party code lives in `extension/vendor/mecab-ko/`:
+
+- **mecab-ko-wasm** (built from our fork at <https://github.com/hephaex/mecab-ko>) — MIT OR Apache-2.0
+- **mecab-ko-dic 2.1.1** (built dict bytes) — Apache-2.0
+
+KRDict and OpenDict data is fetched live from the user's API key — no NIKL data is bundled. See [`docs/THIRD-PARTY.md`](docs/THIRD-PARTY.md) for the full attribution policy.
