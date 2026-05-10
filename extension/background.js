@@ -49,16 +49,26 @@ async function fetchXml(url) {
   return res.text();
 }
 
-async function lemmasFor(surface) {
-  // Best-effort: if mecab fails to init or tokenize, fall back to surface-only.
-  // The extension still works, just with weaker lemma resolution.
+async function tokenizeSurface(surface) {
+  // Best-effort: if mecab fails, return null tokens — caller falls back to
+  // surface-only candidates and the popup just hides the decomposition row.
   try {
     const mecab = await ensureMecab();
-    const tokens = mecab.tokenize(surface);
-    return lemmaCandidates(tokens, surface);
+    const raw = mecab.tokenize(surface);
+    // Normalize to plain JS objects (the WASM returns a class instance with
+    // getters; we want a structured-clonable form for chrome.runtime
+    // sendMessage and chrome.storage.local).
+    return raw.map((t) => ({
+      surface: t.surface,
+      pos: t.pos,
+      lemma: t.lemma || null,
+      reading: t.reading || null,
+      start: t.start,
+      end: t.end,
+    }));
   } catch (err) {
     console.warn('[learnwithsoju] mecab unavailable, falling back:', err);
-    return [surface];
+    return null;
   }
 }
 
@@ -66,13 +76,14 @@ async function handleLookup(surface) {
   const cached = await cache.get(surface);
   if (cached) return cached;
 
-  const candidates = await lemmasFor(surface);
+  const tokens = await tokenizeSurface(surface);
+  const candidates = lemmaCandidates(tokens, surface);
 
   const settings = await chrome.storage.sync.get([STORAGE_KEYS.KRDICT_KEY, STORAGE_KEYS.OPENDICT_KEY]);
   const krKey = settings[STORAGE_KEYS.KRDICT_KEY];
   const odKey = settings[STORAGE_KEYS.OPENDICT_KEY];
 
-  if (!krKey) return { surface, lemma: candidates[0], error: 'NO_API_KEY' };
+  if (!krKey) return { surface, lemma: candidates[0], tokens, error: 'NO_API_KEY' };
 
   let krXml = null;
   let queryUsed = null;
@@ -90,6 +101,7 @@ async function handleLookup(surface) {
     return {
       surface,
       lemma: candidates[0],
+      tokens,
       error: 'FETCH_FAILED',
       message: String(err && err.message || err),
     };
@@ -115,6 +127,7 @@ async function handleLookup(surface) {
     surface,
     lemma: queryUsed || candidates[0],
     queryUsed: queryUsed || null,
+    tokens,
     krXml,
     odXml,
     cachedAt: Date.now(),

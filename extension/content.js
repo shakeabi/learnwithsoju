@@ -28,6 +28,9 @@
     hangulHanjaSlug,
   } = parsers;
 
+  const glosses = await import(chrome.runtime.getURL('grammar-glosses.js'));
+  const { morphemeGloss, isContentMorpheme } = glosses;
+
   let enabled = true;
   let defLang = DEF_LANG_DEFAULT;
   let popupHost = null;
@@ -268,6 +271,84 @@
     return wrap;
   }
 
+  function buildDecompositionNode(tokens) {
+    if (!Array.isArray(tokens) || tokens.length === 0) return null;
+    const morphemes = tokens
+      .map((t) => ({ form: t.surface, pos: t.pos || '' }))
+      .filter((m) => m.form && isContentMorpheme(m));
+    // Don't render the row when it's a single one-morpheme word — the
+    // headword section already shows the same info.
+    if (morphemes.length < 2) return null;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'lws-decomp';
+    const label = document.createElement('span');
+    label.className = 'lws-decomp-label';
+    label.textContent = 'Morpheme breakdown';
+    wrap.appendChild(label);
+    const row = document.createElement('div');
+    row.className = 'lws-decomp-row';
+    for (const m of morphemes) {
+      row.appendChild(buildMorphemeChip(m));
+    }
+    wrap.appendChild(row);
+    return wrap;
+  }
+
+  function buildMorphemeChip({ form, pos }) {
+    const chip = document.createElement('span');
+    chip.className = 'lws-morph';
+    const formEl = document.createElement('span');
+    formEl.className = 'lws-morph-form';
+    formEl.textContent = form;
+    chip.appendChild(formEl);
+
+    const tag = posToShortform(displayPosKoreanToEnglishMaybe(pos), defLang);
+    const short = tag || (pos.split('+')[0] || '');
+    if (short) {
+      const sep = document.createElement('span');
+      sep.className = 'lws-morph-sep';
+      sep.textContent = '·';
+      chip.appendChild(sep);
+      const tagEl = document.createElement('span');
+      tagEl.className = 'lws-morph-tag';
+      tagEl.textContent = short;
+      chip.appendChild(tagEl);
+    }
+
+    const gloss = morphemeGloss(form, pos);
+    if (gloss) {
+      // Tooltip on hover; also rendered as faint text below for readability.
+      chip.title = gloss;
+      const glossEl = document.createElement('span');
+      glossEl.className = 'lws-morph-gloss';
+      glossEl.textContent = gloss;
+      chip.appendChild(glossEl);
+    }
+    return chip;
+  }
+
+  // posToShortform expects KRDict-style Korean POS labels like 명사 / 동사,
+  // but mecab uses Sejong tags like NNG / VV. This adapter translates the
+  // common Sejong lead tags into the Korean POS strings the shortform
+  // table understands; everything else passes through and falls back to
+  // the lead Sejong tag itself.
+  const SEJONG_TO_KOREAN_POS = {
+    NNG: '명사', NNP: '명사', NNB: '의존 명사', NR: '수사', NP: '대명사',
+    VV: '동사', VA: '형용사', VX: '보조 동사', VCP: '동사', VCN: '동사',
+    MM: '관형사', MAG: '부사', MAJ: '부사', IC: '감탄사',
+    JKS: '조사', JKC: '조사', JKO: '조사', JKG: '조사', JKB: '조사',
+    JKV: '조사', JKQ: '조사', JX: '조사', JC: '조사',
+    EP: '어미', EF: '어미', EC: '어미', ETN: '어미', ETM: '어미',
+    XPN: '접두사', XSN: '접미사', XSV: '접미사', XSA: '접미사', XR: '어근',
+    SL: '명사', SH: '명사', SN: '수사',
+  };
+  function displayPosKoreanToEnglishMaybe(pos) {
+    if (!pos) return '';
+    const lead = pos.split('+')[0];
+    return SEJONG_TO_KOREAN_POS[lead] || lead;
+  }
+
   function buildErrorNode(message, action, details) {
     const div = document.createElement('div');
     div.className = 'lws-popup-body lws-error';
@@ -309,6 +390,9 @@
     if (options.sentence) {
       root.appendChild(buildSentenceNode(options.sentence));
     }
+
+    const decomposition = buildDecompositionNode(payload.tokens);
+    if (decomposition) root.appendChild(decomposition);
 
     if (krEntries.length === 0 && odEntries.length === 0) {
       const empty = document.createElement('div');

@@ -109,6 +109,66 @@
   font-weight: 500;
 }
 
+/* Morpheme decomposition row — surfaces between the sentence band and the
+   dictionary entries. Only rendered when mecab returns 2+ content tokens. */
+.lws-decomp {
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lws-decomp-label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.lws-decomp-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lws-morph {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: var(--soft);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--fg);
+  flex: 0 0 auto;
+}
+
+.lws-morph-form {
+  font-weight: 500;
+}
+
+.lws-morph-sep {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.lws-morph-tag {
+  font-size: 11px;
+  color: var(--chip-cyan-fg);
+  letter-spacing: 0.01em;
+}
+
+.lws-morph-gloss {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 4px;
+  max-width: 16ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Header strip: lemma chip + dictionary toggle */
 .lws-strip {
   display: flex;

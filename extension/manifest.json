@@ -41,7 +41,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["popup-shadow.css", "parsers.js"],
+      "resources": ["popup-shadow.css", "parsers.js", "grammar-glosses.js"],
       "matches": ["<all_urls>"]
     }
   ]
