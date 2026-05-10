@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>mecab-ko-wasm browser smoke test</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; max-width: 820px; margin: 32px auto; padding: 0 20px; line-height: 1.5; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #777; margin-top: 28px; }
+    p { color: #444; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #15151c; color: #e8e8f0; }
+      p { color: #b6bdcc; }
+      h2 { color: #97a0b8; }
+    }
+    .controls { display: flex; gap: 12px; align-items: center; margin: 16px 0; flex-wrap: wrap; }
+    button { padding: 8px 14px; font-size: 14px; cursor: pointer; border-radius: 6px; border: 1px solid #ccc; background: #fafafa; }
+    @media (prefers-color-scheme: dark) {
+      button { background: #1e1e2e; color: #e8e8f0; border-color: rgba(255,255,255,.15); }
+    }
+    button:hover { filter: brightness(.97); }
+    label { font-size: 13px; }
+    input[type=text] { padding: 6px 10px; font: inherit; font-size: 14px; border-radius: 6px; border: 1px solid #ccc; }
+    @media (prefers-color-scheme: dark) {
+      input { background: #1e1e2e; color: #e8e8f0; border-color: rgba(255,255,255,.15); }
+    }
+    pre { background: #f4f4f7; padding: 12px 14px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.5; min-height: 60px; }
+    @media (prefers-color-scheme: dark) {
+      pre { background: #1e1e2e; }
+    }
+    .step { display: block; }
+    .ok { color: #1a8a3a; }
+    .err { color: #c93a3a; }
+    @media (prefers-color-scheme: dark) {
+      .ok { color: #4dd07d; }
+      .err { color: #ff7a7a; }
+    }
+    .verdict { font-weight: 600; margin-top: 8px; padding: 8px 12px; border-radius: 6px; }
+    .verdict.ok { background: rgba(26, 138, 58, .12); }
+    .verdict.err { background: rgba(201, 58, 58, .12); }
+    code { background: rgba(120, 140, 200, .12); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>mecab-ko-wasm browser smoke test</h1>
+  <p>
+    Loads <code>mecab-ko-wasm</code> from jsdelivr, manually instantiates the WASM,
+    calls <code>new Mecab()</code> with no arguments, and tries to tokenize a Korean
+    string. Every step is logged. The README claims the constructor "creates a Mecab
+    instance with the default dictionary" — this is the page that actually verifies
+    that claim in a real browser.
+  </p>
+
+  <div class="controls">
+    <label>npm version: <input type="text" id="version" value="0.7.0" size="8" /></label>
+    <label>test text: <input type="text" id="text" value="안녕하세요. 학교에서 친구들과 점심을 먹었어요." size="42" /></label>
+    <button id="run">Run test</button>
+  </div>
+
+  <h2>Step-by-step log</h2>
+  <pre id="log">Click <strong>Run test</strong> to begin. (Open this page on http://localhost or similar — file:// blocks ES module imports in some browsers.)</pre>
+
+  <h2>Verdict</h2>
+  <pre id="verdict">— pending —</pre>
+
+  <script type="module">
+    const logEl = document.getElementById('log');
+    const verdictEl = document.getElementById('verdict');
+    const runBtn = document.getElementById('run');
+    const versionInput = document.getElementById('version');
+    const textInput = document.getElementById('text');
+
+    function clearLog() { logEl.textContent = ''; verdictEl.textContent = '— running —'; verdictEl.className = ''; }
+    function step(line, kind) {
+      const span = document.createElement('span');
+      span.className = 'step' + (kind ? ' ' + kind : '');
+      span.textContent = line + '\n';
+      logEl.appendChild(span);
+    }
+    function setVerdict(text, kind) {
+      verdictEl.textContent = text;
+      verdictEl.className = 'verdict ' + (kind || '');
+    }
+
+    runBtn.addEventListener('click', async () => {
+      clearLog();
+      const ver = (versionInput.value || '0.7.0').trim();
+      const text = textInput.value || '안녕하세요';
+      const BG_JS_URL  = `https://cdn.jsdelivr.net/npm/mecab-ko-wasm@${ver}/mecab_ko_wasm_bg.js`;
+      const WASM_URL   = `https://cdn.jsdelivr.net/npm/mecab-ko-wasm@${ver}/mecab_ko_wasm_bg.wasm`;
+      const PKG_JSON   = `https://cdn.jsdelivr.net/npm/mecab-ko-wasm@${ver}/package.json`;
+
+      try {
+        step(`[1] Fetching package.json from ${PKG_JSON}`);
+        const pkgResp = await fetch(PKG_JSON);
+        if (!pkgResp.ok) throw new Error(`HTTP ${pkgResp.status} on package.json`);
+        const pkg = await pkgResp.json();
+        step(`    ✓ Package: ${pkg.name}@${pkg.version} (license: ${pkg.license})`, 'ok');
+        step(`    files declared: ${(pkg.files || []).join(', ')}`, 'ok');
+
+        step(`[2] Fetching WASM binary from ${WASM_URL}`);
+        const wasmResp = await fetch(WASM_URL);
+        if (!wasmResp.ok) throw new Error(`HTTP ${wasmResp.status} fetching WASM`);
+        const wasmBuf = await wasmResp.arrayBuffer();
+        step(`    ✓ WASM size: ${wasmBuf.byteLength.toLocaleString()} bytes (${(wasmBuf.byteLength / 1024).toFixed(1)} KiB)`, 'ok');
+        if (wasmBuf.byteLength < 200_000) {
+          step(`    ⚠ Note: mecab-ko-dic uncompressed is ~50 MB. A ${(wasmBuf.byteLength / 1024).toFixed(0)} KiB binary cannot contain it.`, 'err');
+        }
+
+        step(`[3] Importing wasm-bindgen glue from ${BG_JS_URL}`);
+        const bg = await import(BG_JS_URL);
+        const exports = Object.keys(bg).filter((k) => /^[A-Z]/.test(k) || k === 'init').join(', ');
+        step(`    ✓ Module loaded. JS-facing exports: ${exports}`, 'ok');
+        if (typeof bg.__wbg_set_wasm !== 'function') {
+          throw new Error('bg.js does not export __wbg_set_wasm — unexpected build target');
+        }
+
+        step(`[4] Instantiating WASM module (passing bg.js as imports for ./mecab_ko_wasm_bg.js)`);
+        const { instance } = await WebAssembly.instantiate(wasmBuf, {
+          './mecab_ko_wasm_bg.js': bg,
+        });
+        bg.__wbg_set_wasm(instance.exports);
+        if (typeof instance.exports.__wbindgen_start === 'function') {
+          instance.exports.__wbindgen_start();
+        }
+        step(`    ✓ Instantiated. ${Object.keys(instance.exports).length} WASM exports.`, 'ok');
+
+        step(`[5] Calling new Mecab() — README claims this gives a "Mecab instance with the default dictionary"`);
+        let mecab;
+        try {
+          mecab = new bg.Mecab();
+          step(`    ✓ new Mecab() succeeded — README claim is correct.`, 'ok');
+        } catch (e) {
+          step(`    ✗ new Mecab() threw: ${e.message || e}`, 'err');
+          throw new Error('Constructor failed — see error above');
+        }
+
+        step(`[6] Calling mecab.tokenize(${JSON.stringify(text)})`);
+        const tokens = mecab.tokenize(text);
+        const summary = tokens.map((t) => ({ surface: t.surface, pos: t.pos, lemma: t.lemma })).slice(0, 30);
+        step(`    ✓ Got ${tokens.length} tokens. First few:\n${JSON.stringify(summary, null, 2)}`, 'ok');
+
+        setVerdict(
+          'mecab-ko-wasm works end-to-end in the browser with no separate dict loading. The README claim holds.',
+          'ok',
+        );
+      } catch (err) {
+        step(`\n✗ Test stopped at the step above with: ${err.message || err}`, 'err');
+        if (err.stack) {
+          step(`\nStack trace:\n${err.stack}`, 'err');
+        }
+        const looksLikeDictError = /[Dd]ictionary|MECAB_DICDIR|directory not found/.test(String(err.message || err));
+        if (looksLikeDictError) {
+          setVerdict(
+            'mecab-ko-wasm CANNOT initialize in the browser without a separately-loaded dictionary. The published package needs an upstream change (a from_bytes constructor, or the dict embedded into the WASM) before it is usable for browser extensions.',
+            'err',
+          );
+        } else {
+          setVerdict(
+            'Test failed at an earlier step (network / loader / CORS, not the dictionary). Inspect the step log above.',
+            'err',
+          );
+        }
+      }
+    });
+  </script>
+</body>
+</html>

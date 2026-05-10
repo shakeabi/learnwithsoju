@@ -6,8 +6,6 @@
   const WORD_CLASS = 'lws-word';
   const HIDE_DELAY_MS = 120;
   const HOVER_DELAY_MS = 60;
-  const KR_MAX_ENTRIES = 5;
-  const OD_MAX_ENTRIES = 3;
   const SENTENCE_MAX_BEFORE = 80;
   const SENTENCE_MAX_AFTER = 80;
   const SENTENCE_BLOCK_TAGS = new Set([
@@ -26,6 +24,8 @@
     gradeToTooltip,
     posToEnglish,
     posToShortform,
+    hangulHanjaUrl,
+    hangulHanjaSlug,
   } = parsers;
 
   let enabled = true;
@@ -268,13 +268,19 @@
     return wrap;
   }
 
-  function buildErrorNode(message, action) {
+  function buildErrorNode(message, action, details) {
     const div = document.createElement('div');
     div.className = 'lws-popup-body lws-error';
     const p = document.createElement('div');
     p.className = 'lws-error-msg';
     p.textContent = message;
     div.appendChild(p);
+    if (details) {
+      const d = document.createElement('div');
+      d.className = 'lws-error-detail';
+      d.textContent = details;
+      div.appendChild(d);
+    }
     if (action) {
       const btn = document.createElement('button');
       btn.className = 'lws-action-btn';
@@ -289,14 +295,8 @@
   function buildResultNode(payload, options = {}) {
     const root = document.createElement('div');
 
-    const krEntriesAll = parseKrdictXml(payload.krXml, DOMParser);
-    const odEntriesAll = parseOpendictXml(payload.odXml, DOMParser);
-    const krEntries = krEntriesAll.slice(0, KR_MAX_ENTRIES);
-    const odEntries = odEntriesAll.slice(0, OD_MAX_ENTRIES);
-
-    if (options.sentence) {
-      root.appendChild(buildSentenceNode(options.sentence));
-    }
+    const krEntries = parseKrdictXml(payload.krXml, DOMParser);
+    const odEntries = parseOpendictXml(payload.odXml, DOMParser);
 
     const showLemmaChip = payload.queryUsed && payload.queryUsed !== payload.surface;
     if (showLemmaChip || krEntries.length > 0 || odEntries.length > 0) {
@@ -304,6 +304,10 @@
         showLemmaChip,
         lemma: payload.queryUsed,
       }));
+    }
+
+    if (options.sentence) {
+      root.appendChild(buildSentenceNode(options.sentence));
     }
 
     if (krEntries.length === 0 && odEntries.length === 0) {
@@ -331,14 +335,9 @@
       root.appendChild(buildKrEntryNode(krEntries[0]));
     }
 
-    if (krEntriesAll.length > krEntries.length) {
-      root.appendChild(buildMoreLine(`+${krEntriesAll.length - krEntries.length} more KRDict entries`));
-    }
-
     if (odEntries.length > 0) {
       const sep = document.createElement('div');
       sep.className = 'lws-section-label';
-      sep.innerHTML = '';
       const label = document.createElement('span');
       label.textContent = 'OpenDict ';
       sep.appendChild(label);
@@ -348,9 +347,6 @@
       sep.appendChild(beta);
       root.appendChild(sep);
       for (const entry of odEntries) root.appendChild(buildOdEntryNode(entry));
-      if (odEntriesAll.length > odEntries.length) {
-        root.appendChild(buildMoreLine(`+${odEntriesAll.length - odEntries.length} more OpenDict entries`));
-      }
     }
 
     return root;
@@ -366,6 +362,10 @@
       btn.type = 'button';
       btn.className = 'lws-tab';
       btn.textContent = label;
+      // Tab text uses POS shortform to stay narrow; full form goes in the
+      // tooltip so the meaning is one hover away.
+      const fullPos = displayPos(entries[i].pos);
+      if (fullPos) btn.title = `${entries[i].word || ''} — ${fullPos}`.trim();
       btn.setAttribute('role', 'tab');
       btn.setAttribute('aria-selected', i === activeTabIdx ? 'true' : 'false');
       btn.dataset.idx = String(i);
@@ -453,13 +453,6 @@
     showPopup(activeWordEl, buildResultNode(lastPayload, { sentence }));
   }
 
-  function buildMoreLine(text) {
-    const more = document.createElement('div');
-    more.className = 'lws-more';
-    more.textContent = text;
-    return more;
-  }
-
   function buildKrEntryNode(entry) {
     const wrap = document.createElement('div');
     wrap.className = 'lws-entry';
@@ -488,7 +481,7 @@
     meta.className = 'lws-meta-row';
     if (entry.pos) meta.appendChild(makeChip(displayPos(entry.pos), 'cyan'));
     if (entry.pronunciation) meta.appendChild(makeChip(`[${entry.pronunciation}]`, 'soft'));
-    if (entry.origin) meta.appendChild(makeChip(entry.origin, 'amber'));
+    if (entry.origin) meta.appendChild(makeHanjaChip(entry.word, entry.origin));
     if (meta.children.length) wrap.appendChild(meta);
 
     if (entry.senses.length > 0) {
@@ -589,7 +582,7 @@
       const meta = document.createElement('div');
       meta.className = 'lws-meta-row';
       if (entry.pos) meta.appendChild(makeChip(displayPos(entry.pos), 'cyan'));
-      if (entry.origin) meta.appendChild(makeChip(entry.origin, 'amber'));
+      if (entry.origin) meta.appendChild(makeHanjaChip(entry.word, entry.origin));
       wrap.appendChild(meta);
     }
 
@@ -644,11 +637,29 @@
     return senseEl;
   }
 
-  function makeChip(text, variant) {
-    const chip = document.createElement('span');
-    chip.className = `lws-chip lws-chip-${variant}`;
+  function makeChip(text, variant, opts = {}) {
+    const chip = document.createElement(opts.href ? 'a' : 'span');
+    chip.className = `lws-chip lws-chip-${variant}` + (opts.href ? ' lws-chip-link' : '');
     chip.textContent = text;
+    if (opts.href) {
+      chip.href = opts.href;
+      chip.target = '_blank';
+      chip.rel = 'noreferrer noopener';
+    }
+    if (opts.title) chip.title = opts.title;
     return chip;
+  }
+
+  function makeHanjaChip(hangulWord, origin) {
+    const url = hangulHanjaUrl(hangulWord, origin);
+    if (url) {
+      const slug = hangulHanjaSlug(hangulWord, origin);
+      return makeChip(origin, 'amber', {
+        href: url,
+        title: `Hanja breakdown for ${slug}`,
+      });
+    }
+    return makeChip(origin, 'amber');
   }
 
   function displayPos(pos) {
@@ -689,8 +700,20 @@
       }));
       return;
     }
+    if (response.error === 'FETCH_FAILED') {
+      showPopup(target, buildErrorNode(
+        'Couldn\'t reach the dictionary. Hover the word again to retry.',
+        null,
+        response.message,
+      ));
+      return;
+    }
     if (response.error) {
-      showPopup(target, buildErrorNode(`${response.error}${response.message ? `: ${response.message}` : ''}`));
+      showPopup(target, buildErrorNode(
+        'Lookup failed. Hover the word again to retry.',
+        null,
+        `${response.error}${response.message ? `: ${response.message}` : ''}`,
+      ));
       return;
     }
     lastPayload = response;

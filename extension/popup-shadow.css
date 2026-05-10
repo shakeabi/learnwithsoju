@@ -185,31 +185,27 @@
   font-feature-settings: "tnum" 1;
 }
 
+.lws-chip-link {
+  text-decoration: none;
+  cursor: pointer;
+  transition: text-decoration-color 0.12s ease;
+}
+.lws-chip-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
 /* Entry tabs (only when KRDict returns >1 entry).
-   Tabs stay on a single line and do not show vertical scroll.
-   The popup grows in width to accommodate them up to its max-width;
-   horizontal overflow only kicks in if the popup is already at max-width. */
+   Pill-style. Tabs wrap to additional rows naturally — no horizontal
+   scrollbar, no overflow gymnastics. The popup grows in width up to its
+   max-width to keep tabs on one row when possible. */
 .lws-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  padding: 8px 14px 0;
-  margin-bottom: 4px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
+  padding: 8px 14px 10px;
   border-bottom: 1px solid var(--border);
-}
-.lws-tabs::-webkit-scrollbar {
-  height: 4px;
-}
-.lws-tabs::-webkit-scrollbar:vertical {
-  display: none;
-  width: 0;
-}
-.lws-tabs::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 4px;
 }
 
 .lws-tab {
@@ -218,22 +214,22 @@
   color: var(--muted);
   font: inherit;
   font-size: 12.5px;
-  padding: 6px 12px 8px;
+  padding: 4px 12px;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  border-radius: 999px;
   white-space: nowrap;
-  transition: color 0.12s ease, border-color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
   flex: 0 0 auto;
 }
 
-.lws-tab:hover {
+.lws-tab:hover:not([aria-selected="true"]) {
+  background: var(--soft);
   color: var(--fg);
 }
 
 .lws-tab[aria-selected="true"] {
+  background: var(--chip-amber-bg);
   color: var(--chip-amber-fg);
-  border-bottom-color: var(--chip-amber-fg);
   font-weight: 500;
 }
 
@@ -404,6 +400,15 @@
 
 .lws-error-msg {
   color: var(--fg);
+}
+
+.lws-error-detail {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: -2px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  word-break: break-word;
+  opacity: 0.8;
 }
 
 .lws-action-btn {

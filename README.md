@@ -24,7 +24,7 @@ Both APIs are free and run by the National Institute of Korean Language (NIKL). 
 
 | Dictionary | Get a key | Required? |
 |---|---|---|
-| KRDict (한국어기초사전) | <https://krdict.korean.go.kr/openApi/openApiInfo> | yes |
+| KRDict (한국어기초사전) | <https://krdict.korean.go.kr/eng/openApi/openApiRegister> | yes |
 | OpenDict (우리말샘) | <https://opendict.korean.go.kr/service/openApiRegister> | optional, **experimental** (fallback when KRDict has no result) |
 
 KRDict approval is usually instant. **OpenDict registration may require a Korean phone number for SMS verification** — that's why it's tagged optional/experimental in the settings page. The OpenDict integration is wired up so the moment you have a key, it works as a fallback.
