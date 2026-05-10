@@ -53,7 +53,7 @@
         "parsers.js",
         "grammar-glosses.js",
         "grammar-match.js",
-        "vendor/kimchi-grammar/patterns.json"
+        "vendor/grammar-patterns/patterns.json"
       ],
       "matches": ["<all_urls>"]
     }

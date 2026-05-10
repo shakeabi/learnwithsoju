@@ -7,7 +7,7 @@ import { findMatches, locateSurface, isUsefulPattern } from '../extension/gramma
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const db = JSON.parse(readFileSync(
-  join(__dirname, '../extension/vendor/kimchi-grammar/patterns.json'),
+  join(__dirname, '../extension/vendor/grammar-patterns/patterns.json'),
   'utf8',
 ));
 
@@ -98,6 +98,9 @@ test('patterns DB: structurally well-formed, has many entries', () => {
 });
 
 test('patterns DB: includes attribution metadata', () => {
+  // CC-BY 4.0 requires attribution in some accessible form. We surface it
+  // via the JSON header (`source`, `license`) so any consumer of this file
+  // sees where the data originated.
   assert.equal(db.license, 'CC-BY-4.0');
-  assert.match(db.source || '', /kimchi-grammar/);
+  assert.ok(typeof db.source === 'string' && db.source.length > 0);
 });

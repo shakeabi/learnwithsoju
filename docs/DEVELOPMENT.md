@@ -23,7 +23,7 @@ learnwithsoju/
 │   ├── icons/                         ← 16/48/128 PNGs
 │   └── vendor/
 │       ├── mecab-ko/                  ← built mecab-ko-wasm + gzipped mecab-ko-dic
-│       └── kimchi-grammar/patterns.json
+│       └── grammar-patterns/patterns.json
 │
 ├── tests/                             ← node:test suite (run with `npm test`)
 │   ├── *.test.js                      ← one per pure module
@@ -37,7 +37,7 @@ learnwithsoju/
 │   └── mecab-browser-smoketest.html   ← stand-alone diagnostic for upstream mecab-ko-wasm
 │
 ├── scripts/
-│   └── build-grammar-patterns.mjs     ← regenerates extension/vendor/kimchi-grammar/patterns.json
+│   └── build-grammar-patterns.mjs     ← regenerates extension/vendor/grammar-patterns/patterns.json
 │
 ├── .github/workflows/ci.yml           ← runs npm test + parses each extension/*.js + validates manifest
 ├── .gitattributes                     ← marks .wasm/.gz/.png as binary
@@ -192,7 +192,7 @@ cp pkg-web/{mecab_ko_wasm.js,mecab_ko_wasm.d.ts,mecab_ko_wasm_bg.wasm,mecab_ko_w
 3. **Hover handling.** Delegates `mouseenter`/`mouseleave` on `.lws-word`. Debounces 60ms to avoid lookups on cursor flyovers.
 4. **Popup.** Single persistent `<div>` reattached as needed, hosting a shadow DOM. Repositioned on each show. Flips above/left when near the viewport edges. Tracks monotonic non-decreasing min-height/min-width for the lifetime of one lookup so the popup doesn't shrink under the cursor when the user toggles tabs/lang.
 5. **Sentence extraction.** Walks up from the hovered span to the nearest semantic block (`P`, `LI`, `TD`, headings, `BLOCKQUOTE`, etc.) and produces `{before, word, after}`. Used for both the contextual sentence display and the grammar-pattern matcher.
-6. **Grammar matching.** Lazy-loads `vendor/kimchi-grammar/patterns.json` on first hover, runs `findMatches()` against the extracted sentence + hovered range, renders matches between the decomposition and entries.
+6. **Grammar matching.** Lazy-loads `vendor/grammar-patterns/patterns.json` on first hover, runs `findMatches()` against the extracted sentence + hovered range, renders matches between the decomposition and entries.
 
 Popup composition order:
 
@@ -210,13 +210,13 @@ Popup composition order:
 
 Two pieces:
 
-**Build-time** (`scripts/build-grammar-patterns.mjs`): walks the YAML files in `Alaanor/kimchi-grammar`, derives a regex source string from each pattern's display name. Regex generation handles:
+**Build-time** (`scripts/build-grammar-patterns.mjs`): walks YAML files in the upstream grammar-pattern dataset (URL in [THIRD-PARTY.md](THIRD-PARTY.md)), derives a regex source string from each pattern's display name. Regex generation handles:
 
 - `A/B/...` alternation: same-length arms → full alternation; mixed-length arms with a vowel-harmony head set (`아/어`, `아/어/여`, `았/었`, `았/었/였`) → char-level alternation with shared suffix factored out.
 - `(A)` parens around Korean → optional group.
 - Whitespace → `\s*` flex.
 
-Output: `extension/vendor/kimchi-grammar/patterns.json` (~92 KB, 290 patterns).
+Output: `extension/vendor/grammar-patterns/patterns.json` (~92 KB, 290 patterns).
 
 **Runtime** (`extension/grammar-match.js`):
 

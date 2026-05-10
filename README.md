@@ -2,8 +2,6 @@
 
 A free, open-source browser extension that turns any webpage into a Korean reading classroom. Hover any word — even a conjugated verb you don't recognize — and a popup shows you the dictionary entry, the morpheme breakdown with grammatical role of each piece, and any grammar patterns the sentence is using.
 
-Inspired by [Kimchi Reader](https://kimchi-reader.app), built as a pure-frontend, no-backend, free OSS alternative.
-
 ## What you get when you hover
 
 ```
@@ -37,7 +35,7 @@ Inspired by [Kimchi Reader](https://kimchi-reader.app), built as a pure-frontend
 - **Hover any Korean word** — works on any webpage with Korean text. The extension wraps Korean spans in the page and shows a floating popup on hover.
 - **Real morpheme analysis** — uses the [MeCab-Ko](https://github.com/hephaex/mecab-ko) morphological analyzer compiled to WebAssembly. Conjugated verbs, inflected nouns, and compound words all resolve to the right dictionary form.
 - **Morpheme breakdown** — every chunk in the hovered word is shown with its part of speech and a short grammar gloss (subject marker, past tense, polite ending, …).
-- **Grammar pattern hints** — multi-morpheme grammar patterns from the [kimchi-grammar](https://github.com/Alaanor/kimchi-grammar) dataset (290 patterns covering most learner-textbook constructions) are flagged in the surrounding sentence.
+- **Grammar pattern hints** — 290 multi-morpheme grammar patterns covering common learner-textbook constructions are flagged in the surrounding sentence (CC-BY 4.0 vendored dataset; see [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md) for attribution).
 - **Tabs for homographs** — when KRDict returns multiple entries for the same headword, you can switch between them. Tab labels show the part of speech.
 - **Hanja link** — when an entry has a Sino-Korean origin, the Hanja chip links out to [hangulhanja.com](https://hangulhanja.com) for the per-character breakdown.
 - **English / Korean toggle** — switch the popup definition language with one click. Preference is remembered.
@@ -120,4 +118,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for local-dev setup and [docs/DEVELOPMENT
 
 [MIT License](LICENSE) for the extension's own code. Vendored components keep their own licenses — see [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).
 
-This project includes a fork of `mecab-ko-wasm` (MIT/Apache-2.0), `mecab-ko-dic 2.1.1` (Apache-2.0), and the `kimchi-grammar` pattern dataset (CC-BY 4.0).
+This project includes a fork of `mecab-ko-wasm` (MIT/Apache-2.0), `mecab-ko-dic 2.1.1` (Apache-2.0), and a vendored grammar-pattern dataset (CC-BY 4.0). Full attribution is in [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).

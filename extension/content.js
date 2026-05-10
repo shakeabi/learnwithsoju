@@ -37,7 +37,7 @@
   let grammarDbPromise = null;
   function loadGrammarDb() {
     if (!grammarDbPromise) {
-      grammarDbPromise = fetch(chrome.runtime.getURL('vendor/kimchi-grammar/patterns.json'))
+      grammarDbPromise = fetch(chrome.runtime.getURL('vendor/grammar-patterns/patterns.json'))
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null);
     }

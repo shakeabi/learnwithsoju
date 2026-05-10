@@ -6,7 +6,7 @@ Thanks for taking a look. The extension itself is intentionally small and build-
 
 ```
 extension/      Chrome MV3 extension (this is what gets loaded as unpacked)
-  vendor/         Pre-built artifacts: mecab-ko WASM + dict, kimchi-grammar JSON
+  vendor/         Pre-built artifacts: mecab-ko WASM + dict, grammar-pattern JSON
 tests/          node:test suite — run with `npm test`
 docs/           Integration plans, third-party attribution, original spec
 scripts/        Build helpers (e.g. regenerating the grammar-pattern JSON)
@@ -39,11 +39,11 @@ The extension itself ships pre-built — no bundler, no transpiler at runtime. `
 Two artifacts are pre-built and vendored under `extension/vendor/`:
 
 - **mecab-ko-wasm + dict** — the Korean morphological analyzer. Built from a fork at <https://github.com/abishake/mecab-ko> (or its eventual upstream replacement) with a `from_bytes` constructor we added. See [`docs/MECAB_INTEGRATION.md`](docs/MECAB_INTEGRATION.md) for the rebuild flow.
-- **kimchi-grammar patterns JSON** — built from <https://github.com/Alaanor/kimchi-grammar> (CC-BY 4.0). To regenerate after pulling upstream:
+- **Grammar-pattern JSON** — generated from a CC-BY 4.0 upstream dataset. The upstream repo URL and full attribution are in [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md). To regenerate after the upstream changes:
 
   ```bash
-  git clone https://github.com/Alaanor/kimchi-grammar.git ../kimchi-grammar
-  node scripts/build-grammar-patterns.mjs ../kimchi-grammar > extension/vendor/kimchi-grammar/patterns.json
+  git clone <upstream-url-from-THIRD-PARTY.md> ../grammar-source
+  node scripts/build-grammar-patterns.mjs ../grammar-source > extension/vendor/grammar-patterns/patterns.json
   ```
 
 Neither rebuild is required for routine development.

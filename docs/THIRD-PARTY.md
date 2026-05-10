@@ -12,11 +12,11 @@
 
 ### kimchi-grammar (data only)
 
-- **Path:** `extension/vendor/kimchi-grammar/patterns.json`
+- **Path:** `extension/vendor/grammar-patterns/patterns.json`
 - **Upstream:** <https://github.com/Alaanor/kimchi-grammar>
 - **License:** Creative Commons Attribution 4.0 International (CC-BY 4.0)
-- **What's included:** for each grammar point, the display name, definition slug + name + meaning + alternative-English label. Not included: example sentences, audio URLs, the full markdown explanation. The vendored JSON is generated at build time from the upstream YAMLs by `scripts/build-grammar-patterns.mjs`; it includes attribution metadata in its own header (`source`, `license`, `generated_at`).
-- **Attribution:** Alaanor and contributors to kimchi-grammar.
+- **What's included:** for each grammar point, the display name, definition slug + name + meaning + alternative-English label. Not included: example sentences, audio URLs, the full markdown explanation. The vendored JSON is generated at build time from the upstream YAMLs by `scripts/build-grammar-patterns.mjs`; it carries attribution metadata in its own header (`source`, `license`, `generated_at`).
+- **Attribution:** Alaanor and contributors to kimchi-grammar. Required by CC-BY 4.0; do not remove.
 
 ### mecab-ko-dic 2.1.1 (compiled binary form)
 

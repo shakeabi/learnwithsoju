@@ -192,9 +192,8 @@
   min-width: 0;
 }
 
-/* Grammar-pattern matches sourced from the kimchi-grammar dataset.
-   Surfaces between decomposition and the dictionary entries when one or
-   more patterns intersect the hovered word's range in the sentence. */
+/* Grammar-pattern matches surfaced between decomposition and the dictionary
+   entries when one or more patterns intersect the hovered word's range. */
 .lws-grammar {
   padding: 10px 16px 12px;
   border-bottom: 1px solid var(--border);

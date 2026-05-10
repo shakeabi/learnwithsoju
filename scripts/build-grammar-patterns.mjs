@@ -18,8 +18,6 @@
  *       }
  *     ],
  *     re: "(으|을|을)?\\s*ㄹ\\s*수\\s*(있|없)다?", // regex source string
- *     // examples are NOT shipped — they bloat the file ~20x and we don't
- *     // need them for matching, only for kimchi-reader's own UI.
  *   }
  *
  * The regex is derived heuristically from the pattern's `name` field:

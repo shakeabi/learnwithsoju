@@ -2,7 +2,7 @@
  * Grammar pattern matcher.
  *
  * Given the surrounding sentence text and the character range of the hovered
- * word, finds kimchi-grammar patterns whose regex hits inside or adjacent to
+ * word, finds grammar patterns whose regex hits inside or adjacent to
  * the hovered word, and returns deduped match info for the popup.
  *
  * The patterns DB is the JSON produced by `scripts/build-grammar-patterns.mjs`
