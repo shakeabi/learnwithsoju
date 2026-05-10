@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel>
+  <title>우리말샘 개발 지원(Open API) - 사전 검색</title>
+  <link>https://opendict.korean.go.kr</link>
+  <description>우리말샘 Open API 검색 결과</description>
+  <lastBuildDate>20260510120000</lastBuildDate>
+  <total>2</total>
+  <start>1</start>
+  <num>10</num>
+  <item>
+    <target_code>9000001</target_code>
+    <word>학교</word>
+    <sup_no>1</sup_no>
+    <sense>
+      <sense_no>1</sense_no>
+      <definition>일정한 목적·교과 과정·설비·제도 및 법규에 의하여 학생들이 학습하는 곳.</definition>
+      <pos>명사</pos>
+      <type>일반어</type>
+      <origin>學校</origin>
+      <translation_info>
+        <trans_word>school</trans_word>
+        <trans_dfn>An educational institution where students learn.</trans_dfn>
+        <language_type>영어</language_type>
+      </translation_info>
+      <translation_info>
+        <trans_word>学校</trans_word>
+        <language_type>중국어</language_type>
+      </translation_info>
+    </sense>
+  </item>
+  <item>
+    <target_code>9000002</target_code>
+    <word>인공지능</word>
+    <sup_no>1</sup_no>
+    <sense>
+      <sense_no>1</sense_no>
+      <definition>인간의 지능이 가지는 학습, 추리, 적응, 논증 따위의 기능을 갖춘 컴퓨터 시스템.</definition>
+      <pos>명사</pos>
+      <type>전문어</type>
+      <cat>정보·통신</cat>
+      <origin>人工知能</origin>
+      <translation_info>
+        <trans_word>artificial intelligence; AI</trans_word>
+        <trans_dfn>A computer system equipped with the functions of human intelligence such as learning, reasoning, adaptation, and argumentation.</trans_dfn>
+        <language_type>영어</language_type>
+      </translation_info>
+    </sense>
+  </item>
+</channel>

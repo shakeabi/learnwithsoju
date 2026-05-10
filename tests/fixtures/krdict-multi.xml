@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel>
+  <total>3</total>
+  <start>1</start>
+  <num>10</num>
+  <item>
+    <target_code>1</target_code>
+    <word>가다</word>
+    <pronunciation>가다</pronunciation>
+    <pos>동사</pos>
+    <word_grade>초급</word_grade>
+    <sense>
+      <definition>한 곳에서 다른 곳으로 장소를 이동하다.</definition>
+      <translation>
+        <trans_word>to go</trans_word>
+        <trans_dfn>to move from one place to another.</trans_dfn>
+        <trans_lang>영어</trans_lang>
+      </translation>
+    </sense>
+  </item>
+  <item>
+    <target_code>2</target_code>
+    <word>학교</word>
+    <pronunciation>학꾜</pronunciation>
+    <origin>學校</origin>
+    <pos>명사</pos>
+    <word_grade>중급</word_grade>
+    <sense>
+      <definition>학생들이 공부하는 곳.</definition>
+      <translation>
+        <trans_word>school</trans_word>
+        <trans_dfn>a place where students learn.</trans_dfn>
+        <trans_lang>영어</trans_lang>
+      </translation>
+    </sense>
+  </item>
+  <item>
+    <target_code>3</target_code>
+    <word>난해하다</word>
+    <pos>형용사</pos>
+    <word_grade>고급</word_grade>
+    <sense>
+      <definition>이해하기 어렵다.</definition>
+      <translation>
+        <trans_word>abstruse</trans_word>
+        <trans_dfn>difficult to understand.</trans_dfn>
+        <trans_lang>영어</trans_lang>
+      </translation>
+    </sense>
+  </item>
+</channel>

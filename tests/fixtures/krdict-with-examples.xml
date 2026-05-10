@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel>
+  <total>1</total>
+  <item>
+    <target_code>57843</target_code>
+    <word>먹다</word>
+    <pos>동사</pos>
+    <word_grade>초급</word_grade>
+    <sense>
+      <sense_order>1</sense_order>
+      <definition>음식 등을 입을 통해 배 속에 들여보내다.</definition>
+      <translation>
+        <trans_word>to eat</trans_word>
+        <trans_dfn>to ingest food or drink through the mouth.</trans_dfn>
+        <trans_lang>영어</trans_lang>
+      </translation>
+      <example>
+        <type>문장</type>
+        <example>아침에 밥을 먹었어요.</example>
+      </example>
+      <example>
+        <type>문장</type>
+        <example>그 식당에서 김치찌개를 먹었어요.</example>
+      </example>
+      <example>
+        <type>구</type>
+        <example>맛있게 먹다</example>
+      </example>
+    </sense>
+    <sense>
+      <sense_order>2</sense_order>
+      <definition>담배나 약 등을 입으로 빨거나 들이마시다.</definition>
+      <translation>
+        <trans_word>to take; to smoke</trans_word>
+        <trans_dfn>to take medicine or smoke a cigarette.</trans_dfn>
+        <trans_lang>영어</trans_lang>
+      </translation>
+      <example>
+        <type>문장</type>
+        <example>아버지는 담배를 먹지 않으세요.</example>
+      </example>
+    </sense>
+  </item>
+</channel>

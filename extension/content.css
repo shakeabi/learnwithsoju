@@ -1,0 +1,14 @@
+.lws-word {
+  cursor: help;
+  border-bottom: 1px dashed rgba(120, 140, 200, 0.45);
+  transition: background-color 0.12s ease;
+}
+
+.lws-word:hover {
+  background-color: rgba(120, 140, 200, 0.18);
+  border-bottom-color: rgba(120, 140, 200, 0.85);
+}
+
+.lws-host {
+  all: initial;
+}

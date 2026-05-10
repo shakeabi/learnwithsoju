@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel>
+  <title>한국어기초사전 개발 지원(Open API) - 사전 검색</title>
+  <link>https://krdict.korean.go.kr</link>
+  <description>한국어기초사전 개발 지원(Open API) 사전 검색 결과</description>
+  <lastBuildDate>20260510120000</lastBuildDate>
+  <total>1</total>
+  <start>1</start>
+  <num>10</num>
+  <item>
+    <target_code>57843</target_code>
+    <word>먹다</word>
+    <pronunciation>먹따</pronunciation>
+    <origin></origin>
+    <pos>동사</pos>
+    <word_grade>초급</word_grade>
+    <sense>
+      <sense_order>1</sense_order>
+      <definition>음식 등을 입을 통해 배 속에 들여보내다.</definition>
+      <translation>
+        <trans_word>to eat</trans_word>
+        <trans_dfn>to ingest food or drink through the mouth.</trans_dfn>
+        <trans_lang>영어</trans_lang>
+      </translation>
+    </sense>
+    <sense>
+      <sense_order>2</sense_order>
+      <definition>담배나 약 등을 입으로 빨거나 들이마시다.</definition>
+      <translation>
+        <trans_word>to take; to smoke</trans_word>
+        <trans_dfn>to take medicine or smoke a cigarette.</trans_dfn>
+        <trans_lang>영어</trans_lang>
+      </translation>
+    </sense>
+  </item>
+</channel>

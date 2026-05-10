@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>learnwithsoju — Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <h1>learnwithsoju</h1>
+      <p class="subtitle">Korean hover dictionary — settings</p>
+    </header>
+
+    <section class="card">
+      <h2>API keys</h2>
+      <p class="hint">
+        Both APIs are free. The same NIKL account can register both.
+        Keys are stored locally in <code>chrome.storage.sync</code> and never sent anywhere except the dictionary servers themselves.
+      </p>
+
+      <label class="field">
+        <span class="label">KRDict API key <span class="required">required</span></span>
+        <input type="password" id="krdict-key" autocomplete="off" spellcheck="false" placeholder="Paste your KRDict key" />
+        <a class="field-link" href="https://krdict.korean.go.kr/openApi/openApiInfo" target="_blank" rel="noreferrer">
+          Get a key →
+        </a>
+      </label>
+
+      <label class="field">
+        <span class="label">
+          OpenDict API key
+          <span class="optional">optional</span>
+          <span class="experimental" title="OpenDict integration is experimental — coverage and quality may vary.">experimental</span>
+        </span>
+        <input type="password" id="opendict-key" autocomplete="off" spellcheck="false" placeholder="Paste your OpenDict key (used as fallback when KRDict has no entry)" />
+        <a class="field-link" href="https://opendict.korean.go.kr/service/openApiRegister" target="_blank" rel="noreferrer">
+          Get a key →
+        </a>
+        <p class="field-note">
+          ⚠ OpenDict registration may require a Korean phone number for SMS verification.
+          Used only when KRDict returns no result; community-edited dictionary, so quality varies.
+        </p>
+      </label>
+
+      <div class="actions">
+        <button type="button" id="save-btn" class="primary">Save</button>
+        <button type="button" id="test-btn">Test KRDict key</button>
+        <span id="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Behaviour</h2>
+      <label class="checkbox">
+        <input type="checkbox" id="enabled-toggle" />
+        <span>Show popup on hover</span>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>Cache</h2>
+      <p class="hint">
+        Lookup results are cached locally so the same word never hits the API twice.
+        Clear it if a definition looks stale or you want to free up storage.
+      </p>
+      <div class="actions">
+        <button type="button" id="clear-cache-btn">Clear cache</button>
+        <span id="cache-status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <footer>
+      <p>
+        Source &amp; issues:
+        <a href="https://github.com/" target="_blank" rel="noreferrer">github (TODO: set repo)</a>
+      </p>
+      <p class="version" id="version-line"></p>
+    </footer>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

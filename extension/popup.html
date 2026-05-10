@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <span class="brand">learnwithsoju</span>
+  </header>
+
+  <div class="row">
+    <label class="switch">
+      <input type="checkbox" id="enabled-toggle" />
+      <span class="slider"></span>
+    </label>
+    <span class="row-label">Hover dictionary</span>
+  </div>
+
+  <div id="status-row" class="status-row">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">Checking…</span>
+  </div>
+
+  <div class="actions">
+    <button type="button" id="open-options" class="link-btn">Open settings →</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
