@@ -1,139 +1,123 @@
 # learnwithsoju
 
-A free, OSS Chrome/Firefox extension that adds a hover-popup Korean dictionary to any webpage. Pure frontend — your queries go to the official KRDict and OpenDict APIs, and nothing else leaves the browser.
+A free, open-source browser extension that turns any webpage into a Korean reading classroom. Hover any word — even a conjugated verb you don't recognize — and a popup shows you the dictionary entry, the morpheme breakdown with grammatical role of each piece, and any grammar patterns the sentence is using.
 
-> Inspired by [Kimchi Reader](https://kimchi-reader.app), stripped to the core hover lookup.
+Inspired by [Kimchi Reader](https://kimchi-reader.app), built as a pure-frontend, no-backend, free OSS alternative.
+
+## What you get when you hover
+
+```
+┌──────────────────────────────────────────────────┐
+│ Given sentence                                   │
+│ … 사람이 많아서 미리 [예약해야] 돼요.              │
+├──────────────────────────────────────────────────┤
+│ [예약하다]                       [영어] [한국어]  │
+├──────────────────────────────────────────────────┤
+│ Morpheme breakdown                               │
+│   예약  ·  명  ·  noun                           │
+│ + 해   ·  v.  ·  do (verb-forming suffix)        │
+│ + 야   ·  end. ·  must / have to                 │
+├──────────────────────────────────────────────────┤
+│ Grammar in this sentence                         │
+│ [(으)ㄹ 수 있다/없다]   Ability or possibility    │
+│ [아/어야 되다/하다]     Necessity to do something │
+├──────────────────────────────────────────────────┤
+│ 예약하다  [동사] ★★                              │
+│ [동사]  [예ː야카다]  [豫約]                       │
+│   1.                                             │
+│   to make a reservation; book                    │
+│   To arrange a place, room, object, etc., …      │
+│                                                  │
+│  ▸ Show examples (3)                             │
+└──────────────────────────────────────────────────┘
+```
 
 ## Features
 
-- Hover any Korean word, see the dictionary entry inline.
-- Real morpheme-level POS tagging via mecab-ko (vendored WASM), so irregular verbs, conjugated forms, and compound nouns all resolve to the right dictionary form (`먹었어요` → `먹다`, `학교에서` → `학교`, `친구들과` → `친구`).
-- Per-morpheme grammar glosses (subject marker, past tense, polite ending, …) shown as a "Morpheme breakdown" row in the popup.
-- Multi-morpheme grammar pattern hints from the [kimchi-grammar](https://github.com/Alaanor/kimchi-grammar) dataset (CC-BY 4.0): patterns like `(으)로서`, `고 있다`, `(으)ㄹ 수 있다/없다` are detected in the surrounding sentence and surfaced with their meaning.
-- KRDict (with English translations) as primary dictionary; OpenDict (우리말샘) as optional **experimental** fallback for words KRDict doesn't cover.
-- No backend, no telemetry, no tracking.
+- **Hover any Korean word** — works on any webpage with Korean text. The extension wraps Korean spans in the page and shows a floating popup on hover.
+- **Real morpheme analysis** — uses the [MeCab-Ko](https://github.com/hephaex/mecab-ko) morphological analyzer compiled to WebAssembly. Conjugated verbs, inflected nouns, and compound words all resolve to the right dictionary form.
+- **Morpheme breakdown** — every chunk in the hovered word is shown with its part of speech and a short grammar gloss (subject marker, past tense, polite ending, …).
+- **Grammar pattern hints** — multi-morpheme grammar patterns from the [kimchi-grammar](https://github.com/Alaanor/kimchi-grammar) dataset (290 patterns covering most learner-textbook constructions) are flagged in the surrounding sentence.
+- **Tabs for homographs** — when KRDict returns multiple entries for the same headword, you can switch between them. Tab labels show the part of speech.
+- **Hanja link** — when an entry has a Sino-Korean origin, the Hanja chip links out to [hangulhanja.com](https://hangulhanja.com) for the per-character breakdown.
+- **English / Korean toggle** — switch the popup definition language with one click. Preference is remembered.
+- **Examples on demand** — KRDict examples are hidden by default to keep the popup compact; click *Show examples* per-sense to reveal.
+- **Local cache** — every word you've looked up is cached on your machine, so you never hit the dictionary API twice for the same surface form. Clear the cache anytime from the settings page.
+- **No backend** — everything runs in your browser. The only network calls are to the official Korean dictionary APIs, with your own free API key.
+- **Light + dark themes** — automatic, follows your system preference.
 
-## Install (developer / unpacked)
+## Install
 
-1. Clone this repo.
-2. Open `chrome://extensions` and enable **Developer mode**.
-3. Click **Load unpacked** and pick the `extension/` folder.
-4. Click the extension icon → **Open settings** → paste your API key(s).
+### Chrome / Edge / Brave
+
+1. Clone or [download](https://github.com/abishake/learnwithsoju/archive/refs/heads/main.zip) this repo.
+2. Open `chrome://extensions`.
+3. Toggle **Developer mode** on (top-right).
+4. Click **Load unpacked** → pick the `extension/` folder.
+5. The settings page opens automatically — paste your API key (see below).
+
+### Firefox
+
+Requires Firefox 121 or newer.
+
+1. Clone or download this repo.
+2. Open `about:debugging#/runtime/this-firefox`.
+3. Click **Load Temporary Add-on…** → pick the `extension/manifest.json` file.
+4. Open the extension's options page from `about:addons`, paste your API key.
+
+(Temporary add-ons unload when Firefox restarts. Permanent installation will be available once we publish on AMO.)
 
 ## Get an API key
 
-Both APIs are free and run by the National Institute of Korean Language (NIKL). The same NIKL account can register both keys.
+You'll need a free key from the National Institute of Korean Language. Approval is usually instant.
 
-| Dictionary | Get a key | Required? |
+| Dictionary | Where to register | Required? |
 |---|---|---|
-| KRDict (한국어기초사전) | <https://krdict.korean.go.kr/eng/openApi/openApiRegister> | yes |
-| OpenDict (우리말샘) | <https://opendict.korean.go.kr/service/openApiRegister> | optional, **experimental** (fallback when KRDict has no result) |
+| **KRDict** (한국어기초사전) | <https://krdict.korean.go.kr/eng/openApi/openApiRegister> | yes |
+| **OpenDict** (우리말샘) | <https://opendict.korean.go.kr/service/openApiRegister> | optional, experimental |
 
-KRDict approval is usually instant. **OpenDict registration may require a Korean phone number for SMS verification** — that's why it's tagged optional/experimental in the settings page. The OpenDict integration is wired up so the moment you have a key, it works as a fallback.
+**KRDict** is the primary dictionary — has English translations and learner-friendly definitions. **OpenDict** is a much larger fallback (~1.1M entries vs ~500K) used only when KRDict has no entry for a word; quality varies (community-edited) and registration may require a Korean phone number.
 
-## How it works
+Paste your key into the extension's settings page (`chrome://extensions` → click the extension → details → Extension options, or the toolbar icon → *Open settings*).
 
-```
-hover Korean word
-   │
-content.js (per tab)
-   │  surface form (e.g. 먹었어요)
-   ▼
-background.js (service worker)
-   ├─ mecab-ko WASM (lazy-init on first hover) → POS-tagged morpheme tokens
-   ├─ lemmatizer.js → candidate dictionary forms [먹다, 먹었어요]
-   ├─ try each against KRDict /api/search → XML
-   └─ fall back to OpenDict /api/search → XML if no KRDict hit (experimental)
-   │
-   ▼
-content.js parses XML, renders popup inside a Shadow DOM
-```
+## Usage
 
-Extension footprint is ~22 MB on disk: 145 KB WASM + 22 MB gzipped dict (sys.dic + matrix.bin + entries.bin). Decompresses to ~90 MB in service worker memory at first hover; subsequent hovers reuse the in-memory tokenizer.
+- **Hover** any Korean word on any webpage. The popup appears.
+- **Click the toolbar icon** to toggle the extension on/off, or to open settings.
+- **Click the EN / KR toggle** in the popup to switch the definition language. The choice persists.
+- **Click a tab** when there are multiple homograph entries.
+- **Click "Show examples"** under a sense to reveal example sentences (when KRDict provides them).
+- **Click the Hanja chip** to open the per-character breakdown on hangulhanja.com.
 
-## Lemmatization
+The first hover after the extension wakes up takes ~1–2 seconds while the morphological analyzer's dictionary loads. After that, hovers are instant.
 
-The extension uses a forked build of [mecab-ko-wasm](https://github.com/hephaex/mecab-ko) with a `from_bytes`/`withDictBytes` constructor we added so the dict can be supplied at runtime (the upstream npm release ships the engine without `mecab-ko-dic`, so `new Mecab()` errors in browsers — see [`docs/MECAB_INTEGRATION.md`](docs/MECAB_INTEGRATION.md)).
+## Privacy
 
-Concretely, `extension/lemmatizer.js` walks mecab's POS-tagged morphemes:
+- The extension makes network requests **only** to `krdict.korean.go.kr` and `opendict.korean.go.kr` (when you've added the OpenDict key), using your API key.
+- No analytics, no tracking, no telemetry.
+- Your API keys and the lookup cache are stored locally via `chrome.storage` — never sent anywhere except the dictionary servers.
 
-- Verb / adjective stems (`VV`, `VA`, `VX`, `VCN`, `VCP`, `XSV`, `XSA`) → append `다` to form the dictionary headword.
-- Nouns / pronouns / numerals (`NNG`, `NNP`, `NR`, `NP`, `SL`, `SH`, `SN`) → the morpheme itself is the lemma.
-- Particles (`JK*`, `JX`), endings (`E*`), and other non-content tags are skipped.
-- The original surface form is always included as a fallback so compound nouns mecab splits apart (`한국말` → `한국` + `말`) still resolve when KRDict indexes the whole word.
+## Limitations & known gaps
 
-If mecab fails to initialize for any reason, the service worker falls back to surface-only lookup so the extension still works (with weaker resolution).
-
-## Permissions
-
-- `storage` — to remember your API keys and the on/off toggle.
-- `host_permissions` to `krdict.korean.go.kr` and `opendict.korean.go.kr` — so the extension can call those APIs from the service worker.
-
-That's it. No `<all_urls>` host permission, no network access to anywhere else.
-
-## Tests
-
-```bash
-npm install     # one-time, only for the test harness (devDep: @xmldom/xmldom)
-npm test
-```
-
-The extension itself ships with no build step or runtime dependencies — `package.json` and `node_modules/` exist solely for the Node test runner. Tests cover the lemmatizer, the API URL builders + `looksEmpty` heuristic, and the KRDict / StDict XML parsers.
-
-## Project layout
-
-```
-extension/
-  manifest.json
-  background.js          ← service worker: mecab init + orchestrates lookup
-  api.js                 ← URL builders + looksEmpty (pure)
-  lemmatizer.js          ← mecab tokens → candidate dictionary forms (pure)
-  parsers.js             ← KRDict/OpenDict XML → entry objects (DOMParser injected)
-  content.js             ← DOM walker, hover, popup rendering
-  content.css            ← styles for wrapped Korean spans
-  popup-shadow.css       ← styles loaded into the popup's shadow DOM
-  options.{html,js,css}  ← settings page
-  popup.{html,js,css}    ← toolbar action popup
-  icons/                 ← 16/48/128 PNGs
-  vendor/mecab-ko/       ← vendored mecab-ko-wasm + gzipped dict
-                           ↳ mecab_ko_wasm{.js,.d.ts,_bg.wasm}  (built from our fork)
-                           ↳ {sys.dic,matrix.bin,entries.bin}.gz  (mecab-ko-dic 2.1.1)
-  vendor/kimchi-grammar/ ← compiled grammar-pattern dataset
-                           ↳ patterns.json  (built from Alaanor/kimchi-grammar, CC-BY 4.0)
-tests/
-  *.test.js              ← node:test suite (run with `npm test`)
-  fixtures/              ← KRDict/OpenDict sample XML
-```
-
-## Testing
-
-Open any page with Korean (Naver news, namu.wiki, Wikipedia ko, etc.) and hover a word. Try:
-
-- A plain noun: `사람`, `학교`
-- A conjugated verb: `먹었어요`, `갔습니다`
-- An inflected noun: `학교에서`
-- A word KRDict doesn't have: should show graceful "no definition found"
-
-## Limitations & known gaps (V1)
-
-- First hover after the service worker wakes is slow (~1–2 s) while the dict loads. Subsequent hovers are instant.
-- Per-domain disable list — not yet (toggle is global). Coming next.
-- OpenDict popup toggle button — not yet (OpenDict appears automatically when KRDict has no result, marked "experimental").
-- Pronunciation audio — not yet.
-- Hanja per-character meanings — KRDict's `origin` field is rendered as-is; richer hanja decomposition is a follow-up.
-- Firefox support — manifest is MV3 vanilla; small tweaks may be needed for Firefox MV3.
+- **First-hover latency.** ~1–2 seconds the first time you hover a word after the extension's service worker has been idle, while the ~22 MB compressed dictionary unzips and the WASM analyzer initializes. Hovers after that are instant.
+- **Verb conjugation contractions** in grammar patterns. The grammar-pattern matcher derives its regexes from each pattern's display name, so contractions like `해야` (from `하 + 여야`) aren't expanded — patterns whose canonical form has these contractions may not match real text. The breakdown row still works correctly because mecab handles the conjugation on its own.
+- **No per-domain disable list** yet. The toolbar toggle is global.
+- **No pronunciation audio** yet.
+- **No published Chrome Web Store / AMO listing** yet — install as unpacked / temporary for now.
 
 ## Roadmap
 
-The OSS extension is intentionally scoped to *static, client-side lookup*. Features that require a backend (vocabulary tracking, AI explanations, sync across devices) are planned as a separate paid SaaS project that this extension can optionally connect to.
+- Per-domain disable list
+- Pronunciation audio (KRDict has audio links — wiring them up is small)
+- Hanja per-character meanings (currently just shown as a single chip, link to hangulhanja.com)
+- Sentence-level grammar matching using mecab tokens (current matcher is regex on text — would catch more conjugated forms)
+
+## Contributing & development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local-dev setup and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for an architecture walkthrough.
 
 ## License
 
-This extension's own code is released under the [MIT License](LICENSE).
+[MIT License](LICENSE) for the extension's own code. Vendored components keep their own licenses — see [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).
 
-Vendored third-party code lives in `extension/vendor/mecab-ko/`:
-
-- **mecab-ko-wasm** (built from our fork at <https://github.com/hephaex/mecab-ko>) — MIT OR Apache-2.0
-- **mecab-ko-dic 2.1.1** (built dict bytes) — Apache-2.0
-
-KRDict and OpenDict data is fetched live from the user's API key — no NIKL data is bundled. See [`docs/THIRD-PARTY.md`](docs/THIRD-PARTY.md) for the full attribution policy.
+This project includes a fork of `mecab-ko-wasm` (MIT/Apache-2.0), `mecab-ko-dic 2.1.1` (Apache-2.0), and the `kimchi-grammar` pattern dataset (CC-BY 4.0).
