@@ -328,7 +328,7 @@
     const morphemes = tokens
       .map((t) => ({ form: t.surface, pos: t.pos || '' }))
       .filter((m) => m.form && isContentMorpheme(m));
-    // Don't render the row when it's a single one-morpheme word — the
+    // Don't render the section when it's a single one-morpheme word — the
     // headword section already shows the same info.
     if (morphemes.length < 2) return null;
 
@@ -338,13 +338,25 @@
     label.className = 'lws-decomp-label';
     label.textContent = 'Morpheme breakdown';
     wrap.appendChild(label);
-    const row = document.createElement('div');
-    row.className = 'lws-decomp-row';
-    for (const m of morphemes) {
-      row.appendChild(buildMorphemeChip(m));
-    }
-    wrap.appendChild(row);
+    const stack = document.createElement('div');
+    stack.className = 'lws-decomp-stack';
+    morphemes.forEach((m, i) => {
+      stack.appendChild(buildMorphemeRow(m, i > 0));
+    });
+    wrap.appendChild(stack);
     return wrap;
+  }
+
+  function buildMorphemeRow(morpheme, withPlus) {
+    const row = document.createElement('div');
+    row.className = 'lws-morph-row';
+    const op = document.createElement('span');
+    op.className = 'lws-morph-op' + (withPlus ? '' : ' lws-morph-op-empty');
+    op.textContent = withPlus ? '+' : '';
+    op.setAttribute('aria-hidden', 'true');
+    row.appendChild(op);
+    row.appendChild(buildMorphemeChip(morpheme));
+    return row;
   }
 
   function buildMorphemeChip({ form, pos }) {
