@@ -1,0 +1,10 @@
+# Mark vendored binary artifacts so git doesn't try diff/normalize them.
+extension/vendor/mecab-ko/*.wasm     binary
+extension/vendor/mecab-ko/*.gz       binary
+extension/icons/*.png                binary
+
+# JSON, JS, HTML, CSS, MD: standard text. (default)
+*                                    text=auto eol=lf
+
+# Tests fixtures (XML) keep LF endings — node:test reads them as-is.
+tests/fixtures/*.xml                 text eol=lf

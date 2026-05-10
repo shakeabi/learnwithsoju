@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dev dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Lint extension JS (parse-only)
+        run: |
+          for f in extension/*.js; do
+            node --check "$f"
+          done
+
+      - name: Validate manifest.json
+        run: python3 -c "import json; json.load(open('extension/manifest.json'))"
