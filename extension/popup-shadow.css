@@ -169,6 +169,50 @@
   text-overflow: ellipsis;
 }
 
+/* Grammar-pattern matches sourced from the kimchi-grammar dataset.
+   Surfaces between decomposition and the dictionary entries when one or
+   more patterns intersect the hovered word's range in the sentence. */
+.lws-grammar {
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lws-grammar-label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.lws-grammar-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.lws-grammar-chip {
+  flex: 0 0 auto;
+}
+
+.lws-grammar-def {
+  font-size: 13px;
+  color: var(--fg);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.lws-grammar-def-name {
+  font-weight: 500;
+}
+
+.lws-grammar-def-alt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 /* Header strip: lemma chip + dictionary toggle */
 .lws-strip {
   display: flex;

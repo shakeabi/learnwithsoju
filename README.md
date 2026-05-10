@@ -7,7 +7,9 @@ A free, OSS Chrome/Firefox extension that adds a hover-popup Korean dictionary t
 ## Features
 
 - Hover any Korean word, see the dictionary entry inline.
-- Real morpheme-level POS tagging via mecab-ko (vendored WASM), so irregular verbs, conjugated forms, and compound nouns all resolve to the right dictionary form (`먹었어요` → `먹다`, `학교에서` → `학교`, `친구들과` → `친구`, `한국말` → `한국말` or `한국`).
+- Real morpheme-level POS tagging via mecab-ko (vendored WASM), so irregular verbs, conjugated forms, and compound nouns all resolve to the right dictionary form (`먹었어요` → `먹다`, `학교에서` → `학교`, `친구들과` → `친구`).
+- Per-morpheme grammar glosses (subject marker, past tense, polite ending, …) shown as a "Morpheme breakdown" row in the popup.
+- Multi-morpheme grammar pattern hints from the [kimchi-grammar](https://github.com/Alaanor/kimchi-grammar) dataset (CC-BY 4.0): patterns like `(으)로서`, `고 있다`, `(으)ㄹ 수 있다/없다` are detected in the surrounding sentence and surfaced with their meaning.
 - KRDict (with English translations) as primary dictionary; OpenDict (우리말샘) as optional **experimental** fallback for words KRDict doesn't cover.
 - No backend, no telemetry, no tracking.
 
@@ -96,6 +98,8 @@ extension/
   vendor/mecab-ko/       ← vendored mecab-ko-wasm + gzipped dict
                            ↳ mecab_ko_wasm{.js,.d.ts,_bg.wasm}  (built from our fork)
                            ↳ {sys.dic,matrix.bin,entries.bin}.gz  (mecab-ko-dic 2.1.1)
+  vendor/kimchi-grammar/ ← compiled grammar-pattern dataset
+                           ↳ patterns.json  (built from Alaanor/kimchi-grammar, CC-BY 4.0)
 tests/
   *.test.js              ← node:test suite (run with `npm test`)
   fixtures/              ← KRDict/OpenDict sample XML

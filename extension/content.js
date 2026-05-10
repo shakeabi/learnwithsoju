@@ -31,6 +31,19 @@
   const glosses = await import(chrome.runtime.getURL('grammar-glosses.js'));
   const { morphemeGloss, isContentMorpheme } = glosses;
 
+  const grammarMatch = await import(chrome.runtime.getURL('grammar-match.js'));
+  const { findMatches } = grammarMatch;
+
+  let grammarDbPromise = null;
+  function loadGrammarDb() {
+    if (!grammarDbPromise) {
+      grammarDbPromise = fetch(chrome.runtime.getURL('vendor/kimchi-grammar/patterns.json'))
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+    }
+    return grammarDbPromise;
+  }
+
   let enabled = true;
   let defLang = DEF_LANG_DEFAULT;
   let popupHost = null;
@@ -38,6 +51,7 @@
   let popupEl = null;
   let activeWordEl = null;
   let lastPayload = null;
+  let lastGrammarMatches = [];
   let activeTabIdx = 0;
   let popupMinHeight = 0;
   let popupMinWidth = 0;
@@ -271,6 +285,44 @@
     return wrap;
   }
 
+  function buildGrammarMatchesNode(matches) {
+    const wrap = document.createElement('div');
+    wrap.className = 'lws-grammar';
+    const label = document.createElement('span');
+    label.className = 'lws-grammar-label';
+    label.textContent = 'Grammar in this sentence';
+    wrap.appendChild(label);
+    for (const m of matches) {
+      const row = document.createElement('div');
+      row.className = 'lws-grammar-row';
+
+      const chip = document.createElement('span');
+      chip.className = 'lws-chip lws-chip-amber lws-grammar-chip';
+      chip.textContent = m.pattern.name;
+      row.appendChild(chip);
+
+      const def = m.pattern.defs[0];
+      if (def) {
+        const text = document.createElement('span');
+        text.className = 'lws-grammar-def';
+        const namePart = document.createElement('span');
+        namePart.className = 'lws-grammar-def-name';
+        namePart.textContent = def.name;
+        text.appendChild(namePart);
+        if (def.alt) {
+          const altPart = document.createElement('span');
+          altPart.className = 'lws-grammar-def-alt';
+          altPart.textContent = ` (${def.alt})`;
+          text.appendChild(altPart);
+        }
+        row.appendChild(text);
+        if (def.meaning) row.title = def.meaning;
+      }
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }
+
   function buildDecompositionNode(tokens) {
     if (!Array.isArray(tokens) || tokens.length === 0) return null;
     const morphemes = tokens
@@ -393,6 +445,10 @@
 
     const decomposition = buildDecompositionNode(payload.tokens);
     if (decomposition) root.appendChild(decomposition);
+
+    if (Array.isArray(options.grammarMatches) && options.grammarMatches.length > 0) {
+      root.appendChild(buildGrammarMatchesNode(options.grammarMatches));
+    }
 
     if (krEntries.length === 0 && odEntries.length === 0) {
       const empty = document.createElement('div');
@@ -534,7 +590,10 @@
   function rerenderActivePopup() {
     if (!activeWordEl || !lastPayload || !popupEl || popupEl.style.display === 'none') return;
     const sentence = extractSentence(activeWordEl);
-    showPopup(activeWordEl, buildResultNode(lastPayload, { sentence }));
+    showPopup(
+      activeWordEl,
+      buildResultNode(lastPayload, { sentence, grammarMatches: lastGrammarMatches }),
+    );
   }
 
   function buildKrEntryNode(entry) {
@@ -758,6 +817,7 @@
     popupMinHeight = 0;
     popupMinWidth = 0;
     expandedExamples = new Set();
+    lastGrammarMatches = [];
     if (popupEl) {
       popupEl.style.minHeight = '';
       popupEl.style.minWidth = '';
@@ -803,7 +863,26 @@
     lastPayload = response;
     activeTabIdx = 0;
     const sentence = extractSentence(target);
-    showPopup(target, buildResultNode(response, { sentence }));
+    const grammarMatches = await computeGrammarMatches(sentence);
+    if (requestId !== pendingRequestId) return;
+    lastGrammarMatches = grammarMatches;
+    showPopup(target, buildResultNode(response, { sentence, grammarMatches }));
+  }
+
+  async function computeGrammarMatches(sentence) {
+    if (!sentence) return [];
+    try {
+      const db = await loadGrammarDb();
+      if (!db) return [];
+      const sentenceText = sentence.before + sentence.word + sentence.after;
+      const hoverRange = {
+        start: sentence.before.length,
+        end: sentence.before.length + sentence.word.length,
+      };
+      return findMatches(db, sentenceText, hoverRange);
+    } catch {
+      return [];
+    }
   }
 
   function onWordEnter(target) {

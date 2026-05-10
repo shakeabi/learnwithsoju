@@ -41,7 +41,13 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["popup-shadow.css", "parsers.js", "grammar-glosses.js"],
+      "resources": [
+        "popup-shadow.css",
+        "parsers.js",
+        "grammar-glosses.js",
+        "grammar-match.js",
+        "vendor/kimchi-grammar/patterns.json"
+      ],
       "matches": ["<all_urls>"]
     }
   ]
