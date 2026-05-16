@@ -177,53 +177,33 @@ function extractExamplesFromSense(senseEl) {
   return out;
 }
 
+// CJK Unified Ideographs (U+4E00–U+9FFF) and Extension A (U+3400–U+4DBF).
+// Covers the Hanja that appear in Korean dictionary `origin` fields.
+const HANJA_CHAR_RE = /^[一-鿿㐀-䶿]$/;
+
 /**
- * Compute the hangul slice that corresponds to the Hanja portion of a word.
+ * Whether a single character is a Hanja (Han ideograph). Use to filter
+ * an origin field like `豫約 (예약)` down to just the linkable characters.
  *
- * Each Hanja character maps to exactly one hangul syllable, and the Hanja
- * portion sits at the start of the word in nearly all Korean dictionary
- * entries — native suffixes like `-하다`, `-되다`, `-스럽다` follow. So the
- * hangul slug we want is the first N syllables, where N is the number of
- * Hanja characters in `origin`.
- *
- *   ('예약하다', '豫約')   → '예약'
- *   ('학교',     '學校')   → '학교'
- *   ('행복하다', '幸福')   → '행복'
- *   ('사람',     '')       → null   (no Hanja, no breakdown)
- *
- * Returns null when there's no Hanja or no hangul, so callers know to
- * render a non-link chip (or skip the chip entirely).
- *
- * @param {string | null | undefined} hangulWord
- * @param {string | null | undefined} origin
- * @returns {string | null}
+ * @param {string} ch  exactly one character (Unicode code point)
+ * @returns {boolean}
  */
-export function hangulHanjaSlug(hangulWord, origin) {
-  if (!hangulWord) return null;
-  const hangul = String(hangulWord).trim();
-  if (!hangul) return null;
-  const hanja = (origin || '').replace(/[^一-鿿㐀-䶿]/g, '');
-  if (!hanja) return null;
-  const hanjaLen = [...hanja].length;
-  const syllables = [...hangul];
-  // Defensive: if there are somehow fewer hangul chars than Hanja chars
-  // (shouldn't happen in real KRDict data) fall back to the full word.
-  return syllables.length >= hanjaLen
-    ? syllables.slice(0, hanjaLen).join('')
-    : hangul;
+export function isHanjaChar(ch) {
+  return typeof ch === 'string' && HANJA_CHAR_RE.test(ch);
 }
 
 /**
- * Build a hangulhanja.com link for the Hanja portion of a dictionary entry.
+ * Build a hangulhanja.com per-character breakdown link.
  *
- * @param {string | null | undefined} hangulWord
- * @param {string | null | undefined} origin
+ *   '豫'  →  'https://hangulhanja.com/en/hanja/%E8%B1%AB'
+ *   '약'  →  null  (not a Hanja)
+ *
+ * @param {string | null | undefined} ch
  * @returns {string | null}
  */
-export function hangulHanjaUrl(hangulWord, origin) {
-  const slug = hangulHanjaSlug(hangulWord, origin);
-  if (!slug) return null;
-  return `https://hangulhanja.com/en/words/${encodeURIComponent(slug)}`;
+export function hanjaCharUrl(ch) {
+  if (!isHanjaChar(ch)) return null;
+  return `https://hangulhanja.com/en/hanja/${encodeURIComponent(ch)}`;
 }
 
 const VERB_LIKE_POS = new Set([

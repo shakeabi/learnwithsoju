@@ -24,8 +24,8 @@
     gradeToTooltip,
     posToEnglish,
     posToShortform,
-    hangulHanjaUrl,
-    hangulHanjaSlug,
+    isHanjaChar,
+    hanjaCharUrl,
     koreanVerbUrl,
   } = parsers;
 
@@ -34,6 +34,12 @@
 
   const grammarMatch = await import(chrome.runtime.getURL('grammar-match.js'));
   const { findMatches } = grammarMatch;
+
+  const sites = await import(chrome.runtime.getURL('site-configs.js'));
+  const { findSiteConfig } = sites;
+  // Resolved once per content-script lifetime — frames don't navigate between
+  // sites without a reload, which re-injects content.js.
+  const siteConfig = findSiteConfig(window.location && window.location.hostname || '');
 
   let grammarDbPromise = null;
   function loadGrammarDb() {
@@ -54,9 +60,11 @@
   let lastPayload = null;
   let lastGrammarMatches = [];
   let activeTabIdx = 0;
+  let relatedExpanded = false;
   let popupMinHeight = 0;
   let popupMinWidth = 0;
   let expandedExamples = new Set();
+  let expandedHanja = new Set();
   let hideTimer = null;
   let hoverTimer = null;
   let pendingRequestId = 0;
@@ -204,7 +212,7 @@
     popupEl.style.top = `${Math.max(0, top)}px`;
   }
 
-  function showPopup(target, contentNode) {
+  function showPopup(target, contentNode, opts = {}) {
     ensurePopup();
     popupEl.innerHTML = '';
     popupEl.appendChild(contentNode);
@@ -216,6 +224,7 @@
     popupEl.style.display = 'block';
     popupEl.style.pointerEvents = 'auto';
     popupHost.style.pointerEvents = 'none';
+    const reposition = opts.reposition !== false;
     requestAnimationFrame(() => {
       // After paint, capture the actual rendered size so future renders can't
       // shrink below it. Monotonic non-decreasing for the popup's lifetime.
@@ -223,7 +232,11 @@
       const w = popupEl.offsetWidth;
       if (h > popupMinHeight) popupMinHeight = h;
       if (w > popupMinWidth) popupMinWidth = w;
-      positionPopup(target);
+      // Reposition only when this is a fresh show (new target / new lookup).
+      // Rerenders triggered by tab clicks, the related-pill expand, or the
+      // EN/KO toggle keep the current position — moving the popup mid-click
+      // is what was eating tab clicks after the +N expand.
+      if (reposition) positionPopup(target);
     });
   }
 
@@ -235,15 +248,28 @@
   }
 
   function extractSentence(wordEl) {
-    let block = wordEl.parentElement;
-    while (block && !SENTENCE_BLOCK_TAGS.has(block.tagName)) {
-      const next = block.parentElement;
-      if (!next || next === document.body || next === document.documentElement) {
-        // Fall back to a div with a reasonable amount of text, but never the body itself.
-        if (block.tagName === 'DIV' && block !== document.body) break;
-        return null;
+    // Per-site override (see site-configs.js): sites that render text as
+    // many flat sibling spans (YouTube subtitles, etc.) need a specific
+    // ancestor selector — the default walk-up hits the body before finding
+    // a useful block. If the hovered word isn't inside the configured
+    // container (e.g. the user hovered a video-description word on
+    // YouTube), `closest()` returns null and we fall through to the
+    // default walk so non-caption text on the same page still works.
+    let block = null;
+    if (siteConfig && siteConfig.sentenceContainer) {
+      block = wordEl.closest(siteConfig.sentenceContainer);
+    }
+    if (!block) {
+      block = wordEl.parentElement;
+      while (block && !SENTENCE_BLOCK_TAGS.has(block.tagName)) {
+        const next = block.parentElement;
+        if (!next || next === document.body || next === document.documentElement) {
+          // Fall back to a div with a reasonable amount of text, but never the body itself.
+          if (block.tagName === 'DIV' && block !== document.body) break;
+          return null;
+        }
+        block = next;
       }
-      block = next;
     }
     if (!block) return null;
 
@@ -480,12 +506,41 @@
       return root;
     }
 
-    if (krEntries.length > 1) {
-      if (activeTabIdx >= krEntries.length) activeTabIdx = 0;
-      root.appendChild(buildTabBar(krEntries));
-      root.appendChild(buildKrEntryNode(krEntries[activeTabIdx]));
-    } else if (krEntries.length === 1) {
-      root.appendChild(buildKrEntryNode(krEntries[0]));
+    // Partition: KRDict often returns the headword we asked for plus loosely
+    // related forms (compound words containing it, derived nouns, etc.).
+    // Headword matches get the default tabs; the rest sit behind a "+N related"
+    // pill that, when clicked, appends them as additional tabs inline.
+    //
+    // We also promote the +하다 (action verb) and +되다 (passive) forms of a
+    // queried noun — `예약` and `예약하다` belong together for a learner, not
+    // split across a fold. Keeps "related" for genuinely tangential entries
+    // like compound nouns (`예약자`, `예약금`).
+    const queryUsed = (payload.queryUsed || '').trim();
+    const PROMOTED_SUFFIXES = ['', '하다', '되다'];
+    const promotedForms = queryUsed.length > 0
+      ? new Set(PROMOTED_SUFFIXES.map((suf) => queryUsed + suf))
+      : new Set();
+    const isExactMatch = (e) => promotedForms.has((e.word || '').trim());
+    const exactEntries = krEntries.filter(isExactMatch);
+    const relatedEntries = krEntries.filter((e) => !isExactMatch(e));
+    // If KRDict didn't return any headword exact match (unusual — the query
+    // hit something looser), fall back to the original behavior: show all
+    // entries as tabs rather than burying them all.
+    const primaryEntries = exactEntries.length > 0 ? exactEntries : krEntries;
+    const hiddenRelated = exactEntries.length > 0 ? relatedEntries : [];
+    const displayedEntries = relatedExpanded
+      ? primaryEntries.concat(hiddenRelated)
+      : primaryEntries;
+    const showExpandPill = !relatedExpanded && hiddenRelated.length > 0;
+
+    if (displayedEntries.length > 1 || showExpandPill) {
+      if (activeTabIdx >= displayedEntries.length) activeTabIdx = 0;
+      root.appendChild(buildTabBar(displayedEntries, {
+        expandCount: showExpandPill ? hiddenRelated.length : 0,
+      }));
+    }
+    if (displayedEntries.length > 0) {
+      root.appendChild(buildKrEntryNode(displayedEntries[activeTabIdx]));
     }
 
     if (odEntries.length > 0) {
@@ -505,7 +560,7 @@
     return root;
   }
 
-  function buildTabBar(entries) {
+  function buildTabBar(entries, opts = {}) {
     const labels = computeTabLabels(entries);
     const bar = document.createElement('div');
     bar.className = 'lws-tabs';
@@ -525,6 +580,19 @@
       btn.addEventListener('click', () => onTabClick(i));
       bar.appendChild(btn);
     });
+    if (opts.expandCount > 0) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lws-tab lws-tab-expand';
+      btn.textContent = `+${opts.expandCount} related`;
+      btn.title = 'Show related entries KRDict returned for this query';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        relatedExpanded = true;
+        rerenderActivePopup();
+      });
+      bar.appendChild(btn);
+    }
     return bar;
   }
 
@@ -606,10 +674,11 @@
     showPopup(
       activeWordEl,
       buildResultNode(lastPayload, { sentence, grammarMatches: lastGrammarMatches }),
+      { reposition: false },
     );
   }
 
-  function buildKrEntryNode(entry) {
+  function buildKrEntryNode(entry, senseKeyPrefix = `kr:${activeTabIdx}`) {
     const wrap = document.createElement('div');
     wrap.className = 'lws-entry';
 
@@ -635,19 +704,22 @@
 
     const meta = document.createElement('div');
     meta.className = 'lws-meta-row';
-    if (entry.pos) meta.appendChild(makeChip(displayPos(entry.pos), 'cyan'));
-    if (entry.pronunciation) meta.appendChild(makeChip(`[${entry.pronunciation}]`, 'soft'));
-    const krVerbChip = makeVerbChip(entry.word, entry.pos);
-    if (krVerbChip) meta.appendChild(krVerbChip);
-    if (entry.origin) meta.appendChild(makeHanjaChip(entry.word, entry.origin));
+    if (entry.pos) meta.appendChild(makePosChip(entry.word, entry.pos));
+    if (entry.pronunciation) meta.appendChild(makeChip(`၊၊||၊ ${entry.pronunciation}`, 'soft'));
+    if (entry.origin) meta.appendChild(makeHanjaChip(entry.origin));
     if (meta.children.length) wrap.appendChild(meta);
+
+    if (entry.origin) {
+      const meanings = buildHanjaMeaningsNode(entry.origin);
+      if (meanings) wrap.appendChild(meanings);
+    }
 
     if (entry.senses.length > 0) {
       const senses = document.createElement('div');
       senses.className = 'lws-senses';
       const showMultiple = entry.senses.length > 1;
       entry.senses.forEach((sense, i) => {
-        const senseId = `kr:${activeTabIdx}:${i}`;
+        const senseId = `${senseKeyPrefix}:${i}`;
         senses.appendChild(buildSenseNode(sense, showMultiple ? i + 1 : null, senseId));
       });
       wrap.appendChild(senses);
@@ -736,14 +808,17 @@
     headline.appendChild(word);
     wrap.appendChild(headline);
 
-    const odVerbChip = makeVerbChip(entry.word, entry.pos);
-    if (entry.pos || entry.origin || odVerbChip) {
+    if (entry.pos || entry.origin) {
       const meta = document.createElement('div');
       meta.className = 'lws-meta-row';
-      if (entry.pos) meta.appendChild(makeChip(displayPos(entry.pos), 'cyan'));
-      if (odVerbChip) meta.appendChild(odVerbChip);
-      if (entry.origin) meta.appendChild(makeHanjaChip(entry.word, entry.origin));
+      if (entry.pos) meta.appendChild(makePosChip(entry.word, entry.pos));
+      if (entry.origin) meta.appendChild(makeHanjaChip(entry.origin));
       wrap.appendChild(meta);
+    }
+
+    if (entry.origin) {
+      const meanings = buildHanjaMeaningsNode(entry.origin);
+      if (meanings) wrap.appendChild(meanings);
     }
 
     const senses = document.createElement('div');
@@ -797,39 +872,192 @@
     return senseEl;
   }
 
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  // "Arrow out of box" external-link icon. Stroke uses currentColor so it
+  // inherits the chip's text color and stays in sync with each variant.
+  const EXT_ICON_PATHS = [
+    'M8.5 2h3.5v3.5',
+    'M12 2 6.5 7.5',
+    'M11 8.5V11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h2.5',
+  ];
+  function buildExternalIcon() {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 14 14');
+    svg.setAttribute('width', '11');
+    svg.setAttribute('height', '11');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.4');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.classList.add('lws-ext-icon');
+    for (const d of EXT_ICON_PATHS) {
+      const p = document.createElementNS(SVG_NS, 'path');
+      p.setAttribute('d', d);
+      svg.appendChild(p);
+    }
+    return svg;
+  }
+
   function makeChip(text, variant, opts = {}) {
     const chip = document.createElement(opts.href ? 'a' : 'span');
     chip.className = `lws-chip lws-chip-${variant}` + (opts.href ? ' lws-chip-link' : '');
-    chip.textContent = text;
+    const label = document.createElement('span');
+    label.className = 'lws-chip-label';
+    label.textContent = text;
+    chip.appendChild(label);
     if (opts.href) {
       chip.href = opts.href;
       chip.target = '_blank';
       chip.rel = 'noreferrer noopener';
+      chip.appendChild(buildExternalIcon());
     }
     if (opts.title) chip.title = opts.title;
     return chip;
   }
 
-  function makeHanjaChip(hangulWord, origin) {
-    const url = hangulHanjaUrl(hangulWord, origin);
-    if (url) {
-      const slug = hangulHanjaSlug(hangulWord, origin);
-      return makeChip(origin, 'amber', {
-        href: url,
-        title: `Hanja breakdown for ${slug}`,
-      });
-    }
-    return makeChip(origin, 'amber');
+  // Amber pill showing the origin text (e.g. "豫約"). When the origin contains
+  // at least one Hanja character the pill becomes a button — clicking it
+  // expands the per-character meanings panel below the meta row. The `+`/`−`
+  // indicator and the tooltip make the affordance discoverable; non-Hanja
+  // origins (rare malformed data) fall back to a plain non-interactive chip.
+  function makeHanjaChip(origin) {
+    if (!origin) return null;
+    const chars = [...origin].filter(isHanjaChar).join('');
+    if (chars.length === 0) return makeChip(origin, 'amber');
+
+    const charCount = [...chars].length;
+    const isOpen = expandedHanja.has(chars);
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'lws-chip lws-chip-amber lws-chip-button';
+    chip.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    chip.title = isOpen
+      ? `Hide Hanja meanings (${charCount} character${charCount === 1 ? '' : 's'})`
+      : `Show Hanja meanings (${charCount} character${charCount === 1 ? '' : 's'})`;
+
+    const label = document.createElement('span');
+    label.className = 'lws-chip-label';
+    label.textContent = origin;
+    chip.appendChild(label);
+
+    const indicator = document.createElement('span');
+    indicator.className = 'lws-chip-indicator';
+    indicator.setAttribute('aria-hidden', 'true');
+    indicator.textContent = isOpen ? '−' : '+';
+    chip.appendChild(indicator);
+
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (expandedHanja.has(chars)) expandedHanja.delete(chars);
+      else expandedHanja.add(chars);
+      rerenderActivePopup();
+    });
+    return chip;
   }
 
-  function makeVerbChip(hangulWord, pos) {
+  // Session-level cache for Hanja meanings — avoids refetching when the popup
+  // rerenders (tab switch, lang toggle, examples expand). Values: array of
+  // {character, sino, summary} on success, null on failure / no results.
+  // Background.js holds the persistent chrome.storage.local cache.
+  const hanjaSession = new Map();
+
+  // Returns the per-character meanings panel when the user has expanded the
+  // Hanja pill, otherwise `null`. The expand/collapse affordance now lives on
+  // the pill itself (see makeHanjaChip); this function just renders the body.
+  function buildHanjaMeaningsNode(origin) {
+    if (!origin) return null;
+    const chars = [...origin].filter(isHanjaChar).join('');
+    if (!chars || !expandedHanja.has(chars)) return null;
+    const panel = document.createElement('div');
+    panel.className = 'lws-hanja-meanings';
+    if (hanjaSession.has(chars)) {
+      const cached = hanjaSession.get(chars);
+      if (cached && cached.length > 0) renderHanjaMeanings(panel, cached);
+      else panel.appendChild(buildHanjaErrorRow());
+      return panel;
+    }
+    // First expansion of this Hanja set — fire the lookup.
+    const loading = document.createElement('div');
+    loading.className = 'lws-hanja-loading';
+    loading.textContent = 'Loading…';
+    panel.appendChild(loading);
+    chrome.runtime.sendMessage({ type: 'lookupHanja', chars })
+      .then((resp) => {
+        const hanjas = (resp && !resp.error && Array.isArray(resp.hanjas))
+          ? resp.hanjas
+          : null;
+        hanjaSession.set(chars, hanjas);
+        // The panel may have been detached by a subsequent rerender; in that
+        // case the rerender path will read from hanjaSession and render the
+        // cached value directly.
+        if (panel.isConnected) {
+          panel.innerHTML = '';
+          if (hanjas && hanjas.length > 0) renderHanjaMeanings(panel, hanjas);
+          else panel.appendChild(buildHanjaErrorRow());
+        }
+      })
+      .catch(() => {
+        hanjaSession.set(chars, null);
+        if (panel.isConnected) {
+          panel.innerHTML = '';
+          panel.appendChild(buildHanjaErrorRow());
+        }
+      });
+    return panel;
+  }
+
+  function buildHanjaErrorRow() {
+    const row = document.createElement('div');
+    row.className = 'lws-hanja-empty';
+    row.textContent = 'Could not load Hanja meanings.';
+    return row;
+  }
+
+  function renderHanjaMeanings(panel, hanjas) {
+    for (const h of hanjas) {
+      const row = document.createElement('div');
+      row.className = 'lws-hanja-row';
+      const charUrl = hanjaCharUrl(h.character);
+      let charEl;
+      if (charUrl) {
+        charEl = document.createElement('a');
+        charEl.href = charUrl;
+        charEl.target = '_blank';
+        charEl.rel = 'noreferrer noopener';
+        charEl.title = `Hanja breakdown for ${h.character} on hangulhanja.com`;
+      } else {
+        charEl = document.createElement('span');
+      }
+      charEl.className = 'lws-hanja-row-char';
+      charEl.textContent = h.character;
+      row.appendChild(charEl);
+      if (h.sino) {
+        const sino = document.createElement('span');
+        sino.className = 'lws-hanja-row-sino';
+        sino.textContent = h.sino;
+        row.appendChild(sino);
+      }
+      if (h.summary) {
+        const sum = document.createElement('span');
+        sum.className = 'lws-hanja-row-summary';
+        sum.textContent = h.summary;
+        row.appendChild(sum);
+      }
+      panel.appendChild(row);
+    }
+  }
+
+  function makePosChip(hangulWord, pos) {
     const url = koreanVerbUrl(hangulWord, pos);
-    if (!url) return null;
-    const label = defLang === 'en' ? 'conjugate' : '활용';
-    return makeChip(label, 'green', {
-      href: url,
-      title: `Conjugation table for ${hangulWord} on koreanverb.app`,
-    });
+    if (url) {
+      return makeChip(displayPos(pos), 'cyan', {
+        href: url,
+        title: `Conjugation table for ${hangulWord} on koreanverb.app`,
+      });
+    }
+    return makeChip(displayPos(pos), 'cyan');
   }
 
   function displayPos(pos) {
@@ -844,6 +1072,8 @@
     popupMinHeight = 0;
     popupMinWidth = 0;
     expandedExamples = new Set();
+    expandedHanja = new Set();
+    relatedExpanded = false;
     lastGrammarMatches = [];
     if (popupEl) {
       popupEl.style.minHeight = '';
@@ -931,10 +1161,29 @@
     scheduleHide();
   }
 
+  function onWordClick(target, e) {
+    // Explicit-intent path: bypasses the hover delay and runs the lookup
+    // immediately. Useful on sites where mouseenter is unreliable (some
+    // overlays, custom event interceptors), and on touch where there's no
+    // hover at all. preventDefault keeps the click from navigating when the
+    // word happens to sit inside an <a> (e.g. linked subtitles).
+    if (!enabled) return;
+    e.preventDefault();
+    e.stopPropagation();
+    activeWordEl = target;
+    cancelHide();
+    if (hoverTimer) {
+      clearTimeout(hoverTimer);
+      hoverTimer = null;
+    }
+    performLookup(target);
+  }
+
   function attachWordHandlers(root = document.body) {
     if (!root) return;
     root.addEventListener('mouseenter', delegateEnter, true);
     root.addEventListener('mouseleave', delegateLeave, true);
+    root.addEventListener('click', delegateClick, true);
   }
 
   function delegateEnter(e) {
@@ -944,6 +1193,10 @@
   function delegateLeave(e) {
     const t = e.target;
     if (t && t.classList && t.classList.contains(WORD_CLASS)) onWordLeave();
+  }
+  function delegateClick(e) {
+    const t = e.target;
+    if (t && t.classList && t.classList.contains(WORD_CLASS)) onWordClick(t, e);
   }
 
   function setupMutationObserver() {

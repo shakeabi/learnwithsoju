@@ -6,7 +6,8 @@
   "permissions": ["storage", "unlimitedStorage"],
   "host_permissions": [
     "https://krdict.korean.go.kr/*",
-    "https://opendict.korean.go.kr/*"
+    "https://opendict.korean.go.kr/*",
+    "https://hangulhanja.com/*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
@@ -53,6 +54,7 @@
         "parsers.js",
         "grammar-glosses.js",
         "grammar-match.js",
+        "site-configs.js",
         "vendor/grammar-patterns/patterns.json"
       ],
       "matches": ["<all_urls>"]

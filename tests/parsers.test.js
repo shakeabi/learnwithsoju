@@ -12,8 +12,8 @@ import {
   gradeToTooltip,
   posToEnglish,
   posToShortform,
-  hangulHanjaUrl,
-  hangulHanjaSlug,
+  isHanjaChar,
+  hanjaCharUrl,
   koreanVerbUrl,
   isVerbLikePos,
 } from '../extension/parsers.js';
@@ -173,79 +173,52 @@ test('filterTranslations: handles non-array input safely', () => {
   assert.deepEqual(filterTranslations(undefined, 'en'), []);
 });
 
-test('hangulHanjaUrl: slug is the leading N hangul syllables matching N hanja chars', () => {
-  // 예약하다 (4 syllables) + 豫約 (2 hanja) → first 2 syllables = 예약
-  const url = hangulHanjaUrl('예약하다', '豫約');
-  assert.equal(url, 'https://hangulhanja.com/en/words/' + encodeURIComponent('예약'));
+test('isHanjaChar: true for common Han ideographs', () => {
+  assert.equal(isHanjaChar('豫'), true);
+  assert.equal(isHanjaChar('約'), true);
+  assert.equal(isHanjaChar('學'), true);
+  assert.equal(isHanjaChar('校'), true);
 });
 
-test('hangulHanjaUrl: when syllable count equals hanja count, slug is the full word', () => {
-  // Pure Sino-Korean noun: every syllable maps to a hanja
+test('isHanjaChar: true for CJK Extension A characters (U+3400–U+4DBF)', () => {
+  assert.equal(isHanjaChar('㐀'), true);
+});
+
+test('isHanjaChar: false for hangul, latin, digits, punctuation, whitespace', () => {
+  assert.equal(isHanjaChar('예'), false);
+  assert.equal(isHanjaChar('가'), false);
+  assert.equal(isHanjaChar('a'), false);
+  assert.equal(isHanjaChar('1'), false);
+  assert.equal(isHanjaChar('('), false);
+  assert.equal(isHanjaChar(' '), false);
+});
+
+test('isHanjaChar: false for multi-char strings, empty, null', () => {
+  // single-character contract; reject longer strings rather than testing
+  // just the first code point
+  assert.equal(isHanjaChar('豫約'), false);
+  assert.equal(isHanjaChar(''), false);
+  assert.equal(isHanjaChar(null), false);
+  assert.equal(isHanjaChar(undefined), false);
+});
+
+test('hanjaCharUrl: builds a per-character hangulhanja.com link', () => {
   assert.equal(
-    hangulHanjaUrl('학교', '學校'),
-    'https://hangulhanja.com/en/words/' + encodeURIComponent('학교'),
+    hanjaCharUrl('豫'),
+    'https://hangulhanja.com/en/hanja/' + encodeURIComponent('豫'),
   );
   assert.equal(
-    hangulHanjaUrl('예약', '豫約'),
-    'https://hangulhanja.com/en/words/' + encodeURIComponent('예약'),
+    hanjaCharUrl('學'),
+    'https://hangulhanja.com/en/hanja/' + encodeURIComponent('學'),
   );
 });
 
-test('hangulHanjaUrl: -하다 verb suffix gets stripped from the slug', () => {
-  // 행복하다 (4 syllables) + 幸福 (2 hanja) → slug is 행복
-  const url = hangulHanjaUrl('행복하다', '幸福');
-  assert.equal(url, 'https://hangulhanja.com/en/words/' + encodeURIComponent('행복'));
-});
-
-test('hangulHanjaUrl: returns null when origin has no Hanja (pure-native words)', () => {
-  assert.equal(hangulHanjaUrl('사람', ''), null);
-  assert.equal(hangulHanjaUrl('사람', null), null);
-  assert.equal(hangulHanjaUrl('사람', undefined), null);
-  assert.equal(hangulHanjaUrl('나무', '나무'), null);
-  assert.equal(hangulHanjaUrl('나무', '   '), null);
-});
-
-test('hangulHanjaUrl: ignores non-Hanja noise in origin when counting hanja chars', () => {
-  // "豫約 (예약)" — non-Han chars stripped → 2 hanja chars → first 2 syllables of word
-  const url = hangulHanjaUrl('예약하다', '豫約 (예약)');
-  assert.equal(url, 'https://hangulhanja.com/en/words/' + encodeURIComponent('예약'));
-});
-
-test('hangulHanjaUrl: returns null without a hangul word', () => {
-  assert.equal(hangulHanjaUrl('', '豫約'), null);
-  assert.equal(hangulHanjaUrl(null, '豫約'), null);
-  assert.equal(hangulHanjaUrl(undefined, '豫約'), null);
-  assert.equal(hangulHanjaUrl('   ', '豫約'), null);
-});
-
-test('hangulHanjaUrl: defensive fallback when more hanja chars than hangul syllables', () => {
-  // Edge case that shouldn\'t happen in real data: still produce *something* sensible.
-  const url = hangulHanjaUrl('예', '豫約');
-  assert.equal(url, 'https://hangulhanja.com/en/words/' + encodeURIComponent('예'));
-});
-
-test('hangulHanjaUrl: CJK Extension A in origin still triggers a link', () => {
-  // U+3400 (㐀) is in the Extension A block. Single hanja → first syllable.
-  const url = hangulHanjaUrl('가나다', '㐀');
-  assert.equal(url, 'https://hangulhanja.com/en/words/' + encodeURIComponent('가'));
-});
-
-test('hangulHanjaUrl: trims surrounding whitespace from the hangul before slicing', () => {
-  const url = hangulHanjaUrl('  예약하다  ', '豫約');
-  assert.equal(url, 'https://hangulhanja.com/en/words/' + encodeURIComponent('예약'));
-});
-
-test('hangulHanjaSlug: returns the hangul slice corresponding to hanja length', () => {
-  assert.equal(hangulHanjaSlug('예약하다', '豫約'), '예약');
-  assert.equal(hangulHanjaSlug('학교', '學校'), '학교');
-  assert.equal(hangulHanjaSlug('행복하다', '幸福'), '행복');
-});
-
-test('hangulHanjaSlug: returns null when no hanja or no hangul', () => {
-  assert.equal(hangulHanjaSlug('사람', ''), null);
-  assert.equal(hangulHanjaSlug('사람', null), null);
-  assert.equal(hangulHanjaSlug('', '豫約'), null);
-  assert.equal(hangulHanjaSlug(null, '豫約'), null);
+test('hanjaCharUrl: null for non-Hanja or invalid input', () => {
+  assert.equal(hanjaCharUrl('예'), null);
+  assert.equal(hanjaCharUrl(''), null);
+  assert.equal(hanjaCharUrl(null), null);
+  assert.equal(hanjaCharUrl(undefined), null);
+  assert.equal(hanjaCharUrl('豫約'), null);
 });
 
 test('isVerbLikePos: true for verbs, adjectives, and their auxiliary variants', () => {

@@ -250,7 +250,7 @@ Three parser functions:
 - `parseOpendictXml(xml, DOMParserCtor)` — similar shape but with `translation_info`/`language_type` instead of KRDict's `translation`/`trans_lang`.
 - `extractExamplesFromSense(senseEl)` — internal helper, walks `<example>` and `<example_text>` elements, dedupes leaves.
 
-Plus a few small data-massage helpers exported for content.js: `gradeToStars`, `gradeToTooltip`, `posToEnglish`, `posToShortform`, `hangulHanjaSlug`, `hangulHanjaUrl`, `filterTranslations`. Each is a pure lookup or trivial regex; each has unit tests.
+Plus a few small data-massage helpers exported for content.js: `gradeToStars`, `gradeToTooltip`, `posToEnglish`, `posToShortform`, `isHanjaChar`, `hanjaCharUrl`, `koreanVerbUrl`, `isVerbLikePos`, `filterTranslations`. Each is a pure lookup or trivial regex; each has unit tests.
 
 ## Decomposition glosses (extension/grammar-glosses.js)
 

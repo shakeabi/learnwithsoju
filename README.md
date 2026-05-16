@@ -37,7 +37,7 @@ A free, open-source browser extension that turns any webpage into a Korean readi
 - **Morpheme breakdown** — every chunk in the hovered word is shown with its part of speech and a short grammar gloss (subject marker, past tense, polite ending, …).
 - **Grammar pattern hints** — 290 multi-morpheme grammar patterns covering common learner-textbook constructions are flagged in the surrounding sentence (CC-BY 4.0 vendored dataset; see [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md) for attribution).
 - **Tabs for homographs** — when KRDict returns multiple entries for the same headword, you can switch between them. Tab labels show the part of speech.
-- **Hanja link** — when an entry has a Sino-Korean origin, the Hanja chip links out to [hangulhanja.com](https://hangulhanja.com) for the per-character breakdown.
+- **Per-character Hanja breakdown on demand** — for Sino-Korean entries, click the origin chip to expand a compact per-character breakdown (Sino-Korean reading + English gloss) from [hangulhanja.com](https://hangulhanja.com). Each character in the expanded panel also links out to its full hangulhanja.com page. The fetch is lazy — only fires on click — and results are cached locally so re-hovering the same Sino-Korean word is instant.
 - **English / Korean toggle** — switch the popup definition language with one click. Preference is remembered.
 - **Examples on demand** — KRDict examples are hidden by default to keep the popup compact; click *Show examples* per-sense to reveal.
 - **Local cache** — every word you've looked up is cached on your machine, so you never hit the dictionary API twice for the same surface form. Clear the cache anytime from the settings page.
@@ -80,18 +80,20 @@ Paste your key into the extension's settings page (`chrome://extensions` → cli
 
 ## Usage
 
-- **Hover** any Korean word on any webpage. The popup appears.
+- **Hover** any Korean word on any webpage. The popup appears, and stays as long as your cursor is on the word or on the popup itself.
+- **Click** a Korean word as a fallback — useful on sites where hover doesn't always fire (some video players, overlays). Click triggers the lookup immediately and doesn't navigate even if the word sits inside a link.
 - **Click the toolbar icon** to toggle the extension on/off, or to open settings.
 - **Click the EN / KR toggle** in the popup to switch the definition language. The choice persists.
-- **Click a tab** when there are multiple homograph entries.
+- **Click a tab** when there are multiple homograph entries — the popup keeps its current position.
+- **Click "+N related"** in the tab strip to fold in entries KRDict returned that aren't exact headword matches.
 - **Click "Show examples"** under a sense to reveal example sentences (when KRDict provides them).
-- **Click the Hanja chip** to open the per-character breakdown on hangulhanja.com.
+- **Click the Hanja chip** (Sino-Korean entries only) to expand a per-character breakdown — Sino-Korean reading + English gloss. The chip shows a `+` when collapsed and `−` when expanded. From the panel, clicking the character itself opens its full breakdown on hangulhanja.com.
 
 The first hover after the extension wakes up takes ~1–2 seconds while the morphological analyzer's dictionary loads. After that, hovers are instant.
 
 ## Privacy
 
-- The extension makes network requests **only** to `krdict.korean.go.kr` and `opendict.korean.go.kr` (when you've added the OpenDict key), using your API key.
+- The extension makes network requests **only** to `krdict.korean.go.kr`, `opendict.korean.go.kr` (when you've added the OpenDict key), and `hangulhanja.com` (only when you click a Hanja origin chip to expand its meanings — never automatically). Your API keys are sent only to the first two; the Hanja API takes the characters themselves as its query — no key, no other data.
 - No analytics, no tracking, no telemetry.
 - Your API keys and the lookup cache are stored locally via `chrome.storage` — never sent anywhere except the dictionary servers.
 
@@ -107,7 +109,7 @@ The first hover after the extension wakes up takes ~1–2 seconds while the morp
 
 - Per-domain disable list
 - Pronunciation audio (KRDict has audio links — wiring them up is small)
-- Hanja per-character meanings (currently just shown as a single chip, link to hangulhanja.com)
+- Pronunciation audio playback (KRDict has audio URLs; just need to wire them in)
 - Sentence-level grammar matching using mecab tokens (current matcher is regex on text — would catch more conjugated forms)
 
 ## Contributing & development

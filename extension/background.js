@@ -14,6 +14,11 @@ const MECAB_FILES = ['sys.dic.gz', 'matrix.bin.gz', 'entries.bin.gz'];
 const MECAB_WASM = 'mecab_ko_wasm_bg.wasm';
 
 const cache = createCache(chromeStorageAdapter(chrome.storage.local));
+// Hanja-meanings cache is namespaced separately so a `Clear cache` of word
+// lookups doesn't blow away the (small, ~hundreds of entries) hanja gloss
+// cache, and vice versa.
+const hanjaCache = createCache(chromeStorageAdapter(chrome.storage.local), { namespace: 'hanja' });
+const HANJA_API = 'https://hangulhanja.com/api/search';
 
 let mecabInstance = null;
 let mecabReadyPromise = null;
@@ -137,12 +142,58 @@ async function handleLookup(surface) {
   return result;
 }
 
+async function handleHanjaLookup(chars) {
+  // `chars` is the concatenated Hanja string from one origin field (e.g. "豫約").
+  // hangulhanja.com's /api/search accepts the whole string at once and returns
+  // per-character glosses in one response.
+  const key = String(chars || '').trim();
+  if (!key) return { chars: '', hanjas: [] };
+  const cached = await hanjaCache.get(key);
+  if (cached) return cached;
+  const url = `${HANJA_API}?q=${encodeURIComponent(key)}&mode=hanzi&locale=en`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      // 429s and 5xxs: return an error sentinel without caching, so a later
+      // hover for the same chars gets a fresh chance.
+      return { chars: key, error: 'FETCH_FAILED', status: res.status };
+    }
+    const data = await res.json();
+    const hanjas = Array.isArray(data && data.hanjas)
+      ? data.hanjas.map((h) => ({
+          character: h.character || '',
+          sino: h.sino || '',
+          summary: h.summaryText || '',
+        })).filter((h) => h.character)
+      : [];
+    const result = { chars: key, hanjas, cachedAt: Date.now() };
+    await hanjaCache.set(key, result);
+    return result;
+  } catch (err) {
+    return {
+      chars: key,
+      error: 'FETCH_FAILED',
+      message: String(err && err.message || err),
+    };
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === 'lookup' && typeof msg.surface === 'string') {
     handleLookup(msg.surface)
       .then(sendResponse)
       .catch((err) => sendResponse({
         surface: msg.surface,
+        error: 'INTERNAL',
+        message: String(err && err.message || err),
+      }));
+    return true;
+  }
+  if (msg && msg.type === 'lookupHanja' && typeof msg.chars === 'string') {
+    handleHanjaLookup(msg.chars)
+      .then(sendResponse)
+      .catch((err) => sendResponse({
+        chars: msg.chars,
         error: 'INTERNAL',
         message: String(err && err.message || err),
       }));
@@ -158,7 +209,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
   if (msg && msg.type === 'clearCache') {
-    cache.clear()
+    Promise.all([cache.clear(), hanjaCache.clear()])
       .then(() => sendResponse({ ok: true }))
       .catch((err) => sendResponse({ ok: false, error: String(err && err.message || err) }));
     return true;

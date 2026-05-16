@@ -15,8 +15,6 @@
   --chip-amber-fg: #7a4a18;
   --chip-cyan-bg: #cfe7ed;
   --chip-cyan-fg: #1f5d68;
-  --chip-green-bg: #d4ead4;
-  --chip-green-fg: #2c5f2c;
   --chip-soft-bg: #eff1f6;
   --chip-soft-fg: #5b6172;
 
@@ -41,8 +39,6 @@
     --chip-amber-fg: #f7c688;
     --chip-cyan-bg: rgba(155, 213, 224, 0.15);
     --chip-cyan-fg: #9bd5e0;
-    --chip-green-bg: rgba(154, 213, 154, 0.16);
-    --chip-green-fg: #9ad59a;
     --chip-soft-bg: rgba(255, 255, 255, 0.06);
     --chip-soft-fg: #b6bdcc;
 
@@ -59,10 +55,11 @@
   position: fixed;
   /* Width grows with content (so a wide tab strip can extend the popup), but
      stays within sensible bounds. min-width keeps short single-entry popups
-     readable; max-width keeps wide tab rows from going edge-to-edge. */
+     readable; max-width caps the popup at a comfortable reading column —
+     wider tab strips wrap to a second row rather than push the popup wider. */
   width: max-content;
   min-width: 380px;
-  max-width: min(640px, calc(100vw - 16px));
+  max-width: min(520px, calc(100vw - 16px));
   max-height: 70vh;
   overflow-y: auto;
   background: var(--bg);
@@ -292,6 +289,7 @@
 .lws-chip {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   font-size: 12px;
   padding: 2px 9px;
   border-radius: 999px;
@@ -309,11 +307,6 @@
   color: var(--chip-cyan-fg);
 }
 
-.lws-chip-green {
-  background: var(--chip-green-bg);
-  color: var(--chip-green-fg);
-}
-
 .lws-chip-soft {
   background: var(--chip-soft-bg);
   color: var(--chip-soft-fg);
@@ -325,10 +318,98 @@
   cursor: pointer;
   transition: text-decoration-color 0.12s ease;
 }
-.lws-chip-link:hover {
+.lws-chip-link:hover .lws-chip-label {
   text-decoration: underline;
   text-underline-offset: 3px;
   text-decoration-thickness: 1px;
+}
+
+/* Interactive (clickable) chip — currently used by the Hanja pill to toggle
+   the meanings panel. Reset button defaults, add subtle hover affordance. */
+.lws-chip-button {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  transition: filter 0.12s ease, box-shadow 0.12s ease;
+}
+.lws-chip-button:hover {
+  filter: brightness(0.96);
+  box-shadow: 0 0 0 2px var(--chip-amber-bg) inset;
+}
+.lws-chip-button[aria-expanded="true"] {
+  box-shadow: 0 0 0 2px var(--chip-amber-fg) inset;
+}
+.lws-chip-indicator {
+  flex: 0 0 auto;
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.85;
+}
+.lws-chip-button:hover .lws-chip-indicator,
+.lws-chip-button[aria-expanded="true"] .lws-chip-indicator {
+  opacity: 1;
+}
+
+.lws-ext-icon {
+  flex: 0 0 auto;
+  opacity: 0.65;
+  transition: opacity 0.12s ease;
+}
+.lws-chip:hover .lws-ext-icon {
+  opacity: 1;
+}
+
+/* Click-to-expand Hanja meanings panel — sits below the meta row when the
+   Hanja pill itself has been clicked. Same soft well + amber border-left as
+   the examples block for visual rhyme. */
+.lws-hanja-meanings {
+  margin: 6px 16px 0;
+  padding: 6px 10px;
+  background: var(--soft);
+  border-left: 2px solid var(--chip-amber-bg);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.lws-hanja-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lws-hanja-row-char {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--chip-amber-fg);
+  min-width: 1.2em;
+  text-decoration: none;
+  cursor: pointer;
+}
+a.lws-hanja-row-char:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.lws-hanja-row-sino {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.lws-hanja-row-summary {
+  flex: 1 1 auto;
+  color: var(--fg);
+}
+.lws-hanja-loading,
+.lws-hanja-empty {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
 }
 
 /* Entry tabs (only when KRDict returns >1 entry).
@@ -460,6 +541,21 @@
 }
 .lws-examples-toggle[aria-expanded="true"] {
   color: var(--chip-amber-fg);
+}
+
+/* "+N related" pill appended to the tab bar when KRDict returned loosely
+   related entries alongside the headword match. Click expands them as
+   additional tabs inline. Visually muted vs. regular tabs so it reads as
+   a control, not an entry. */
+.lws-tab-expand {
+  color: var(--muted);
+  font-style: italic;
+  opacity: 0.85;
+}
+.lws-tab-expand:hover {
+  color: var(--chip-amber-fg);
+  background: var(--chip-amber-bg);
+  opacity: 1;
 }
 
 .lws-examples {
