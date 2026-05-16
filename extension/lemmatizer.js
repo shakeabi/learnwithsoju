@@ -68,8 +68,17 @@ function leadTag(pos) {
  *
  * Format of the decomposition column (index 7): `stem/POS/sense+stem/POS/sense+...`.
  * For `걸려` features = `VV+EC,*,F,걸려,Inflect,VV,EC,걸리/VV/*+어/EC/*`,
- * this returns `걸리`. For non-Inflect tokens (where index 7 is `*`),
- * returns `null`.
+ * this returns `걸리`. For non-Inflect tokens (regular verbs, plain nouns,
+ * compound nouns), returns `null` so callers fall back to `t.lemma` /
+ * `t.surface`.
+ *
+ * The gate on `type === 'Inflect'` (index 4) is critical. mecab-ko-dic
+ * also populates the decomposition column for `Compound`-type entries —
+ * 오랜만 / 한국말 / 파티원들 are stored as NNGs with a Compound breakdown
+ * like `오랜/NNG/*+만/NNG/*`. Without this gate we'd extract `오랜` and
+ * treat that as the noun's stem instead of letting the surface 오랜만
+ * stand as the lemma. Type=Inflect specifically marks the irregular verb
+ * conjugations this helper was built for (걸려, 봐요, 돼요, 해야).
  *
  * @param {string | null | undefined} features
  * @returns {string | null}
@@ -78,6 +87,9 @@ export function inflectStem(features) {
   if (!features) return null;
   const parts = features.split(',');
   if (parts.length < 8) return null;
+  // Only Inflect tokens decompose. Compound nouns / regular forms keep
+  // their surface as the lemma.
+  if (parts[4] !== 'Inflect') return null;
   const decomp = parts[7];
   if (!decomp || decomp === '*') return null;
   // Take everything before the first '/' of the first '+'-separated chunk.

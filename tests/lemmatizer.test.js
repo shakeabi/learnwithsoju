@@ -101,6 +101,38 @@ test('inflectStem: extracts the leading stem from the decomposition column', () 
   );
 });
 
+test('inflectStem: returns null for Compound-type tokens (NNG with decomposition)', () => {
+  // mecab-ko-dic stores 오랜만 as NNG with a Compound breakdown in column 7.
+  // Without the type=Inflect gate we'd return 오랜 here and the lemmatizer
+  // would query KRDict for 오랜 instead of 오랜만.
+  assert.equal(
+    inflectStem('NNG,*,T,오랜만,Compound,NNG,NNG,오랜/NNG/*+만/NNG/*'),
+    null,
+  );
+  // Other non-Inflect types should also return null even if column 7 has
+  // content (defensive — covers anything else mecab-ko-dic might store).
+  assert.equal(
+    inflectStem('NNG,*,T,한국말,Compound,NNP,NNG,한국/NNP/*+말/NNG/*'),
+    null,
+  );
+});
+
+test('NNG with Compound decomposition: surface lemma stays intact', () => {
+  // 오랜만이에요 → 오랜만/NNG (Compound) + 이/VCP + 에요/EF. The NNG token's
+  // feature column 7 has 오랜/NNG/*+만/NNG/*, but inflectStem must not use
+  // that as the stem — the NNG's own surface is the right lemma.
+  const tokens = [
+    tok('오랜만', 'NNG', '오랜만', 'NNG,*,T,오랜만,Compound,NNG,NNG,오랜/NNG/*+만/NNG/*'),
+    tok('이', 'VCP', '이', 'VCP,*,F,이,*,*,*,*'),
+    tok('에요', 'EF', '에요', 'EF,*,F,에요,*,*,*,*'),
+  ];
+  const candidates = lemmaCandidates(tokens, '오랜만이에요');
+  assert.equal(candidates[0], '오랜만');
+  // The pre-fix bug pushed 오랜 instead — make sure it doesn't reappear.
+  assert.ok(!candidates.includes('오랜'));
+  assert.ok(candidates.includes('이다'));
+});
+
 test('noun (NNG) used directly as lemma', () => {
   const tokens = [tok('학교', 'NNG'), tok('에서', 'JKB')];
   const candidates = lemmaCandidates(tokens, '학교에서');
