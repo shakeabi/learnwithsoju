@@ -141,6 +141,16 @@ export class WasmToken {
      */
     readonly end: number;
     /**
+     * Get the full raw CSV feature string from the dictionary entry.
+     *
+     * Format: `pos,semantic,jongseong,reading,type,first_pos,last_pos,decomposition`.
+     * For Inflect-type tokens (e.g. `걸려` from `걸리다 + 어`), index 7
+     * holds the morpheme breakdown like `걸리/VV/*+어/EC/*`. The `lemma`
+     * getter only surfaces the reading at index 3; callers needing the
+     * actual dictionary stem must parse `features` themselves.
+     */
+    readonly features: string;
+    /**
      * Get the lemma/base form (if available)
      */
     readonly lemma: string | undefined;
@@ -184,6 +194,7 @@ export interface InitOutput {
     readonly mecab_wakati: (a: number, b: number, c: number) => [number, number];
     readonly mecab_withDictBytes: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly wasmtoken_end: (a: number) => number;
+    readonly wasmtoken_features: (a: number) => [number, number];
     readonly wasmtoken_lemma: (a: number) => [number, number];
     readonly wasmtoken_pos: (a: number) => [number, number];
     readonly wasmtoken_reading: (a: number) => [number, number];

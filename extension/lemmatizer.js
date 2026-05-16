@@ -4,17 +4,28 @@
  * try against KRDict.
  *
  * Token shape (from mecab-ko-wasm `Mecab.tokenize(surface)`):
- *   { surface: string, pos: string, lemma?: string, reading?: string, start, end }
+ *   { surface, pos, lemma?, reading?, features?, start, end }
  *
  * `pos` carries Sejong POS tags, sometimes merged with `+` for fused
  * morphemes (e.g. `VV+EP`, `XSV+EF`). We split on `+` and look at the
  * leading tag to decide what role each morpheme plays.
  *
+ * The `features` field is the raw mecab-ko-dic CSV row:
+ *   `pos,semantic,jongseong,reading,type,first_pos,last_pos,decomposition`
+ *
+ * For Inflect-type tokens (irregular conjugations where the dictionary
+ * stores the conjugated form whole — `걸려`, `예뻐요`, `봐요`, `해야`),
+ * the `decomposition` column at index 7 carries the actual morpheme
+ * breakdown like `걸리/VV/*+어/EC/*`. We pull the first morpheme's stem
+ * out of that — `lemma` itself is just a clone of the reading, so it
+ * would otherwise give us `걸려` instead of `걸리`.
+ *
  * Strategy
  * --------
  *   1. Walk tokens left-to-right, collect content morphemes.
  *      - Verb / adjective stems (VV, VA, VX, VCN, VCP, XSV, XSA): append `다`
- *        to form the lemma.
+ *        to the stem to form the lemma. Use the Inflect decomposition when
+ *        present, otherwise the `lemma`/surface.
  *      - Nouns / pronouns / numerals (NNG, NNP, NR, NP, SL, SH, SN): the
  *        morpheme itself is the lemma.
  *      - Anything else (particles JK*, endings E*, suffixes XSN, marks SF/SP):
@@ -40,7 +51,32 @@ function leadTag(pos) {
 }
 
 /**
- * @param {Array<{surface: string, pos: string, lemma?: string}>} tokens
+ * Pull the first morpheme's stem out of an Inflect-type feature string.
+ *
+ * Format of the decomposition column (index 7): `stem/POS/sense+stem/POS/sense+...`.
+ * For `걸려` features = `VV+EC,*,F,걸려,Inflect,VV,EC,걸리/VV/*+어/EC/*`,
+ * this returns `걸리`. For non-Inflect tokens (where index 7 is `*`),
+ * returns `null`.
+ *
+ * @param {string | null | undefined} features
+ * @returns {string | null}
+ */
+export function inflectStem(features) {
+  if (!features) return null;
+  const parts = features.split(',');
+  if (parts.length < 8) return null;
+  const decomp = parts[7];
+  if (!decomp || decomp === '*') return null;
+  // Take everything before the first '/' of the first '+'-separated chunk.
+  const firstPlus = decomp.indexOf('+');
+  const firstChunk = firstPlus === -1 ? decomp : decomp.slice(0, firstPlus);
+  const firstSlash = firstChunk.indexOf('/');
+  if (firstSlash <= 0) return null;
+  return firstChunk.slice(0, firstSlash);
+}
+
+/**
+ * @param {Array<{surface: string, pos: string, lemma?: string, features?: string}>} tokens
  * @param {string} surface
  * @returns {string[]} ordered candidate lemmas
  */
@@ -57,11 +93,12 @@ export function lemmaCandidates(tokens, surface) {
   if (Array.isArray(tokens)) {
     for (const t of tokens) {
       const tag = leadTag(t.pos || '');
-      const stem = t.lemma || t.surface || '';
+      // Prefer the Inflect decomposition stem when available (irregulars).
+      // Otherwise fall through to lemma/surface — which is correct for
+      // already-split tokens (e.g. 먹/VV from 먹었어요).
+      const stem = inflectStem(t.features) || t.lemma || t.surface || '';
       if (!stem) continue;
       if (VERB_LEAD_TAGS.has(tag)) {
-        // Verb/adjective stems become headwords with -다 appended.
-        // Mecab returns the surface stem (e.g. 먹/VV for "먹었어요"); we add 다.
         push(stem.endsWith('다') ? stem : stem + '다');
       } else if (NOUN_LEAD_TAGS.has(tag)) {
         push(stem);

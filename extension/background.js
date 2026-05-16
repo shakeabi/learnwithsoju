@@ -63,6 +63,7 @@ async function tokenizeSurface(surface) {
       pos: t.pos,
       lemma: t.lemma || null,
       reading: t.reading || null,
+      features: t.features || null,
       start: t.start,
       end: t.end,
     }));

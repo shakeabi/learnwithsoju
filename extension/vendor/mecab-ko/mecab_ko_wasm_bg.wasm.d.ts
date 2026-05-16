@@ -11,6 +11,7 @@ export const mecab_tokenize: (a: number, b: number, c: number) => [number, numbe
 export const mecab_wakati: (a: number, b: number, c: number) => [number, number];
 export const mecab_withDictBytes: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const wasmtoken_end: (a: number) => number;
+export const wasmtoken_features: (a: number) => [number, number];
 export const wasmtoken_lemma: (a: number) => [number, number];
 export const wasmtoken_pos: (a: number) => [number, number];
 export const wasmtoken_reading: (a: number) => [number, number];

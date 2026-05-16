@@ -245,6 +245,28 @@ export class WasmToken {
         return ret >>> 0;
     }
     /**
+     * Get the full raw CSV feature string from the dictionary entry.
+     *
+     * Format: `pos,semantic,jongseong,reading,type,first_pos,last_pos,decomposition`.
+     * For Inflect-type tokens (e.g. `걸려` from `걸리다 + 어`), index 7
+     * holds the morpheme breakdown like `걸리/VV/*+어/EC/*`. The `lemma`
+     * getter only surfaces the reading at index 3; callers needing the
+     * actual dictionary stem must parse `features` themselves.
+     * @returns {string}
+     */
+    get features() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmtoken_features(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * Get the lemma/base form (if available)
      * @returns {string | undefined}
      */

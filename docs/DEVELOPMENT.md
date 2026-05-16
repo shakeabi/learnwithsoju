@@ -159,6 +159,8 @@ The candidate list is ordered: most-likely lemma first, surface form last as fal
 
 The "surface as fallback" is important — mecab splits compound nouns like `한국말` into `한국 + 말`, but KRDict often indexes the compound whole. So we try both.
 
+**Inflect-type tokens.** When the dictionary stores an irregular conjugation whole (`걸려`, `예뻐요`, `봐요`, `돼요`, `해야` …), mecab emits a single token whose `lemma` getter returns just the reading — useless for dictionary lookup. The real morpheme decomposition lives at index 7 of the raw `features` CSV row, e.g. `걸리/VV/*+어/EC/*`. `inflectStem(features)` parses that out and the lemmatizer prefers it over `lemma` when present, so `걸려` resolves to `걸리다` instead of `걸려다`.
+
 ## Mecab integration (the long story)
 
 Full deep-dive in [MECAB_INTEGRATION.md](MECAB_INTEGRATION.md). Short version:
