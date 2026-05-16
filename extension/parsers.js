@@ -226,6 +226,43 @@ export function hangulHanjaUrl(hangulWord, origin) {
   return `https://hangulhanja.com/en/words/${encodeURIComponent(slug)}`;
 }
 
+const VERB_LIKE_POS = new Set([
+  '동사', '보조 동사', '보조동사',
+  '형용사', '보조 형용사', '보조형용사',
+]);
+
+/**
+ * Whether a KRDict/OpenDict POS label represents something koreanverb.app
+ * can conjugate. Korean adjectives ("descriptive verbs") conjugate the same
+ * way as action verbs, so we include them.
+ *
+ * @param {string | null | undefined} pos
+ * @returns {boolean}
+ */
+export function isVerbLikePos(pos) {
+  if (!pos) return false;
+  return VERB_LIKE_POS.has(String(pos).trim());
+}
+
+/**
+ * Build a koreanverb.app conjugation-table link for a verb or adjective.
+ *
+ * Returns null when the POS isn't verb-like, or when the word doesn't look
+ * like a dictionary form (KRDict always ends verbs/adjectives in -다, so
+ * anything else means malformed data — don't link out).
+ *
+ * @param {string | null | undefined} hangulWord
+ * @param {string | null | undefined} pos
+ * @returns {string | null}
+ */
+export function koreanVerbUrl(hangulWord, pos) {
+  if (!isVerbLikePos(pos)) return null;
+  if (!hangulWord) return null;
+  const w = String(hangulWord).trim();
+  if (!w || !/다$/.test(w)) return null;
+  return `https://koreanverb.app/?search=${encodeURIComponent(w)}`;
+}
+
 /**
  * Filter OpenDict translations to a single target language.
  *

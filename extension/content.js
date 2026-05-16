@@ -26,6 +26,7 @@
     posToShortform,
     hangulHanjaUrl,
     hangulHanjaSlug,
+    koreanVerbUrl,
   } = parsers;
 
   const glosses = await import(chrome.runtime.getURL('grammar-glosses.js'));
@@ -636,6 +637,8 @@
     meta.className = 'lws-meta-row';
     if (entry.pos) meta.appendChild(makeChip(displayPos(entry.pos), 'cyan'));
     if (entry.pronunciation) meta.appendChild(makeChip(`[${entry.pronunciation}]`, 'soft'));
+    const krVerbChip = makeVerbChip(entry.word, entry.pos);
+    if (krVerbChip) meta.appendChild(krVerbChip);
     if (entry.origin) meta.appendChild(makeHanjaChip(entry.word, entry.origin));
     if (meta.children.length) wrap.appendChild(meta);
 
@@ -733,10 +736,12 @@
     headline.appendChild(word);
     wrap.appendChild(headline);
 
-    if (entry.pos || entry.origin) {
+    const odVerbChip = makeVerbChip(entry.word, entry.pos);
+    if (entry.pos || entry.origin || odVerbChip) {
       const meta = document.createElement('div');
       meta.className = 'lws-meta-row';
       if (entry.pos) meta.appendChild(makeChip(displayPos(entry.pos), 'cyan'));
+      if (odVerbChip) meta.appendChild(odVerbChip);
       if (entry.origin) meta.appendChild(makeHanjaChip(entry.word, entry.origin));
       wrap.appendChild(meta);
     }
@@ -815,6 +820,16 @@
       });
     }
     return makeChip(origin, 'amber');
+  }
+
+  function makeVerbChip(hangulWord, pos) {
+    const url = koreanVerbUrl(hangulWord, pos);
+    if (!url) return null;
+    const label = defLang === 'en' ? 'conjugate' : '활용';
+    return makeChip(label, 'green', {
+      href: url,
+      title: `Conjugation table for ${hangulWord} on koreanverb.app`,
+    });
   }
 
   function displayPos(pos) {

@@ -14,6 +14,8 @@ import {
   posToShortform,
   hangulHanjaUrl,
   hangulHanjaSlug,
+  koreanVerbUrl,
+  isVerbLikePos,
 } from '../extension/parsers.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -244,6 +246,63 @@ test('hangulHanjaSlug: returns null when no hanja or no hangul', () => {
   assert.equal(hangulHanjaSlug('사람', null), null);
   assert.equal(hangulHanjaSlug('', '豫約'), null);
   assert.equal(hangulHanjaSlug(null, '豫約'), null);
+});
+
+test('isVerbLikePos: true for verbs, adjectives, and their auxiliary variants', () => {
+  assert.equal(isVerbLikePos('동사'), true);
+  assert.equal(isVerbLikePos('형용사'), true);
+  assert.equal(isVerbLikePos('보조 동사'), true);
+  assert.equal(isVerbLikePos('보조동사'), true);
+  assert.equal(isVerbLikePos('보조 형용사'), true);
+  assert.equal(isVerbLikePos('보조형용사'), true);
+});
+
+test('isVerbLikePos: false for non-verb POS, empty, and null', () => {
+  assert.equal(isVerbLikePos('명사'), false);
+  assert.equal(isVerbLikePos('부사'), false);
+  assert.equal(isVerbLikePos('조사'), false);
+  assert.equal(isVerbLikePos(''), false);
+  assert.equal(isVerbLikePos(null), false);
+  assert.equal(isVerbLikePos(undefined), false);
+});
+
+test('isVerbLikePos: tolerates surrounding whitespace', () => {
+  assert.equal(isVerbLikePos('  동사  '), true);
+});
+
+test('koreanVerbUrl: builds a koreanverb.app search link for verbs and adjectives', () => {
+  assert.equal(
+    koreanVerbUrl('예약하다', '동사'),
+    'https://koreanverb.app/?search=' + encodeURIComponent('예약하다'),
+  );
+  assert.equal(
+    koreanVerbUrl('행복하다', '형용사'),
+    'https://koreanverb.app/?search=' + encodeURIComponent('행복하다'),
+  );
+  assert.equal(
+    koreanVerbUrl('있다', '보조 동사'),
+    'https://koreanverb.app/?search=' + encodeURIComponent('있다'),
+  );
+});
+
+test('koreanVerbUrl: null for non-verb POS', () => {
+  assert.equal(koreanVerbUrl('사람', '명사'), null);
+  assert.equal(koreanVerbUrl('빨리', '부사'), null);
+});
+
+test('koreanVerbUrl: null for missing / non-dictionary-form words', () => {
+  assert.equal(koreanVerbUrl('', '동사'), null);
+  assert.equal(koreanVerbUrl(null, '동사'), null);
+  assert.equal(koreanVerbUrl('   ', '동사'), null);
+  // KRDict always gives the -다 form for verbs; anything else is malformed
+  assert.equal(koreanVerbUrl('가', '동사'), null);
+});
+
+test('koreanVerbUrl: trims surrounding whitespace before encoding', () => {
+  assert.equal(
+    koreanVerbUrl('  가다  ', '동사'),
+    'https://koreanverb.app/?search=' + encodeURIComponent('가다'),
+  );
 });
 
 test('gradeToStars: maps Korean grade labels', () => {

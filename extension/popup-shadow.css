@@ -15,6 +15,8 @@
   --chip-amber-fg: #7a4a18;
   --chip-cyan-bg: #cfe7ed;
   --chip-cyan-fg: #1f5d68;
+  --chip-green-bg: #d4ead4;
+  --chip-green-fg: #2c5f2c;
   --chip-soft-bg: #eff1f6;
   --chip-soft-fg: #5b6172;
 
@@ -39,6 +41,8 @@
     --chip-amber-fg: #f7c688;
     --chip-cyan-bg: rgba(155, 213, 224, 0.15);
     --chip-cyan-fg: #9bd5e0;
+    --chip-green-bg: rgba(154, 213, 154, 0.16);
+    --chip-green-fg: #9ad59a;
     --chip-soft-bg: rgba(255, 255, 255, 0.06);
     --chip-soft-fg: #b6bdcc;
 
@@ -303,6 +307,11 @@
 .lws-chip-cyan {
   background: var(--chip-cyan-bg);
   color: var(--chip-cyan-fg);
+}
+
+.lws-chip-green {
+  background: var(--chip-green-bg);
+  color: var(--chip-green-fg);
 }
 
 .lws-chip-soft {
