@@ -86,6 +86,8 @@
   let hideTimer = null;
   let hoverTimer = null;
   let pendingRequestId = 0;
+  let popupPinned = false;
+  let popupPinnedSafetyTimer = null;
   // Video auto-pause/resume state. `pausedVideo` holds the element we
   // paused; `resumeOnHide` is the consent flag (cleared if the user
   // manually pauses again after our auto-pause); `suppressNextPause` lets
@@ -197,7 +199,10 @@
     popupRoot.appendChild(popupEl);
     document.documentElement.appendChild(popupHost);
 
-    popupEl.addEventListener('mouseenter', cancelHide);
+    popupEl.addEventListener('mouseenter', () => {
+      cancelHide();
+      unpinPopup();
+    });
     popupEl.addEventListener('mouseleave', scheduleHide);
   }
 
@@ -210,7 +215,29 @@
 
   function scheduleHide() {
     cancelHide();
+    if (popupPinned) return;
     hideTimer = setTimeout(hidePopup, HIDE_DELAY_MS);
+  }
+
+  function pinPopup() {
+    popupPinned = true;
+    cancelHide();
+    if (popupPinnedSafetyTimer) clearTimeout(popupPinnedSafetyTimer);
+    // Safety: even if the user never re-engages the popup with their
+    // cursor, drop the pin after 3 seconds so the next legitimate
+    // mouseleave can hide the popup normally.
+    popupPinnedSafetyTimer = setTimeout(() => {
+      popupPinned = false;
+      popupPinnedSafetyTimer = null;
+    }, 3000);
+  }
+
+  function unpinPopup() {
+    popupPinned = false;
+    if (popupPinnedSafetyTimer) {
+      clearTimeout(popupPinnedSafetyTimer);
+      popupPinnedSafetyTimer = null;
+    }
   }
 
   // Site adapters (site-configs.js) can expose a findVideo() that returns
@@ -256,6 +283,7 @@
   }
 
   function hidePopup() {
+    unpinPopup();
     if (popupEl) {
       popupEl.style.display = 'none';
       popupEl.innerHTML = '';
@@ -505,6 +533,7 @@
       word: surface,
       after: fullText.slice(offset + surface.length),
     };
+    pinPopup();
     performLookup(null, { surface, sentence: newSentence });
   }
 
