@@ -1477,15 +1477,16 @@ For each unique base language we need, we capture exactly once.
 
 1. Manual KO track (kind !== 'asr') → use directly, target='ko',
    translate=false.
-2. Manual EN track → use as base, target='ko', translate=true.
-   `materializeLines` will refetch the captured EN URL with
-   `&tlang=ko` appended.
-3. KO ASR (auto-generated) → use directly. Last resort because YouTube's
-   Korean ASR is noticeably worse than its English/Japanese ASR.
+2. KO ASR (auto-generated) → use directly.
 
-Returning `null` means we couldn't find a usable Korean source at all
-(no KO track and no EN track to translate from). The adapter logs and
-silently exits — no overlay is mounted.
+We deliberately don't fall back to translating another language's
+manual track into Korean. Auto-translated KO from e.g. an English
+manual track is misleading for learners — the wording, register, and
+morphology won't match what's actually being spoken. KO ASR is
+imperfect but at least reflects the actual audio.
+
+Returning `null` means the video has no Korean track at all. The
+adapter logs and silently exits — no overlay is mounted.
 
 ### 10.5 Secondary user-lang source priority
 
@@ -1502,8 +1503,8 @@ Korean line.
 ### 10.6 Sharing base captures
 
 When the primary and secondary derive from the same base language (e.g.
-primary is "manual EN translated to KO" and secondary is "manual EN
-direct"), we only need to capture EN once. The
+primary is "KO ASR direct" and the user's secondary preference is also
+fed from that ASR via &tlang=…), we only need to capture once. The
 `baseLangs` Set in `initForCurrentVideo` collects the unique base
 languages and the capture loop fetches each one once.
 

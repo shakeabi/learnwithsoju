@@ -337,13 +337,17 @@ function isCaptionUrlMatchingLang(url, lang) {
 
 // Primary (Korean) source selection.
 //   1. manual KO track     → use directly
-//   2. manual EN track     → translate to KO via &tlang=ko
-//   3. KO ASR (auto-gen)   → use directly (last resort)
+//   2. KO ASR (auto-gen)   → use directly
+//
+// We deliberately don't fall back to translating another language's
+// manual track into Korean. Auto-translated KO from English subs ends
+// up sounding nothing like the actual spoken Korean — for a learner,
+// that's actively misleading (wrong word choice, wrong register,
+// wrong morphology). KO ASR is imperfect but at least reflects what
+// was actually said.
 function pickPrimarySource(tracks) {
   const manualKo = tracks.find((t) => isLang(t, 'ko') && !isAsr(t));
   if (manualKo) return { baseTrack: manualKo, target: 'ko', translate: false };
-  const manualEn = tracks.find((t) => isLang(t, 'en') && !isAsr(t));
-  if (manualEn) return { baseTrack: manualEn, target: 'ko', translate: true };
   const asrKo = tracks.find((t) => isLang(t, 'ko') && isAsr(t));
   if (asrKo) return { baseTrack: asrKo, target: 'ko', translate: false };
   return null;
