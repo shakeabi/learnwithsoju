@@ -117,11 +117,43 @@ test('noun + plural marker + particle: noun comes first, particle/marker skipped
   assert.ok(!candidates.includes('과'));
 });
 
-test('compound noun split by mecab — noun parts surface, full word as fallback', () => {
-  // 한국말 → 한국/NNP + 말/NNG
+test('compound noun split by mecab — full surface leads, parts follow', () => {
+  // 한국말 → 한국/NNP + 말/NNG. KRDict has both 한국말 (compound) and 한국
+  // (just "Korea"). The user almost always wants the compound when they
+  // hover the whole word, so the full surface goes first.
   const tokens = [tok('한국', 'NNP'), tok('말', 'NNG')];
   const candidates = lemmaCandidates(tokens, '한국말');
-  assert.deepEqual(candidates, ['한국', '말', '한국말']);
+  assert.deepEqual(candidates, ['한국말', '한국', '말']);
+});
+
+test('compound NNG+NNG: 반말 → 반말 first (was matching 반 alone before)', () => {
+  // 반말 → 반/NNG + 말/NNG. KRDict has both 반 (half) and 반말 (informal
+  // speech). The compound is what the user hovered.
+  const tokens = [tok('반', 'NNG'), tok('말', 'NNG')];
+  const candidates = lemmaCandidates(tokens, '반말');
+  assert.equal(candidates[0], '반말');
+  assert.ok(candidates.includes('반'));
+  assert.ok(candidates.includes('말'));
+});
+
+test('compound NNG+NNG: 무조건 → 무조건 first (was matching 무 alone before)', () => {
+  // 무조건 → 무/NNG + 조건/NNG when mecab doesn't recognize the whole as MAG.
+  const tokens = [tok('무', 'NNG'), tok('조건', 'NNG')];
+  const candidates = lemmaCandidates(tokens, '무조건');
+  assert.equal(candidates[0], '무조건');
+  assert.ok(candidates.includes('무'));
+  assert.ok(candidates.includes('조건'));
+});
+
+test('noun + plural marker (no particle): 친구들 → 친구들 first', () => {
+  // 친구/NNG + 들/XSN. Both are noun-like (no particle), so the full
+  // surface is the leading candidate. KRDict probably has no entry for
+  // "친구들" specifically, but trying it costs little and lets us catch
+  // anything that happens to be indexed as a plural lexeme.
+  const tokens = [tok('친구', 'NNG'), tok('들', 'XSN')];
+  const candidates = lemmaCandidates(tokens, '친구들');
+  assert.equal(candidates[0], '친구들');
+  assert.ok(candidates.includes('친구'));
 });
 
 test('compound NNG+XSV: 공부하다 is the first candidate', () => {
@@ -155,6 +187,21 @@ test('compound XR+XSA: 깨끗하다 — XR alone is not a candidate', () => {
   // XR by itself isn't a real word; it should not appear as a candidate.
   assert.ok(!candidates.includes('깨끗'));
   // The XSA-derived 하다 is still a fallback candidate.
+  assert.ok(candidates.includes('하다'));
+});
+
+test('compound MM+NNB+XSV (한잔해): full noun-phrase prefix combines with the verb-deriving suffix', () => {
+  // 한잔해 → 한/MM + 잔/NNB + 해/XSV+EC (Inflect = 하/XSV/*+어/EF/*)
+  // Without the wider prefix rule we used to only produce "하다" — the
+  // 한 / 잔 part fell off because MM and NNB weren't in the base set.
+  const tokens = [
+    tok('한', 'MM'),
+    tok('잔', 'NNB'),
+    tok('해', 'XSV+EC', '해', 'XSV+EC,*,F,해,Inflect,XSV,EC,하/XSV/*+어/EC/*'),
+  ];
+  const candidates = lemmaCandidates(tokens, '한잔해');
+  assert.equal(candidates[0], '한잔하다');
+  // The standalone "하다" is still a fallback.
   assert.ok(candidates.includes('하다'));
 });
 

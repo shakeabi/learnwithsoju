@@ -43,11 +43,19 @@
 
 const VERB_LEAD_TAGS = new Set(['VV', 'VA', 'VX', 'VCN', 'VCP', 'XSV', 'XSA']);
 const NOUN_LEAD_TAGS = new Set(['NNG', 'NNP', 'NR', 'NP', 'SL', 'SH', 'SN']);
-// Bases that combine with a verb/adjective-deriving suffix into a compound
-// stem (`어색`/NNG + `하`/XSV → `어색하다`). XR ("root") on its own isn't a
-// word — it only ever appears as the base half of such a compound.
-const COMPOUND_BASE_TAGS = new Set(['NNG', 'NNP', 'XR']);
+// Tags that can appear in the noun-phrase prefix before an XSV/XSA suffix.
+// Wider than NOUN_LEAD_TAGS — includes MM (관형사 / determiners like 한, 두,
+// 새), NNB (bound nouns like 잔, 번, 적), and XR (roots like 깨끗, 행복).
+// Without these, compounds like `한잔하다` (`한`/MM + `잔`/NNB + `해`/XSV+EF)
+// fall through to just `하다`.
+const COMPOUND_PREFIX_TAGS = new Set(['NNG', 'NNP', 'NNB', 'NR', 'NP', 'MM', 'XR', 'XSN']);
 const COMPOUND_DERIV_TAGS = new Set(['XSV', 'XSA']);
+// When *every* token in the surface is one of these, the surface is almost
+// always a compound noun mecab split into pieces (반말 → 반+말, 무조건 → 무+조건,
+// 한국어 → 한국+어). The full compound is what the learner hovered, so we try
+// it first as the lemma candidate. Particles/endings/verbs would break this
+// invariant, so the regular lemma-first chain kicks in instead.
+const COMPOUND_NOUN_TAGS = new Set(['NNG', 'NNP', 'NR', 'NP', 'XSN']);
 
 function leadTag(pos) {
   if (!pos) return '';
@@ -95,7 +103,49 @@ export function lemmaCandidates(tokens, surface) {
     }
   };
 
+  // Compound-noun-first: when every token is noun-like (no particles,
+  // no inflection, no verb stems), the surface is almost certainly a
+  // compound noun. Push it before the individual pieces so KRDict's
+  // first-hit-wins query order returns the compound (e.g. "반말") rather
+  // than the first sub-noun (e.g. "반").
+  if (Array.isArray(tokens) && tokens.length > 1 && surface) {
+    const allNounLike = tokens.every((t) => {
+      const tag = leadTag(t.pos || '');
+      return tag && COMPOUND_NOUN_TAGS.has(tag);
+    });
+    if (allNounLike) push(String(surface).trim());
+  }
+
   if (Array.isArray(tokens)) {
+    // Compound noun-phrase + XSV/XSA → push the whole compound first.
+    //
+    //   어색하려고  → 어색/NNG  + 하/XSV  + 려고/EC      ⇒  어색하다
+    //   예약해야    → 예약/NNG + 해야/XSV+EC (Inflect)   ⇒  예약하다
+    //   한잔해     → 한/MM    + 잔/NNB  + 해/XSV+EF     ⇒  한잔하다
+    //   깨끗하다    → 깨끗/XR  + 하/XSA  + 다/EF         ⇒  깨끗하다
+    //
+    // We accumulate the surface of every CONTENT_PREFIX_TAG token until we
+    // hit an XSV/XSA — anything else (particle, verb stem, ending) resets
+    // the accumulator. This is wider than the previous NNG/NNP/XR-only rule
+    // so determiner+bound-noun compounds like 한잔하다 work.
+    let prefix = '';
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      const tag = leadTag(t.pos || '');
+      if (COMPOUND_PREFIX_TAGS.has(tag)) {
+        prefix += t.surface || '';
+      } else if (COMPOUND_DERIV_TAGS.has(tag) && prefix) {
+        const derivStem = inflectStem(t.features) || t.lemma || t.surface || '';
+        if (derivStem) {
+          const clean = derivStem.endsWith('다') ? derivStem.slice(0, -1) : derivStem;
+          push(prefix + clean + '다');
+        }
+        break;
+      } else {
+        prefix = '';
+      }
+    }
+
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i];
       const tag = leadTag(t.pos || '');
@@ -104,31 +154,13 @@ export function lemmaCandidates(tokens, surface) {
       // already-split tokens (e.g. 먹/VV from 먹었어요).
       const stem = inflectStem(t.features) || t.lemma || t.surface || '';
       if (!stem) continue;
-
-      // Compound noun+derivation: NNG/NNP/XR + XSV/XSA → push the compound
-      // as the FIRST candidate before the bare noun. For 어색하려고
-      // (어색/NNG + 하/XSV + 려고/EC) this gives [어색하다, 어색, 하다, …]
-      // — without this rule the bare noun "어색" comes first and (if it
-      // has no KRDict entry) the next try is "하다" alone, which masquerades
-      // as the headword. The compound is the lemma the user almost always
-      // wants for these constructions.
-      if (COMPOUND_BASE_TAGS.has(tag)) {
-        const next = tokens[i + 1];
-        const nextTag = next ? leadTag(next.pos || '') : '';
-        if (COMPOUND_DERIV_TAGS.has(nextTag)) {
-          const nextStem = inflectStem(next.features) || next.lemma || next.surface || '';
-          if (nextStem) {
-            push(stem + (nextStem.endsWith('다') ? nextStem : nextStem + '다'));
-          }
-        }
-      }
-
       if (VERB_LEAD_TAGS.has(tag)) {
         push(stem.endsWith('다') ? stem : stem + '다');
       } else if (NOUN_LEAD_TAGS.has(tag)) {
         push(stem);
       }
-      // XR on its own (no following derivation) is not a real word — skip.
+      // XR / NNB / MM on their own — without a following XSV/XSA — aren't
+      // standalone lemma candidates; the per-token loop skips them.
       // Particles, endings, and other non-content tags are skipped.
     }
   }
