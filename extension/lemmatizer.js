@@ -43,6 +43,11 @@
 
 const VERB_LEAD_TAGS = new Set(['VV', 'VA', 'VX', 'VCN', 'VCP', 'XSV', 'XSA']);
 const NOUN_LEAD_TAGS = new Set(['NNG', 'NNP', 'NR', 'NP', 'SL', 'SH', 'SN']);
+// Bases that combine with a verb/adjective-deriving suffix into a compound
+// stem (`어색`/NNG + `하`/XSV → `어색하다`). XR ("root") on its own isn't a
+// word — it only ever appears as the base half of such a compound.
+const COMPOUND_BASE_TAGS = new Set(['NNG', 'NNP', 'XR']);
+const COMPOUND_DERIV_TAGS = new Set(['XSV', 'XSA']);
 
 function leadTag(pos) {
   if (!pos) return '';
@@ -91,18 +96,39 @@ export function lemmaCandidates(tokens, surface) {
   };
 
   if (Array.isArray(tokens)) {
-    for (const t of tokens) {
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
       const tag = leadTag(t.pos || '');
       // Prefer the Inflect decomposition stem when available (irregulars).
       // Otherwise fall through to lemma/surface — which is correct for
       // already-split tokens (e.g. 먹/VV from 먹었어요).
       const stem = inflectStem(t.features) || t.lemma || t.surface || '';
       if (!stem) continue;
+
+      // Compound noun+derivation: NNG/NNP/XR + XSV/XSA → push the compound
+      // as the FIRST candidate before the bare noun. For 어색하려고
+      // (어색/NNG + 하/XSV + 려고/EC) this gives [어색하다, 어색, 하다, …]
+      // — without this rule the bare noun "어색" comes first and (if it
+      // has no KRDict entry) the next try is "하다" alone, which masquerades
+      // as the headword. The compound is the lemma the user almost always
+      // wants for these constructions.
+      if (COMPOUND_BASE_TAGS.has(tag)) {
+        const next = tokens[i + 1];
+        const nextTag = next ? leadTag(next.pos || '') : '';
+        if (COMPOUND_DERIV_TAGS.has(nextTag)) {
+          const nextStem = inflectStem(next.features) || next.lemma || next.surface || '';
+          if (nextStem) {
+            push(stem + (nextStem.endsWith('다') ? nextStem : nextStem + '다'));
+          }
+        }
+      }
+
       if (VERB_LEAD_TAGS.has(tag)) {
         push(stem.endsWith('다') ? stem : stem + '다');
       } else if (NOUN_LEAD_TAGS.has(tag)) {
         push(stem);
       }
+      // XR on its own (no following derivation) is not a real word — skip.
       // Particles, endings, and other non-content tags are skipped.
     }
   }

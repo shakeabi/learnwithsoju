@@ -65,14 +65,17 @@ test('non-Inflect features (decomposition = *) fall through to lemma/surface', (
   assert.equal(candidates[0], '먹다');
 });
 
-test('compound XSV verb in Inflect form: 예약해야 → 예약, 하다, 예약해야', () => {
-  // Real mecab output for 예약해야: NNG + XSV+EC(Inflect=하/XSV/*+아야/EC/*)
+test('compound XSV verb in Inflect form: 예약해야 → 예약하다 first', () => {
+  // Real mecab output for 예약해야: NNG + XSV+EC(Inflect=하/XSV/*+아야/EC/*).
+  // The compound 예약하다 is the most specific candidate; bare 예약 and
+  // standalone 하다 follow as fallbacks.
   const tokens = [
     tok('예약', 'NNG', '예약', 'NNG,행위,T,예약,*,*,*,*'),
     tok('해야', 'XSV+EC', '해야', 'XSV+EC,*,F,해야,Inflect,XSV,EC,하/XSV/*+아야/EC/*'),
   ];
   const candidates = lemmaCandidates(tokens, '예약해야');
-  assert.equal(candidates[0], '예약');
+  assert.equal(candidates[0], '예약하다');
+  assert.ok(candidates.includes('예약'));
   assert.ok(candidates.includes('하다'), '하 + XSV should produce 하다, not 해야다');
   assert.ok(!candidates.includes('해야다'));
   assert.ok(candidates.includes('예약해야'));
@@ -121,14 +124,47 @@ test('compound noun split by mecab — noun parts surface, full word as fallback
   assert.deepEqual(candidates, ['한국', '말', '한국말']);
 });
 
-test('compound verb (공부하다 in surface form): noun + verb-suffix + ending', () => {
-  // 공부하다 → 공부/NNG + 하/XSV + 다/EF
+test('compound NNG+XSV: 공부하다 is the first candidate', () => {
+  // 공부하다 → 공부/NNG + 하/XSV + 다/EF.
+  // The compound (most specific) leads; bare 공부 and standalone 하다 follow.
   const tokens = [tok('공부', 'NNG'), tok('하', 'XSV'), tok('다', 'EF')];
   const candidates = lemmaCandidates(tokens, '공부하다');
-  // Noun 공부 first, then XSV-stem 하 → 하다, then surface fallback
-  assert.equal(candidates[0], '공부');
+  assert.equal(candidates[0], '공부하다');
+  assert.ok(candidates.includes('공부'));
   assert.ok(candidates.includes('하다'));
-  assert.ok(candidates.includes('공부하다'));
+});
+
+test('compound NNG+XSV in inflected surface: 어색하려고 → 어색하다 first', () => {
+  // 어색하려고 → 어색/NNG + 하/XSV + 려고/EC.
+  // Previously emitted [어색, 하다, 어색하려고]; "어색" had no KRDict entry
+  // and "하다" hit, so the popup showed the wrong headword. The compound
+  // is the right answer.
+  const tokens = [tok('어색', 'NNG'), tok('하', 'XSV'), tok('려고', 'EC')];
+  const candidates = lemmaCandidates(tokens, '어색하려고');
+  assert.equal(candidates[0], '어색하다');
+  assert.ok(candidates.includes('어색'));
+  assert.ok(candidates.includes('하다'));
+  assert.ok(candidates.includes('어색하려고'));
+});
+
+test('compound XR+XSA: 깨끗하다 — XR alone is not a candidate', () => {
+  // 깨끗/XR + 하/XSA + 다/EF — root + adjective-deriving suffix.
+  const tokens = [tok('깨끗', 'XR'), tok('하', 'XSA'), tok('다', 'EF')];
+  const candidates = lemmaCandidates(tokens, '깨끗하다');
+  assert.equal(candidates[0], '깨끗하다');
+  // XR by itself isn't a real word; it should not appear as a candidate.
+  assert.ok(!candidates.includes('깨끗'));
+  // The XSA-derived 하다 is still a fallback candidate.
+  assert.ok(candidates.includes('하다'));
+});
+
+test('NNG followed by something other than XSV/XSA does not produce a compound', () => {
+  // 학교에서 → 학교/NNG + 에서/JKB. No compound — JKB is a particle.
+  const tokens = [tok('학교', 'NNG'), tok('에서', 'JKB')];
+  const candidates = lemmaCandidates(tokens, '학교에서');
+  assert.equal(candidates[0], '학교');
+  // No accidental "학교에서다" or similar.
+  for (const c of candidates) assert.ok(!c.endsWith('에서다'));
 });
 
 test('merged POS tags split on `+`, leading tag determines role', () => {
