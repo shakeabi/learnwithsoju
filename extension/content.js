@@ -58,6 +58,15 @@
   let hideTimer = null;
   let hoverTimer = null;
   let pendingRequestId = 0;
+  // Video auto-pause/resume state. `pausedVideo` holds the element we
+  // paused; `resumeOnHide` is the consent flag (cleared if the user
+  // manually pauses again after our auto-pause); `suppressNextPause` lets
+  // our own .pause() call's event slip past the listener without flipping
+  // the flag.
+  let pausedVideo = null;
+  let resumeVideoOnHide = false;
+  let suppressNextPauseEvent = false;
+  let videoPauseListener = null;
 
   function isSkippableNode(node) {
     let p = node.parentNode;
@@ -176,11 +185,54 @@
     hideTimer = setTimeout(hidePopup, HIDE_DELAY_MS);
   }
 
+  // Site adapters (site-configs.js) can expose a findVideo() that returns
+  // the page's main video element. When present, the popup pauses it on
+  // open and resumes on close — but only when *we* were the ones to pause
+  // it. If the user pauses the video again after our auto-pause (signal
+  // that they want it stopped), we suppress the auto-resume.
+  function pauseVideoIfApplicable() {
+    if (pausedVideo) return; // already handled this popup session
+    const finder = siteConfig && siteConfig.findVideo;
+    if (typeof finder !== 'function') return;
+    let v;
+    try { v = finder(); } catch { return; }
+    if (!v || v.paused) return;
+    suppressNextPauseEvent = true;
+    try { v.pause(); } catch { return; }
+    pausedVideo = v;
+    resumeVideoOnHide = true;
+    videoPauseListener = () => {
+      // Our own pause() emits a 'pause' event — swallow exactly one.
+      if (suppressNextPauseEvent) {
+        suppressNextPauseEvent = false;
+        return;
+      }
+      // Any subsequent pause is the user; don't auto-resume.
+      resumeVideoOnHide = false;
+    };
+    v.addEventListener('pause', videoPauseListener);
+  }
+
+  function resumeVideoIfApplicable() {
+    if (pausedVideo && videoPauseListener) {
+      pausedVideo.removeEventListener('pause', videoPauseListener);
+    }
+    if (resumeVideoOnHide && pausedVideo && pausedVideo.paused) {
+      const r = pausedVideo.play();
+      if (r && typeof r.catch === 'function') r.catch(() => {});
+    }
+    pausedVideo = null;
+    videoPauseListener = null;
+    resumeVideoOnHide = false;
+    suppressNextPauseEvent = false;
+  }
+
   function hidePopup() {
     if (popupEl) {
       popupEl.style.display = 'none';
       popupEl.innerHTML = '';
     }
+    resumeVideoIfApplicable();
     activeWordEl = null;
     lastSentence = null;
     activeInsightTab = null;
@@ -229,6 +281,10 @@
     popupEl.style.display = 'block';
     popupEl.style.pointerEvents = 'auto';
     popupHost.style.pointerEvents = 'none';
+    // Idempotent: only pauses on the first showPopup of a session, so
+    // rerenders triggered by tab clicks / language toggle / chip expand
+    // don't re-pause the (already-paused) video.
+    pauseVideoIfApplicable();
     const reposition = opts.reposition !== false;
     requestAnimationFrame(() => {
       // After paint, capture the actual rendered size so future renders can't
