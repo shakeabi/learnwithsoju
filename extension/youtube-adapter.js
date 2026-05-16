@@ -466,25 +466,56 @@ function awaitHookReply(replyType, reqId, timeoutMs = 3000) {
 }
 
 /**
- * Poll the player (via the hook) for its tracklist until we get a non-empty
- * one — the player isn't ready immediately on /watch page load, so the
- * first few queries can return [].
+ * Get the authoritative list of available caption tracks.
+ *
+ * Two sources, merged:
+ *   1. player.getOption('captions', 'tracklist') — richer metadata
+ *      (displayName, is_servable, etc.) but unreliable for ASR-only
+ *      videos. The player sometimes returns [] until the user enables
+ *      CC manually for the first time.
+ *   2. ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer
+ *      .captionTracks — set server-side on page load, always present
+ *      and complete (including ASR), but with a thinner shape.
+ *
+ * Dedupe by (languageCode + kind). Entries from getOption win when both
+ * sources have the same key — they're richer. We return as soon as the
+ * UNION is non-empty.
  */
 async function waitForTracklist(timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const reqId = sendHookCmd('tracklist');
-    try {
-      const reply = await awaitHookReply('tracklist', reqId, 1500);
-      if (Array.isArray(reply.tracks) && reply.tracks.length > 0) return reply.tracks;
-    } catch {/* keep polling */}
+    const merged = await collectTracksOnce();
+    if (merged.length > 0) return merged;
     await new Promise((r) => setTimeout(r, 250));
   }
   throw new Error('tracklist never populated');
 }
 
-function triggerLoadTrack(lang) {
-  const reqId = sendHookCmd('load-track', { lang });
+async function collectTracksOnce() {
+  const tasks = [
+    awaitHookReply('tracklist', sendHookCmd('tracklist'), 1500).catch(() => null),
+    awaitHookReply('player-response-tracks', sendHookCmd('player-response-tracks'), 1500).catch(() => null),
+  ];
+  const [a, b] = await Promise.all(tasks);
+  const fromPlayer = Array.isArray(a && a.tracks) ? a.tracks : [];
+  const fromResponse = Array.isArray(b && b.tracks) ? b.tracks : [];
+  const seen = new Map();
+  const keyOf = (t) =>
+    `${String(t.languageCode || '').toLowerCase()}|${String(t.kind || '').toLowerCase()}`;
+  // Player tracks first so they win on duplicate keys.
+  for (const t of fromPlayer) seen.set(keyOf(t), t);
+  for (const t of fromResponse) {
+    const k = keyOf(t);
+    if (!seen.has(k)) seen.set(k, t);
+  }
+  return [...seen.values()];
+}
+
+function triggerLoadTrack(lang, kind) {
+  // kind: pass 'asr' to specifically target the auto-generated track
+  // when both a manual and an ASR variant exist for the same lang.
+  const payload = kind ? { lang, kind } : { lang };
+  const reqId = sendHookCmd('load-track', payload);
   awaitHookReply('load-track', reqId, 1500).catch(() => {/* fire-and-forget */});
 }
 

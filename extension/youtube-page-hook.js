@@ -81,6 +81,31 @@
         try { tracks = player.getOption('captions', 'tracklist') || []; } catch {}
       }
       window.postMessage({ __lwsYtReply: 'tracklist', reqId, tracks }, '*');
+    } else if (d.__lwsYtCmd === 'player-response-tracks') {
+      // Fallback / supplement: the player's getOption('tracklist') is
+      // unreliable on videos that only have ASR captions — sometimes
+      // returns empty until the user explicitly enables CC. The
+      // server-set ytInitialPlayerResponse always lists every available
+      // track, so we merge both sources upstream.
+      let tracks = [];
+      try {
+        const pr = window.ytInitialPlayerResponse;
+        const list = pr && pr.captions
+          && pr.captions.playerCaptionsTracklistRenderer
+          && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
+        if (Array.isArray(list)) {
+          tracks = list.map((t) => ({
+            languageCode: t.languageCode,
+            languageName: (t.name && t.name.simpleText) || '',
+            displayName: (t.name && t.name.simpleText) || '',
+            kind: t.kind || '',
+            vss_id: t.vssId || '',
+            isTranslatable: t.isTranslatable === true,
+            _fromPlayerResponse: true,
+          }));
+        }
+      } catch {}
+      window.postMessage({ __lwsYtReply: 'player-response-tracks', reqId, tracks }, '*');
     } else if (d.__lwsYtCmd === 'load-track' && typeof d.lang === 'string') {
       const player = getPlayer();
       if (!player) {
@@ -89,9 +114,13 @@
       }
       try {
         // Clear-then-set forces a fresh fetch even if the player already
-        // has the target track loaded (which would otherwise no-op).
+        // has the target track loaded (which would otherwise no-op). When
+        // a kind (e.g. 'asr') is supplied, pass it through — setOption
+        // accepts {languageCode, kind} to target a specific track variant.
+        const trackOpt = { languageCode: d.lang };
+        if (typeof d.kind === 'string' && d.kind) trackOpt.kind = d.kind;
         try { player.setOption('captions', 'track', {}); } catch {}
-        player.setOption('captions', 'track', { languageCode: d.lang });
+        player.setOption('captions', 'track', trackOpt);
         window.postMessage({ __lwsYtReply: 'load-track', reqId, ok: true }, '*');
       } catch (err) {
         window.postMessage({ __lwsYtReply: 'load-track', reqId, ok: false, error: String(err && err.message || err) }, '*');

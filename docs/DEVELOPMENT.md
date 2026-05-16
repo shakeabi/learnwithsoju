@@ -519,8 +519,14 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
        `initForCurrentVideo()`.
 4. `initForCurrentVideo`:
     1. `waitForVideoElement` polls `document.querySelector('video.html5-main-video')` up to 10 s.
-    2. `waitForTracklist` repeatedly posts `{__lwsYtCmd:'tracklist'}` to
-       the page world (which forwards `player.getOption('captions','tracklist')` back as a `__lwsYtReply`). Polls every 250 ms for up to 10 s.
+    2. `waitForTracklist` merges two sources every iteration:
+       `player.getOption('captions','tracklist')` (rich metadata but
+       unreliable for ASR-only videos — the player sometimes returns []
+       until the user enables CC manually) AND
+       `window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer.captionTracks`
+       (always present, complete, but thinner shape). Dedupes by
+       `(languageCode, kind)` — player entries win on overlap. Polls
+       every 250 ms for up to 10 s.
     3. `resolveSecondaryLang(videoId)` — per-video override (from
        `local.dualSubsOverrides`) wins over `sync.secondaryLang`, which
        defaults to `'en'`.
