@@ -91,17 +91,38 @@ async function handleLookup(surface) {
 
   if (!krKey) return { surface, lemma: candidates[0], tokens, error: 'NO_API_KEY' };
 
-  let krXml = null;
-  let queryUsed = null;
+  // Fire up to 4 parallel KRDict queries: the top candidates from the
+  // lemma chain. We do more than 2 so multi-noun compounds (파티원들 →
+  // 파티 + 원, 한국말 → 한국 + 말) can show every constituent as a
+  // primary tab. For verb compounds we still fire ≤4 queries but only
+  // promote the first to primary (see `multiPrimary` flag below).
+  let krXmls = [];
+  let queriesUsed = [];
+  const parallelQueue = pickTopNDistinct(candidates, 4);
   try {
-    for (const q of candidates) {
-      const xml = await fetchXml(buildKrdictUrl(q, krKey));
-      if (!looksEmpty(xml)) {
-        krXml = xml;
-        queryUsed = q;
-        break;
+    const responses = await Promise.all(
+      parallelQueue.map((q) => fetchXml(buildKrdictUrl(q, krKey)).catch(() => null)),
+    );
+    for (let i = 0; i < parallelQueue.length; i++) {
+      const xml = responses[i];
+      if (!xml || looksEmpty(xml)) continue;
+      krXmls.push(xml);
+      queriesUsed.push(parallelQueue[i]);
+    }
+
+    // If every parallel query came back empty, fall through to remaining
+    // candidates sequentially (older path) — covers obscure inflected
+    // forms whose constituents we didn't include in the top-4.
+    if (queriesUsed.length === 0) {
+      for (const q of candidates) {
+        if (parallelQueue.includes(q)) continue;
+        const xml = await fetchXml(buildKrdictUrl(q, krKey));
+        if (!looksEmpty(xml)) {
+          krXmls.push(xml);
+          queriesUsed.push(q);
+          break;
+        }
       }
-      if (krXml === null) krXml = xml;
     }
   } catch (err) {
     return {
@@ -112,6 +133,20 @@ async function handleLookup(surface) {
       message: String(err && err.message || err),
     };
   }
+
+  // Multi-primary promotion: when the lemmatizer's surface-first rule
+  // fires (which only happens for pure-noun compounds — see lemmatizer.js
+  // for the COMPOUND_NOUN_TAGS check), every constituent we queried is
+  // an equal primary. For verb compounds (예약해야, 한잔해, etc.) the
+  // lemma is THE answer and constituents are related.
+  const multiPrimary = candidates.length > 0 && candidates[0] === surface;
+
+  // Backward-compat: keep the singular fields populated so older cached
+  // payloads or other readers don't break.
+  const krXml = krXmls[0] || null;
+  const krXmlExtra = krXmls[1] || null;
+  const queryUsed = queriesUsed[0] || null;
+  const queryUsedExtra = queriesUsed[1] || null;
 
   let odXml = null;
   if (odKey && (queryUsed === null || looksEmpty(krXml))) {
@@ -133,13 +168,28 @@ async function handleLookup(surface) {
     surface,
     lemma: queryUsed || candidates[0],
     queryUsed: queryUsed || null,
+    queryUsedExtra: queryUsedExtra || null,
+    queriesUsed,
+    multiPrimary,
     tokens,
     krXml,
+    krXmlExtra: krXmlExtra || null,
+    krXmls,
     odXml,
     cachedAt: Date.now(),
   };
   await cache.set(surface, result);
   return result;
+}
+
+function pickTopNDistinct(candidates, n) {
+  const out = [];
+  for (const c of candidates) {
+    if (!c || out.includes(c)) continue;
+    out.push(c);
+    if (out.length === n) break;
+  }
+  return out;
 }
 
 async function handleHanjaLookup(chars) {

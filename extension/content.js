@@ -591,10 +591,47 @@
     return div;
   }
 
+  // Dedupe KRDict entries across N parallel query results. KRDict's word
+  // search is approximate, so adjacent queries (반말 + 반, 파티원들 + 파티 +
+  // 원, etc.) occasionally overlap when one query's broad-match list
+  // bleeds into another's exact-word territory. We keep the first
+  // occurrence in iteration order — earlier groups (more-specific queries
+  // first) win.
+  function mergeKrEntriesAll(groups) {
+    if (!groups || groups.length === 0) return [];
+    if (groups.length === 1) return groups[0] || [];
+    const keyOf = (e) => {
+      const word = (e.word || '').trim();
+      const pos = (e.pos || '').trim();
+      const def = ((e.senses && e.senses[0] && e.senses[0].definition) || '').slice(0, 40);
+      return `${word}|${pos}|${def}`;
+    };
+    const seen = new Set();
+    const out = [];
+    for (const group of groups) {
+      if (!group) continue;
+      for (const e of group) {
+        const k = keyOf(e);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(e);
+      }
+    }
+    return out;
+  }
+
   function buildResultNode(payload, options = {}) {
     const root = document.createElement('div');
 
-    const krEntries = parseKrdictXml(payload.krXml, DOMParser);
+    // Background may have run up to 4 parallel KRDict queries for
+    // multi-constituent compounds. Read the new krXmls array if present;
+    // fall back to the old krXml + krXmlExtra fields for cached payloads
+    // from earlier versions.
+    const xmls = Array.isArray(payload.krXmls) && payload.krXmls.length > 0
+      ? payload.krXmls
+      : [payload.krXml, payload.krXmlExtra].filter(Boolean);
+    const parsedGroups = xmls.map((x) => parseKrdictXml(x, DOMParser));
+    const krEntries = mergeKrEntriesAll(parsedGroups);
     const odEntries = parseOpendictXml(payload.odXml, DOMParser);
 
     const showLemmaChip = payload.queryUsed && payload.queryUsed !== payload.surface;
@@ -638,11 +675,31 @@
     // queried noun — `예약` and `예약하다` belong together for a learner, not
     // split across a fold. Keeps "related" for genuinely tangential entries
     // like compound nouns (`예약자`, `예약금`).
-    const queryUsed = (payload.queryUsed || '').trim();
+    // For pure-noun compounds (multiPrimary=true), every constituent we
+    // queried is a primary tab — 파티원들 surfaces both 파티 and 원 in
+    // the tab strip rather than burying one behind +N related. For verb
+    // compounds (multiPrimary=false), only the lemma is primary and the
+    // constituents (예약, 하다 etc.) stay related.
+    const queriesUsed = Array.isArray(payload.queriesUsed) && payload.queriesUsed.length > 0
+      ? payload.queriesUsed
+      : [payload.queryUsed, payload.queryUsedExtra].filter(Boolean);
+    const multiPrimary = payload.multiPrimary === true;
+    const promoteAll = multiPrimary ? queriesUsed : queriesUsed.slice(0, 1);
+    const surfaceLiteral = (payload.surface || '').trim();
     const PROMOTED_SUFFIXES = ['', '하다', '되다'];
-    const promotedForms = queryUsed.length > 0
-      ? new Set(PROMOTED_SUFFIXES.map((suf) => queryUsed + suf))
-      : new Set();
+    const promotedForms = new Set();
+    // Always include the literal surface — KRDict's broad-match often
+    // returns the exact word the user hovered even when our `q=<surface>`
+    // query came back empty (e.g. 창조자: q=창조자 may be empty but q=창조
+    // includes 창조자 in its broad-match results).
+    if (surfaceLiteral) {
+      for (const suf of PROMOTED_SUFFIXES) promotedForms.add(surfaceLiteral + suf);
+    }
+    for (const q of promoteAll) {
+      const trimmed = (q || '').trim();
+      if (!trimmed) continue;
+      for (const suf of PROMOTED_SUFFIXES) promotedForms.add(trimmed + suf);
+    }
     const isExactMatch = (e) => promotedForms.has((e.word || '').trim());
     const exactEntries = krEntries.filter(isExactMatch);
     const relatedEntries = krEntries.filter((e) => !isExactMatch(e));
@@ -651,6 +708,15 @@
     // entries as tabs rather than burying them all.
     const primaryEntries = exactEntries.length > 0 ? exactEntries : krEntries;
     const hiddenRelated = exactEntries.length > 0 ? relatedEntries : [];
+    // Sort primary so entries whose word equals the literal hovered surface
+    // lead. Stable JS sort — same-priority entries keep their merge order.
+    if (surfaceLiteral && primaryEntries.length > 1) {
+      primaryEntries.sort((a, b) => {
+        const aMatch = (a.word || '').trim() === surfaceLiteral ? 0 : 1;
+        const bMatch = (b.word || '').trim() === surfaceLiteral ? 0 : 1;
+        return aMatch - bMatch;
+      });
+    }
     const displayedEntries = relatedExpanded
       ? primaryEntries.concat(hiddenRelated)
       : primaryEntries;
