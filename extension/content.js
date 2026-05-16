@@ -12,8 +12,32 @@
     'P', 'LI', 'TD', 'TH', 'BLOCKQUOTE', 'FIGCAPTION', 'ARTICLE', 'SECTION',
     'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'DT', 'DD', 'CAPTION', 'SUMMARY',
   ]);
-  const STORAGE_KEYS = { ENABLED: 'enabled', DEF_LANG: 'defLang' };
+  const STORAGE_KEYS = { ENABLED: 'enabled', DEF_LANG: 'defLang', SECONDARY_LANG: 'secondaryLang' };
   const DEF_LANG_DEFAULT = 'en';
+  const SECONDARY_LANG_DEFAULT = 'en';
+  // Code → human-readable name for the prompt sent to ChatGPT. Mirrors
+  // the dropdown in options.html; unknown codes fall back to the code
+  // itself so the prompt still parses sensibly.
+  const SECONDARY_LANG_NAMES = {
+    en: 'English',
+    ja: 'Japanese',
+    zh: 'Chinese (Simplified)',
+    'zh-TW': 'Chinese (Traditional)',
+    es: 'Spanish',
+    fr: 'French',
+    de: 'German',
+    it: 'Italian',
+    pt: 'Portuguese',
+    ru: 'Russian',
+    ar: 'Arabic',
+    hi: 'Hindi',
+    id: 'Indonesian',
+    vi: 'Vietnamese',
+    th: 'Thai',
+    tr: 'Turkish',
+    nl: 'Dutch',
+    pl: 'Polish',
+  };
 
   const parsers = await import(chrome.runtime.getURL('parsers.js'));
   const {
@@ -41,6 +65,10 @@
 
   let enabled = true;
   let defLang = DEF_LANG_DEFAULT;
+  // Cached at init + kept current via storage.onChanged. Read by the
+  // "Ask AI" pill on every sentence render — fetching from storage each
+  // time would force buildSentenceNode to become async.
+  let secondaryLang = SECONDARY_LANG_DEFAULT;
   let popupHost = null;
   let popupRoot = null;
   let popupEl = null;
@@ -354,13 +382,56 @@
     return { before, word: surface, after };
   }
 
+  // Map the user's secondaryLang code to a human-readable name for the
+  // ChatGPT prompt. Falls back to the code itself when the code isn't in
+  // our table (e.g. the user picked "off"), which still produces a
+  // grammatical English sentence ("i'm a off student learning korean" is
+  // not great, but it doesn't break the URL).
+  function secondaryLangName(code) {
+    if (!code) return SECONDARY_LANG_NAMES[SECONDARY_LANG_DEFAULT];
+    return SECONDARY_LANG_NAMES[code] || code;
+  }
+
+  function buildAskAiUrl(sentence) {
+    const langName = secondaryLangName(secondaryLang);
+    const sentenceWithMark = `${sentence.before}\`${sentence.word}\`${sentence.after}`;
+    const prompt = `You're a Korean language expert and i'm a ${langName} student learning korean. I want you to help me analyse the following sentence and help me with followup queries if any. As part of the analysis, there's a focus on a particular word marked with \`\`, I want you to explain the word, explain the sentence and explain individual word break down in the sentence, all grammar and grammar patterns involved etc., Here's the sentence "${sentenceWithMark}"`;
+    return `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
+  }
+
+  function buildAiPill(sentence) {
+    const a = document.createElement('a');
+    a.className = 'lws-ai-pill';
+    a.href = buildAskAiUrl(sentence);
+    a.target = '_blank';
+    a.rel = 'noreferrer noopener';
+    a.title = 'Ask ChatGPT to explain this sentence and the highlighted word';
+    const icon = document.createElement('span');
+    icon.className = 'lws-ai-pill-icon';
+    icon.textContent = '✨';
+    icon.setAttribute('aria-hidden', 'true');
+    a.appendChild(icon);
+    const text = document.createElement('span');
+    text.textContent = 'Ask AI';
+    a.appendChild(text);
+    // The popup container swallows clicks for the dictionary UI; the pill
+    // is an anchor with target=_blank so the click needs to escape, but
+    // we still stop propagation so the popup doesn't reposition / rerender.
+    a.addEventListener('click', (e) => e.stopPropagation());
+    return a;
+  }
+
   function buildSentenceNode(sentence) {
     const wrap = document.createElement('div');
     wrap.className = 'lws-sentence';
+    const header = document.createElement('div');
+    header.className = 'lws-sentence-header';
     const label = document.createElement('span');
     label.className = 'lws-sentence-label';
     label.textContent = 'Given sentence';
-    wrap.appendChild(label);
+    header.appendChild(label);
+    header.appendChild(buildAiPill(sentence));
+    wrap.appendChild(header);
     const body = document.createElement('div');
     body.className = 'lws-sentence-text';
 
@@ -1428,10 +1499,20 @@
     obs.observe(document.body, { childList: true, subtree: true });
   }
 
+  async function loadSecondaryLang() {
+    try {
+      const d = await chrome.storage.sync.get(STORAGE_KEYS.SECONDARY_LANG);
+      if (d && typeof d[STORAGE_KEYS.SECONDARY_LANG] === 'string' && d[STORAGE_KEYS.SECONDARY_LANG]) {
+        secondaryLang = d[STORAGE_KEYS.SECONDARY_LANG];
+      }
+    } catch { /* keep default */ }
+  }
+
   async function init() {
     const stored = await chrome.storage.sync.get([STORAGE_KEYS.ENABLED, STORAGE_KEYS.DEF_LANG]);
     enabled = stored[STORAGE_KEYS.ENABLED] !== false;
     defLang = stored[STORAGE_KEYS.DEF_LANG] === 'ko' ? 'ko' : DEF_LANG_DEFAULT;
+    await loadSecondaryLang();
     if (!enabled) return;
     if (!document.body) {
       document.addEventListener('DOMContentLoaded', init, { once: true });
@@ -1468,6 +1549,12 @@
       const next = changes[STORAGE_KEYS.DEF_LANG].newValue;
       defLang = next === 'ko' ? 'ko' : DEF_LANG_DEFAULT;
       rerenderActivePopup();
+    }
+    if (STORAGE_KEYS.SECONDARY_LANG in changes) {
+      const next = changes[STORAGE_KEYS.SECONDARY_LANG].newValue;
+      secondaryLang = (typeof next === 'string' && next) ? next : SECONDARY_LANG_DEFAULT;
+      // No rerender required — the pill's href is rebuilt on the next
+      // buildSentenceNode call, and the dictionary UI is unaffected.
     }
   });
 

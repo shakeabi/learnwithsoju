@@ -93,12 +93,48 @@
   line-height: 1.5;
 }
 
+.lws-sentence-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
 .lws-sentence-label {
   display: block;
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--muted);
-  margin-bottom: 4px;
+}
+
+/* Violet→pink gradient pill next to "Given sentence". Clicking opens a
+   ChatGPT conversation pre-filled with a prompt asking it to explain
+   the sentence and the focused word. Distinct from the amber/cyan
+   chips elsewhere so users can tell at a glance this leaves the page. */
+.lws-ai-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  color: #fff;
+  text-decoration: none;
+  background: linear-gradient(135deg, #a78bfa 0%, #ec4899 100%);
+  cursor: pointer;
+  transition: filter 0.12s ease, transform 0.12s ease;
+}
+.lws-ai-pill:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+.lws-ai-pill-icon {
+  font-size: 11px;
+  line-height: 1;
 }
 
 .lws-sentence-text {
