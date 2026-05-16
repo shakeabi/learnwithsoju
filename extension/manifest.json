@@ -53,9 +53,7 @@
         "popup-shadow.css",
         "parsers.js",
         "grammar-glosses.js",
-        "grammar-match.js",
-        "site-configs.js",
-        "vendor/grammar-patterns/patterns.json"
+        "site-configs.js"
       ],
       "matches": ["<all_urls>"]
     }

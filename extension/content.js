@@ -27,29 +27,17 @@
     isHanjaChar,
     hanjaCharUrl,
     koreanVerbUrl,
+    posExplanation,
   } = parsers;
 
   const glosses = await import(chrome.runtime.getURL('grammar-glosses.js'));
   const { morphemeGloss, isContentMorpheme } = glosses;
-
-  const grammarMatch = await import(chrome.runtime.getURL('grammar-match.js'));
-  const { findMatches } = grammarMatch;
 
   const sites = await import(chrome.runtime.getURL('site-configs.js'));
   const { findSiteConfig } = sites;
   // Resolved once per content-script lifetime — frames don't navigate between
   // sites without a reload, which re-injects content.js.
   const siteConfig = findSiteConfig(window.location && window.location.hostname || '');
-
-  let grammarDbPromise = null;
-  function loadGrammarDb() {
-    if (!grammarDbPromise) {
-      grammarDbPromise = fetch(chrome.runtime.getURL('vendor/grammar-patterns/patterns.json'))
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null);
-    }
-    return grammarDbPromise;
-  }
 
   let enabled = true;
   let defLang = DEF_LANG_DEFAULT;
@@ -58,7 +46,9 @@
   let popupEl = null;
   let activeWordEl = null;
   let lastPayload = null;
-  let lastGrammarMatches = [];
+  let lastSentence = null;
+  // Which "insights" panel is open. Null means it's collapsed.
+  let activeInsightTab = null;
   let activeTabIdx = 0;
   let relatedExpanded = false;
   let popupMinHeight = 0;
@@ -150,7 +140,10 @@
     popupHost = document.createElement('div');
     popupHost.className = HOST_CLASS;
     popupHost.style.all = 'initial';
-    popupHost.style.position = 'fixed';
+    // Anchored at the document origin (not the viewport) so the popup
+    // scrolls with the page. The popup inside uses `position: absolute`
+    // and document-relative coords (see positionPopup).
+    popupHost.style.position = 'absolute';
     popupHost.style.top = '0';
     popupHost.style.left = '0';
     popupHost.style.zIndex = '2147483647';
@@ -189,10 +182,15 @@
       popupEl.innerHTML = '';
     }
     activeWordEl = null;
+    lastSentence = null;
+    activeInsightTab = null;
     pendingRequestId++;
   }
 
   function positionPopup(target) {
+    // Compute everything in viewport coords first — that's what the
+    // initial-fit clamps (flip above, clip to viewport edge) want, since
+    // we're trying to keep the popup visible at the moment of show.
     const rect = target.getBoundingClientRect();
     const popupRect = popupEl.getBoundingClientRect();
     const margin = 8;
@@ -208,8 +206,15 @@
     }
     if (left < margin) left = margin;
 
-    popupEl.style.left = `${Math.max(0, left)}px`;
-    popupEl.style.top = `${Math.max(0, top)}px`;
+    // Convert to document coords before writing — popupEl is
+    // `position: absolute` (see popup-shadow.css) and popupHost is
+    // anchored at the document origin, so document-relative coords mean
+    // the popup scrolls with the page. If the popup grows after a tab
+    // click and would exceed the viewport, the user can simply scroll the
+    // page to read the rest, instead of being stuck with content clipped
+    // off-screen that they can't reach.
+    popupEl.style.left = `${Math.max(0, left + window.scrollX)}px`;
+    popupEl.style.top = `${Math.max(0, top + window.scrollY)}px`;
   }
 
   function showPopup(target, contentNode, opts = {}) {
@@ -302,52 +307,78 @@
     wrap.appendChild(label);
     const body = document.createElement('div');
     body.className = 'lws-sentence-text';
-    body.appendChild(document.createTextNode(sentence.before));
+
+    // Reconstruct the full sentence string so per-word click handlers can
+    // build a new {before, word, after} pointing at the clicked occurrence
+    // (the same word can appear multiple times — we want the right one).
+    const fullText = sentence.before + sentence.word + sentence.after;
+    appendSentenceWords(body, sentence.before, 0, fullText);
     const hit = document.createElement('span');
     hit.className = 'lws-sentence-hit';
     hit.textContent = sentence.word;
     body.appendChild(hit);
-    body.appendChild(document.createTextNode(sentence.after));
+    appendSentenceWords(body, sentence.after, sentence.before.length + sentence.word.length, fullText);
+
     wrap.appendChild(body);
     return wrap;
   }
 
-  function buildGrammarMatchesNode(matches) {
-    const wrap = document.createElement('div');
-    wrap.className = 'lws-grammar';
-    const label = document.createElement('span');
-    label.className = 'lws-grammar-label';
-    label.textContent = 'Grammar in this sentence';
-    wrap.appendChild(label);
-    for (const m of matches) {
-      const row = document.createElement('div');
-      row.className = 'lws-grammar-row';
-
-      const chip = document.createElement('span');
-      chip.className = 'lws-chip lws-chip-amber lws-grammar-chip';
-      chip.textContent = m.pattern.name;
-      row.appendChild(chip);
-
-      const def = m.pattern.defs[0];
-      if (def) {
-        const text = document.createElement('span');
-        text.className = 'lws-grammar-def';
-        const namePart = document.createElement('span');
-        namePart.className = 'lws-grammar-def-name';
-        namePart.textContent = def.name;
-        text.appendChild(namePart);
-        if (def.alt) {
-          const altPart = document.createElement('span');
-          altPart.className = 'lws-grammar-def-alt';
-          altPart.textContent = ` (${def.alt})`;
-          text.appendChild(altPart);
-        }
-        row.appendChild(text);
-        if (def.meaning) row.title = def.meaning;
+  // Walk `text` (one side of the active hit), splitting it into whitespace
+  // runs and 어절 chunks. Each chunk's Hangul "core" (stripped of leading
+  // and trailing punctuation) becomes a clickable span that re-looks up
+  // that word and keeps the same sentence as the popup context. Non-Hangul
+  // pieces — punctuation, ellipsis markers, embedded latin — render as
+  // plain text inside the same line.
+  function appendSentenceWords(parent, text, baseOffset, fullText) {
+    if (!text) return;
+    const chunkRe = /\S+/g;
+    let lastEnd = 0;
+    let m;
+    while ((m = chunkRe.exec(text)) !== null) {
+      if (m.index > lastEnd) {
+        parent.appendChild(document.createTextNode(text.slice(lastEnd, m.index)));
       }
-      wrap.appendChild(row);
+      const chunk = m[0];
+      const start = chunk.search(/[가-힣ᄀ-ᇿ㄰-㆏]/);
+      if (start < 0) {
+        parent.appendChild(document.createTextNode(chunk));
+      } else {
+        let end = chunk.length;
+        while (end > start && !/[가-힣ᄀ-ᇿ㄰-㆏]/.test(chunk.charAt(end - 1))) end--;
+        if (start > 0) parent.appendChild(document.createTextNode(chunk.slice(0, start)));
+        const surface = chunk.slice(start, end);
+        const surfaceOffset = baseOffset + m.index + start;
+        const span = document.createElement('span');
+        span.className = 'lws-sentence-word';
+        span.textContent = surface;
+        span.setAttribute('role', 'button');
+        span.tabIndex = 0;
+        span.title = `Look up ${surface}`;
+        const trigger = (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          onSentenceWordClick(surface, fullText, surfaceOffset);
+        };
+        span.addEventListener('click', trigger);
+        span.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') trigger(e);
+        });
+        parent.appendChild(span);
+        if (end < chunk.length) parent.appendChild(document.createTextNode(chunk.slice(end)));
+      }
+      lastEnd = m.index + chunk.length;
     }
-    return wrap;
+    if (lastEnd < text.length) parent.appendChild(document.createTextNode(text.slice(lastEnd)));
+  }
+
+  function onSentenceWordClick(surface, fullText, offset) {
+    if (!surface) return;
+    const newSentence = {
+      before: fullText.slice(0, offset),
+      word: surface,
+      after: fullText.slice(offset + surface.length),
+    };
+    performLookup(null, { surface, sentence: newSentence });
   }
 
   function buildDecompositionNode(tokens) {
@@ -361,10 +392,7 @@
 
     const wrap = document.createElement('div');
     wrap.className = 'lws-decomp';
-    const label = document.createElement('span');
-    label.className = 'lws-decomp-label';
-    label.textContent = 'Morpheme breakdown';
-    wrap.appendChild(label);
+    // The tab label already says "Morpheme breakdown" — no inline header.
     const stack = document.createElement('div');
     stack.className = 'lws-decomp-stack';
     morphemes.forEach((m, i) => {
@@ -440,6 +468,49 @@
     return SEJONG_TO_KOREAN_POS[lead] || lead;
   }
 
+  // Click-to-expand toggle for the morpheme breakdown. Hidden entirely when
+  // mecab didn't produce 2+ content morphemes (single-content-morpheme nouns
+  // like 학교 have nothing to decompose). Sits between the sentence band
+  // and the dictionary entries.
+  function buildInsightsNode(payload) {
+    const tokens = payload && Array.isArray(payload.tokens) ? payload.tokens : [];
+    const breakdownMorphemes = tokens
+      .map((t) => ({ form: t.surface, pos: t.pos || '' }))
+      .filter((m) => m.form && isContentMorpheme(m));
+    if (breakdownMorphemes.length < 2) return null;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'lws-insights';
+
+    const tabs = document.createElement('div');
+    tabs.className = 'lws-insights-tabs';
+    tabs.appendChild(buildInsightTab('breakdown'));
+    wrap.appendChild(tabs);
+
+    if (activeInsightTab === 'breakdown') {
+      const node = buildDecompositionNode(tokens);
+      if (node) wrap.appendChild(node);
+    }
+    return wrap;
+  }
+
+  function buildInsightTab(id) {
+    const labels = id === 'breakdown'
+      ? { en: 'Morpheme breakdown', ko: '형태소 분석' }
+      : { en: id, ko: id };
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'lws-insights-tab';
+    btn.textContent = defLang === 'ko' ? labels.ko : labels.en;
+    btn.setAttribute('aria-pressed', activeInsightTab === id ? 'true' : 'false');
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      activeInsightTab = (activeInsightTab === id) ? null : id;
+      rerenderActivePopup();
+    });
+    return btn;
+  }
+
   function buildErrorNode(message, action, details) {
     const div = document.createElement('div');
     div.className = 'lws-popup-body lws-error';
@@ -482,12 +553,8 @@
       root.appendChild(buildSentenceNode(options.sentence));
     }
 
-    const decomposition = buildDecompositionNode(payload.tokens);
-    if (decomposition) root.appendChild(decomposition);
-
-    if (Array.isArray(options.grammarMatches) && options.grammarMatches.length > 0) {
-      root.appendChild(buildGrammarMatchesNode(options.grammarMatches));
-    }
+    const insights = buildInsightsNode(payload);
+    if (insights) root.appendChild(insights);
 
     if (krEntries.length === 0 && odEntries.length === 0) {
       const empty = document.createElement('div');
@@ -670,10 +737,13 @@
 
   function rerenderActivePopup() {
     if (!activeWordEl || !lastPayload || !popupEl || popupEl.style.display === 'none') return;
-    const sentence = extractSentence(activeWordEl);
+    // Use the sentence captured at lookup time, not a fresh extract from
+    // activeWordEl — that way a sentence-word click that rebuilt the
+    // {before, word, after} doesn't snap back to the page's DOM-derived
+    // sentence on the next rerender.
     showPopup(
       activeWordEl,
-      buildResultNode(lastPayload, { sentence, grammarMatches: lastGrammarMatches }),
+      buildResultNode(lastPayload, { sentence: lastSentence }),
       { reposition: false },
     );
   }
@@ -705,7 +775,10 @@
     const meta = document.createElement('div');
     meta.className = 'lws-meta-row';
     if (entry.pos) meta.appendChild(makePosChip(entry.word, entry.pos));
-    if (entry.pronunciation) meta.appendChild(makeChip(`၊၊||၊ ${entry.pronunciation}`, 'soft'));
+    if (entry.pronunciation) {
+      const pron = makePronChip(entry.word, entry.pronunciation);
+      if (pron) meta.appendChild(pron);
+    }
     if (entry.origin) meta.appendChild(makeHanjaChip(entry.origin));
     if (meta.children.length) wrap.appendChild(meta);
 
@@ -1050,23 +1123,51 @@
   }
 
   function makePosChip(hangulWord, pos) {
+    // Tooltip explains what the POS means in the user's language. For verb/
+    // adjective POS the chip also doubles as a koreanverb.app link; the
+    // external-link icon on the chip signals that clickability separately,
+    // so the title stays focused on the linguistic meaning.
+    const expl = posExplanation(pos, defLang);
+    const opts = {};
     const url = koreanVerbUrl(hangulWord, pos);
-    if (url) {
-      return makeChip(displayPos(pos), 'cyan', {
-        href: url,
-        title: `Conjugation table for ${hangulWord} on koreanverb.app`,
-      });
-    }
-    return makeChip(displayPos(pos), 'cyan');
+    if (url) opts.href = url;
+    if (expl) opts.title = expl;
+    return makeChip(displayPos(pos), 'cyan', opts);
+  }
+
+  function makePronChip(word, pronunciation) {
+    if (!pronunciation) return null;
+    const label = `၊၊||၊ ${pronunciation}`;
+    const w = (word || '').trim();
+    if (!w) return makeChip(label, 'soft');
+    return makeChip(label, 'soft', {
+      href: `https://koreanverb.app/pronounce?search=${encodeURIComponent(w)}`,
+      title: defLang === 'ko'
+        ? `${w} 발음 듣기 — koreanverb.app`
+        : `Pronunciation guide for ${w} on koreanverb.app`,
+    });
   }
 
   function displayPos(pos) {
     return defLang === 'en' ? posToEnglish(pos) : pos;
   }
 
-  async function performLookup(target) {
-    const surface = target.dataset.surface;
+  async function performLookup(target, opts = {}) {
+    // Two entry points share this:
+    //   (a) page hover/click: target = the .lws-word in the DOM. We extract
+    //       the sentence from the surrounding DOM and reposition the popup
+    //       at the new word.
+    //   (b) sentence-word click inside the popup: target = null,
+    //       opts.surface = the clicked 어절, opts.sentence = the rebuilt
+    //       sentence with that 어절 as the hit. Popup stays at its current
+    //       position so the user's reading flow isn't disrupted.
+    const surface = opts.surface != null
+      ? opts.surface
+      : (target && target.dataset.surface);
     if (!surface) return;
+    const anchor = target || activeWordEl;
+    if (!anchor) return;
+    const reposition = Boolean(target);
     const requestId = ++pendingRequestId;
     // Reset session size tracking — each new word starts with a fresh popup.
     popupMinHeight = 0;
@@ -1074,72 +1175,59 @@
     expandedExamples = new Set();
     expandedHanja = new Set();
     relatedExpanded = false;
-    lastGrammarMatches = [];
+    activeInsightTab = null;
     if (popupEl) {
       popupEl.style.minHeight = '';
       popupEl.style.minWidth = '';
     }
-    showPopup(target, buildLoadingNode(surface));
+    showPopup(anchor, buildLoadingNode(surface), { reposition });
 
     let response;
     try {
       response = await chrome.runtime.sendMessage({ type: 'lookup', surface });
     } catch (err) {
       if (requestId !== pendingRequestId) return;
-      showPopup(target, buildErrorNode('Extension is reloading. Hover again in a moment.'));
+      showPopup(anchor, buildErrorNode('Extension is reloading. Hover again in a moment.'), { reposition });
       return;
     }
     if (requestId !== pendingRequestId) return;
     if (!response) {
-      showPopup(target, buildErrorNode('No response from extension.'));
+      showPopup(anchor, buildErrorNode('No response from extension.'), { reposition });
       return;
     }
     if (response.error === 'NO_API_KEY') {
-      showPopup(target, buildErrorNode('Set your KRDict API key to use the dictionary.', {
+      showPopup(anchor, buildErrorNode('Set your KRDict API key to use the dictionary.', {
         label: 'Open settings',
         onClick: () => chrome.runtime.sendMessage({ type: 'openOptions' }).catch(() => {}),
-      }));
+      }), { reposition });
       return;
     }
     if (response.error === 'FETCH_FAILED') {
-      showPopup(target, buildErrorNode(
+      showPopup(anchor, buildErrorNode(
         'Couldn\'t reach the dictionary. Hover the word again to retry.',
         null,
         response.message,
-      ));
+      ), { reposition });
       return;
     }
     if (response.error) {
-      showPopup(target, buildErrorNode(
+      showPopup(anchor, buildErrorNode(
         'Lookup failed. Hover the word again to retry.',
         null,
         `${response.error}${response.message ? `: ${response.message}` : ''}`,
-      ));
+      ), { reposition });
       return;
     }
     lastPayload = response;
     activeTabIdx = 0;
-    const sentence = extractSentence(target);
-    const grammarMatches = await computeGrammarMatches(sentence);
-    if (requestId !== pendingRequestId) return;
-    lastGrammarMatches = grammarMatches;
-    showPopup(target, buildResultNode(response, { sentence, grammarMatches }));
-  }
-
-  async function computeGrammarMatches(sentence) {
-    if (!sentence) return [];
-    try {
-      const db = await loadGrammarDb();
-      if (!db) return [];
-      const sentenceText = sentence.before + sentence.word + sentence.after;
-      const hoverRange = {
-        start: sentence.before.length,
-        end: sentence.before.length + sentence.word.length,
-      };
-      return findMatches(db, sentenceText, hoverRange);
-    } catch {
-      return [];
-    }
+    const sentence = opts.sentence !== undefined
+      ? opts.sentence
+      : extractSentence(anchor);
+    lastSentence = sentence;
+    // Grammar matches are computed lazily — only when the user clicks the
+    // Grammar tab. Decomposition uses `payload.tokens` which is already
+    // present, so it renders instantly when its tab is clicked.
+    showPopup(anchor, buildResultNode(response, { sentence }), { reposition });
   }
 
   function onWordEnter(target) {

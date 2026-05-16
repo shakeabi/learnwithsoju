@@ -1,6 +1,6 @@
 # learnwithsoju
 
-A free, open-source browser extension that turns any webpage into a Korean reading classroom. Hover any word — even a conjugated verb you don't recognize — and a popup shows you the dictionary entry, the morpheme breakdown with grammatical role of each piece, and any grammar patterns the sentence is using.
+A free, open-source browser extension that turns any webpage into a Korean reading classroom. Hover any word — even a conjugated verb you don't recognize — and a popup shows you the dictionary entry plus a click-to-expand morpheme breakdown with the grammatical role of each piece.
 
 ## What you get when you hover
 
@@ -11,14 +11,10 @@ A free, open-source browser extension that turns any webpage into a Korean readi
 ├──────────────────────────────────────────────────┤
 │ [예약하다]                       [영어] [한국어]  │
 ├──────────────────────────────────────────────────┤
-│ Morpheme breakdown                               │
+│ [ Morpheme breakdown ]   ← click to expand        │
 │   예약  ·  명  ·  noun                           │
 │ + 해   ·  v.  ·  do (verb-forming suffix)        │
 │ + 야   ·  end. ·  must / have to                 │
-├──────────────────────────────────────────────────┤
-│ Grammar in this sentence                         │
-│ [(으)ㄹ 수 있다/없다]   Ability or possibility    │
-│ [아/어야 되다/하다]     Necessity to do something │
 ├──────────────────────────────────────────────────┤
 │ 예약하다  [동사] ★★                              │
 │ [동사]  [예ː야카다]  [豫約]                       │
@@ -34,8 +30,7 @@ A free, open-source browser extension that turns any webpage into a Korean readi
 
 - **Hover any Korean word** — works on any webpage with Korean text. The extension wraps Korean spans in the page and shows a floating popup on hover.
 - **Real morpheme analysis** — uses the [MeCab-Ko](https://github.com/hephaex/mecab-ko) morphological analyzer compiled to WebAssembly. Conjugated verbs, inflected nouns, and compound words all resolve to the right dictionary form.
-- **Morpheme breakdown** — every chunk in the hovered word is shown with its part of speech and a short grammar gloss (subject marker, past tense, polite ending, …).
-- **Grammar pattern hints** — 290 multi-morpheme grammar patterns covering common learner-textbook constructions are flagged in the surrounding sentence (CC-BY 4.0 vendored dataset; see [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md) for attribution).
+- **Morpheme breakdown on demand** — click the *Morpheme breakdown* tab to see every chunk of the hovered word with its part of speech and a short grammar gloss (subject marker, past tense, polite ending, …). Token-aware, so the same form with different POS gets different glosses (e.g. `을/JKO` object marker vs `을/ETM` future-tense modifier).
 - **Tabs for homographs** — when KRDict returns multiple entries for the same headword, you can switch between them. Tab labels show the part of speech.
 - **Per-character Hanja breakdown on demand** — for Sino-Korean entries, click the origin chip to expand a compact per-character breakdown (Sino-Korean reading + English gloss) from [hangulhanja.com](https://hangulhanja.com). Each character in the expanded panel also links out to its full hangulhanja.com page. The fetch is lazy — only fires on click — and results are cached locally so re-hovering the same Sino-Korean word is instant.
 - **English / Korean toggle** — switch the popup definition language with one click. Preference is remembered.
@@ -82,10 +77,12 @@ Paste your key into the extension's settings page (`chrome://extensions` → cli
 
 - **Hover** any Korean word on any webpage. The popup appears, and stays as long as your cursor is on the word or on the popup itself.
 - **Click** a Korean word as a fallback — useful on sites where hover doesn't always fire (some video players, overlays). Click triggers the lookup immediately and doesn't navigate even if the word sits inside a link.
+- **Click any word in the sentence** shown inside the popup to look that word up instead. The popup keeps the same sentence as context, just with the new word highlighted — so you can read through a sentence word by word without having to re-find each one on the page.
 - **Click the toolbar icon** to toggle the extension on/off, or to open settings.
 - **Click the EN / KR toggle** in the popup to switch the definition language. The choice persists.
 - **Click a tab** when there are multiple homograph entries — the popup keeps its current position.
 - **Click "+N related"** in the tab strip to fold in entries KRDict returned that aren't exact headword matches.
+- **Click the Morpheme breakdown tab** (between the sentence and the dictionary entries) to see the mecab decomposition. Collapsed by default.
 - **Click "Show examples"** under a sense to reveal example sentences (when KRDict provides them).
 - **Click the Hanja chip** (Sino-Korean entries only) to expand a per-character breakdown — Sino-Korean reading + English gloss. The chip shows a `+` when collapsed and `−` when expanded. From the panel, clicking the character itself opens its full breakdown on hangulhanja.com.
 
@@ -100,17 +97,16 @@ The first hover after the extension wakes up takes ~1–2 seconds while the morp
 ## Limitations & known gaps
 
 - **First-hover latency.** ~1–2 seconds the first time you hover a word after the extension's service worker has been idle, while the ~22 MB compressed dictionary unzips and the WASM analyzer initializes. Hovers after that are instant.
-- **Verb conjugation contractions** in grammar patterns. The grammar-pattern matcher derives its regexes from each pattern's display name, so contractions like `해야` (from `하 + 여야`) aren't expanded — patterns whose canonical form has these contractions may not match real text. The breakdown row still works correctly because mecab handles the conjugation on its own.
+- **No multi-morpheme grammar-pattern detection.** The morpheme breakdown labels each piece (e.g. `-야` → "must / have to") but the popup doesn't try to recognize whole textbook constructions like `아/어야 되다/하다`. A regex-on-text version of this existed in earlier builds but produced too many false positives (e.g. matching `-나` as the listing particle inside `-나요` question endings); doing it correctly requires token-aware pattern matching, which is a separate project.
 - **No per-domain disable list** yet. The toolbar toggle is global.
-- **No pronunciation audio** yet.
+- **No pronunciation audio playback** yet (KRDict has audio URLs; chips link to koreanverb.app's pronunciation page in the meantime).
 - **No published Chrome Web Store / AMO listing** yet — install as unpacked / temporary for now.
 
 ## Roadmap
 
 - Per-domain disable list
-- Pronunciation audio (KRDict has audio links — wiring them up is small)
 - Pronunciation audio playback (KRDict has audio URLs; just need to wire them in)
-- Sentence-level grammar matching using mecab tokens (current matcher is regex on text — would catch more conjugated forms)
+- Token-aware grammar-pattern detection — replacement for the removed regex-on-text matcher, using mecab POS sequences instead of text matching.
 
 ## Contributing & development
 
@@ -120,4 +116,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for local-dev setup and [docs/DEVELOPMENT
 
 [MIT License](LICENSE) for the extension's own code. Vendored components keep their own licenses — see [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).
 
-This project includes a fork of `mecab-ko-wasm` (MIT/Apache-2.0), `mecab-ko-dic 2.1.1` (Apache-2.0), and a vendored grammar-pattern dataset (CC-BY 4.0). Full attribution is in [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).
+This project includes a fork of `mecab-ko-wasm` (MIT/Apache-2.0) and `mecab-ko-dic 2.1.1` (Apache-2.0). Full attribution is in [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).

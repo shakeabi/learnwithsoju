@@ -16,14 +16,13 @@ learnwithsoju/
 │   ├── lemmatizer.js                  ← mecab tokens → candidate dictionary forms (pure)
 │   ├── parsers.js                     ← KRDict/OpenDict XML → entry objects (pure, DOMParser injected)
 │   ├── grammar-glosses.js             ← morpheme form/POS → short English gloss (pure)
-│   ├── grammar-match.js               ← grammar-pattern regex matcher (pure)
+│   ├── site-configs.js                ← per-site sentence-extraction overrides (e.g. YouTube)
 │   ├── cache.js                       ← two-tier cache abstraction (pure)
 │   ├── popup.{html,js,css}            ← toolbar action popup
 │   ├── options.{html,js,css}          ← settings page
 │   ├── icons/                         ← 16/48/128 PNGs
 │   └── vendor/
-│       ├── mecab-ko/                  ← built mecab-ko-wasm + gzipped mecab-ko-dic
-│       └── grammar-patterns/patterns.json
+│       └── mecab-ko/                  ← built mecab-ko-wasm + gzipped mecab-ko-dic
 │
 ├── tests/                             ← node:test suite (run with `npm test`)
 │   ├── *.test.js                      ← one per pure module
@@ -35,9 +34,6 @@ learnwithsoju/
 │   ├── THIRD-PARTY.md                 ← attribution + licenses for everything vendored
 │   ├── original-spec.md               ← the original V1 spec, kept for historical reference
 │   └── mecab-browser-smoketest.html   ← stand-alone diagnostic for upstream mecab-ko-wasm
-│
-├── scripts/
-│   └── build-grammar-patterns.mjs     ← regenerates extension/vendor/grammar-patterns/patterns.json
 │
 ├── .github/workflows/ci.yml           ← runs npm test + parses each extension/*.js + validates manifest
 ├── .gitattributes                     ← marks .wasm/.gz/.png as binary
@@ -193,41 +189,19 @@ cp pkg-web/{mecab_ko_wasm.js,mecab_ko_wasm.d.ts,mecab_ko_wasm_bg.wasm,mecab_ko_w
 2. **Mutation observer.** Re-runs the wrap on dynamically-added DOM (so SPAs and pages with infinite scroll just work).
 3. **Hover handling.** Delegates `mouseenter`/`mouseleave` on `.lws-word`. Debounces 60ms to avoid lookups on cursor flyovers.
 4. **Popup.** Single persistent `<div>` reattached as needed, hosting a shadow DOM. Repositioned on each show. Flips above/left when near the viewport edges. Tracks monotonic non-decreasing min-height/min-width for the lifetime of one lookup so the popup doesn't shrink under the cursor when the user toggles tabs/lang.
-5. **Sentence extraction.** Walks up from the hovered span to the nearest semantic block (`P`, `LI`, `TD`, headings, `BLOCKQUOTE`, etc.) and produces `{before, word, after}`. Used for both the contextual sentence display and the grammar-pattern matcher.
-6. **Grammar matching.** Lazy-loads `vendor/grammar-patterns/patterns.json` on first hover, runs `findMatches()` against the extracted sentence + hovered range, renders matches between the decomposition and entries.
+5. **Sentence extraction.** Walks up from the hovered span to the nearest semantic block (`P`, `LI`, `TD`, headings, `BLOCKQUOTE`, etc.) and produces `{before, word, after}`. Sites that flatten captions across many sibling spans (YouTube, Netflix, …) can override the walk via `extension/site-configs.js` — the matched ancestor selector wins, with the default walk as a fallback.
+6. **Per-morpheme glosses.** When the user expands the Morpheme breakdown tab, `grammar-glosses.js` maps each mecab `(form, POS)` to a short English label (subject marker, past tense, polite ending, …). Token-aware so homographs like `을/JKO` (object) vs `을/ETM` (future modifier) get distinct glosses.
 
 Popup composition order:
 
 ```
 1. lemma chip + EN/KR toggle row    (when lemma differs from surface OR there are entries)
-2. given-sentence band              (when extractSentence found one)
-3. morpheme-breakdown stack         (when ≥ 2 content morphemes)
-4. grammar-pattern matches          (when any pattern hits the hovered range)
-5. tab strip                        (when KRDict returned > 1 entry)
-6. KRDict entries                   (currently active tab only)
-7. OpenDict section                 (when KRDict was empty and OpenDict key set)
+2. given-sentence band              (when extractSentence found one; each 어절 is clickable)
+3. insights tab strip               (Morpheme breakdown, click-to-expand)
+4. tab strip                        (when KRDict returned > 1 entry)
+5. KRDict entries                   (currently active tab only)
+6. OpenDict section                 (when KRDict was empty and OpenDict key set)
 ```
-
-## Grammar pattern matcher
-
-Two pieces:
-
-**Build-time** (`scripts/build-grammar-patterns.mjs`): walks YAML files in the upstream grammar-pattern dataset (URL in [THIRD-PARTY.md](THIRD-PARTY.md)), derives a regex source string from each pattern's display name. Regex generation handles:
-
-- `A/B/...` alternation: same-length arms → full alternation; mixed-length arms with a vowel-harmony head set (`아/어`, `아/어/여`, `았/었`, `았/었/였`) → char-level alternation with shared suffix factored out.
-- `(A)` parens around Korean → optional group.
-- Whitespace → `\s*` flex.
-
-Output: `extension/vendor/grammar-patterns/patterns.json` (~92 KB, 290 patterns).
-
-**Runtime** (`extension/grammar-match.js`):
-
-1. Lazy-compile each pattern's regex on first use, cache via `WeakMap`.
-2. `findMatches(db, sentenceText, hoverRange)` runs each pattern's regex against the sentence; keeps matches whose character range overlaps the hovered word's range (with ±1 char tolerance).
-3. Filters out patterns with single-character names (`요`, `부`, `지`) — too noisy.
-4. Returns at most 5 matches, ordered by start position, then name length (longer/more-specific first).
-
-Known limit: the regex is built from the literal display name. Verb conjugation contractions like `해야` (from `하 + 여야`) or `돼요` (from `되 + 어요`) defeat patterns that include `되다`/`하다` as targets. A V2 morpheme-aware matcher would use the mecab token sequence directly. Listed in the README's roadmap.
 
 ## Cache (extension/cache.js)
 
@@ -281,16 +255,15 @@ Tiny ~260px popover. Shows enable/disable toggle, status (active / disabled / AP
 
 ## Tests
 
-`npm test` runs all `tests/**/*.test.js` via Node's built-in `node:test`. 112 tests as of writing, structured one suite per pure module:
+`npm test` runs all `tests/**/*.test.js` via Node's built-in `node:test`. Structured one suite per pure module:
 
-- `lemmatizer.test.js` — 15 cases, token-driven candidate generation.
-- `api.test.js` — 19 cases, URL builders and response sniffing.
-- `parsers.test.js` — 26 cases, KRDict/OpenDict XML → entries.
-- `cache.test.js` — 11 cases, two-tier behavior + LRU + clear semantics.
-- `grammar-glosses.test.js` — 11 cases, form/POS lookup, homograph disambiguation.
-- `grammar-match.test.js` — 11 cases, overlap, adjacency, dedup, useful-pattern filter.
+- `lemmatizer.test.js` — token-driven candidate generation, Inflect-stem extraction.
+- `api.test.js` — URL builders and response sniffing.
+- `parsers.test.js` — KRDict/OpenDict XML → entries, POS helpers, Hanja helpers, koreanverb URL.
+- `cache.test.js` — two-tier behavior + LRU + clear semantics.
+- `grammar-glosses.test.js` — form/POS lookup, homograph disambiguation.
 
-The single dev dependency is `@xmldom/xmldom`, used by parsers.test.js to provide a Node DOMParser. `js-yaml` is used only by the grammar-pattern build script.
+The single dev dependency is `@xmldom/xmldom`, used by parsers.test.js to provide a Node DOMParser.
 
 Files we don't unit test (touch the DOM, chrome.* APIs, or mecab itself):
 

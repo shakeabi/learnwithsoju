@@ -10,14 +10,6 @@
 - **Our changes:** added `SystemDictionary::from_bytes(DictBytes<'_>)`, `Tokenizer::from_dict_bytes`, and the JS-facing `Mecab.withDictBytes(trie, matrix, entries)` so the analyzer can be initialized in browsers from in-memory bytes (the upstream npm release expects a filesystem). Diagnosis and plan: [`MECAB_INTEGRATION.md`](MECAB_INTEGRATION.md).
 - **Build:** `wasm-pack build --target web --release` from `crates/mecab-ko-wasm/` of our fork.
 
-### kimchi-grammar (data only)
-
-- **Path:** `extension/vendor/grammar-patterns/patterns.json`
-- **Upstream:** <https://github.com/Alaanor/kimchi-grammar>
-- **License:** Creative Commons Attribution 4.0 International (CC-BY 4.0)
-- **What's included:** for each grammar point, the display name, definition slug + name + meaning + alternative-English label. Not included: example sentences, audio URLs, the full markdown explanation. The vendored JSON is generated at build time from the upstream YAMLs by `scripts/build-grammar-patterns.mjs`; it carries attribution metadata in its own header (`source`, `license`, `generated_at`).
-- **Attribution:** Alaanor and contributors to kimchi-grammar. Required by CC-BY 4.0; do not remove.
-
 ### mecab-ko-dic 2.1.1 (compiled binary form)
 
 - **Path:** `extension/vendor/mecab-ko/{sys.dic,matrix.bin,entries.bin}.gz`
@@ -31,6 +23,7 @@ The extension communicates at runtime with the National Institute of Korean Lang
 
 - **KRDict** — <https://krdict.korean.go.kr/api/search>
 - **OpenDict** (우리말샘, experimental fallback) — <https://opendict.korean.go.kr/api/search>
+- **hangulhanja.com** — <https://hangulhanja.com/api/search> (per-character Hanja meanings; fetched on demand when the user expands the Hanja chip on a Sino-Korean entry)
 
 ## Other libraries evaluated and shelved
 

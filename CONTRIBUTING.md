@@ -6,10 +6,9 @@ Thanks for taking a look. The extension itself is intentionally small and build-
 
 ```
 extension/      Chrome MV3 extension (this is what gets loaded as unpacked)
-  vendor/         Pre-built artifacts: mecab-ko WASM + dict, grammar-pattern JSON
+  vendor/         Pre-built artifacts: mecab-ko WASM + dict
 tests/          node:test suite — run with `npm test`
 docs/           Integration plans, third-party attribution, original spec
-scripts/        Build helpers (e.g. regenerating the grammar-pattern JSON)
 ```
 
 ## Local development
@@ -18,7 +17,7 @@ scripts/        Build helpers (e.g. regenerating the grammar-pattern JSON)
 git clone <this-repo>
 cd learnwithsoju
 
-# Install the test harness's only dev dependencies (@xmldom/xmldom, js-yaml)
+# Install the test harness's only dev dependency (@xmldom/xmldom)
 npm install
 
 # Run tests
@@ -34,19 +33,9 @@ After editing extension code, click the circular reload arrow on the extension's
 
 ## What does and doesn't need a build step
 
-The extension itself ships pre-built — no bundler, no transpiler at runtime. `npm install` exists only for the Node test harness and the optional grammar-pattern rebuild script.
+The extension itself ships pre-built — no bundler, no transpiler at runtime. `npm install` exists only for the Node test harness.
 
-Two artifacts are pre-built and vendored under `extension/vendor/`:
-
-- **mecab-ko-wasm + dict** — the Korean morphological analyzer. Built from a fork at <https://github.com/abishake/mecab-ko> (or its eventual upstream replacement) with a `from_bytes` constructor we added. See [`docs/MECAB_INTEGRATION.md`](docs/MECAB_INTEGRATION.md) for the rebuild flow.
-- **Grammar-pattern JSON** — generated from a CC-BY 4.0 upstream dataset. The upstream repo URL and full attribution are in [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md). To regenerate after the upstream changes:
-
-  ```bash
-  git clone <upstream-url-from-THIRD-PARTY.md> ../grammar-source
-  node scripts/build-grammar-patterns.mjs ../grammar-source > extension/vendor/grammar-patterns/patterns.json
-  ```
-
-Neither rebuild is required for routine development.
+The vendored artifacts under `extension/vendor/mecab-ko/` are the **mecab-ko-wasm** Korean morphological analyzer (built from a fork at <https://github.com/abishake/mecab-ko> with a `from_bytes` constructor we added) plus the gzipped mecab-ko-dic dictionary files. See [`docs/MECAB_INTEGRATION.md`](docs/MECAB_INTEGRATION.md) for the fork's build flow. The rebuild isn't required for routine development — the artifacts are committed.
 
 ## Testing
 
@@ -54,14 +43,14 @@ Neither rebuild is required for routine development.
 npm test          # runs all node:test suites
 ```
 
-Tests live under `tests/`. Pure modules (lemmatizer, api, parsers, cache, grammar-glosses, grammar-match) have unit tests. Files that depend on the DOM, chrome.* APIs, or mecab itself (background.js, content.js) are exercised via manual loading in Chrome.
+Tests live under `tests/`. Pure modules (lemmatizer, api, parsers, cache, grammar-glosses) have unit tests. Files that depend on the DOM, chrome.* APIs, or mecab itself (background.js, content.js) are exercised via manual loading in Chrome.
 
 When adding new pure logic, please add tests. For UI changes, a brief description of how to manually verify in `chrome://extensions` is enough.
 
 ## Style
 
 - ES modules everywhere.
-- No dependencies in the shipped extension. Dev dependencies (test runner, YAML parser for the build script) are fine.
+- No dependencies in the shipped extension. Dev dependencies (test runner, XML parser for parsers tests) are fine.
 - Code comments explain the *why*; identifiers carry the *what*. Keep one-liner comments unless an invariant or workaround needs more space.
 - No emojis in source files.
 

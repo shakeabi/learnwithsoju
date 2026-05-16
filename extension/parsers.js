@@ -340,6 +340,133 @@ const KOREAN_POS_TO_ENGLISH = {
 };
 
 /**
+ * Per-POS explanation suitable for a tooltip — one short sentence in the
+ * user's language explaining what that part of speech means and what it does
+ * in a Korean sentence. Returns `''` for unknown POS so callers can omit the
+ * tooltip entirely rather than show a meaningless one.
+ *
+ * @param {string | undefined | null} pos
+ * @param {'en' | 'ko'} [lang='en']
+ * @returns {string}
+ */
+export function posExplanation(pos, lang = 'en') {
+  if (!pos) return '';
+  const trimmed = String(pos).trim();
+  const entry = KOREAN_POS_EXPLANATIONS[trimmed]
+    || KOREAN_POS_EXPLANATIONS[trimmed.replace(/\s+/g, '')]
+    || KOREAN_POS_EXPLANATIONS[trimmed.replace(/\s+/g, ' ')];
+  if (!entry) return '';
+  return lang === 'ko' ? entry.ko : entry.en;
+}
+
+const KOREAN_POS_EXPLANATIONS = {
+  '명사': {
+    en: 'Noun — names a person, place, thing, or idea.',
+    ko: '명사 — 사람, 장소, 사물, 개념의 이름을 나타내는 품사입니다.',
+  },
+  '대명사': {
+    en: 'Pronoun — stands in for a noun (이것, 그것, 저것, …).',
+    ko: '대명사 — 명사를 대신하여 가리키는 품사입니다 (이것, 그것, 저것 등).',
+  },
+  '수사': {
+    en: 'Numeral — denotes a quantity or order (하나, 둘, 첫째, …).',
+    ko: '수사 — 수량이나 순서를 나타내는 품사입니다 (하나, 둘, 첫째 등).',
+  },
+  '동사': {
+    en: 'Verb — describes an action or process. Conjugates for tense, politeness, and mood.',
+    ko: '동사 — 사물의 동작이나 작용을 나타내는 품사입니다. 시제·존대·서법 등에 따라 활용합니다.',
+  },
+  '형용사': {
+    en: 'Adjective (descriptive verb) — describes a quality or state. Conjugates like a verb in Korean.',
+    ko: '형용사 — 사물의 성질이나 상태를 나타내는 품사입니다. 한국어에서는 동사처럼 활용합니다.',
+  },
+  '관형사': {
+    en: 'Determiner — modifies a noun directly (이, 그, 저, 새, 헌, …). Cannot stand alone.',
+    ko: '관형사 — 명사 앞에서 그것을 꾸며 주는 품사입니다 (이, 그, 저, 새, 헌 등).',
+  },
+  '부사': {
+    en: 'Adverb — modifies a verb, adjective, or another adverb (잘, 매우, 천천히, …).',
+    ko: '부사 — 용언이나 다른 부사를 꾸미는 품사입니다 (잘, 매우, 천천히 등).',
+  },
+  '조사': {
+    en: 'Particle — attaches to a noun (or other word) to mark its grammatical role in the sentence.',
+    ko: '조사 — 체언 등에 붙어 문장 안에서의 문법적 관계를 나타내는 품사입니다.',
+  },
+  '감탄사': {
+    en: 'Interjection — expresses emotion or reaction independently of the sentence (아, 어머, 야, …).',
+    ko: '감탄사 — 놀람, 느낌, 부름 등을 나타내는 품사입니다 (아, 어머, 야 등).',
+  },
+  '의존 명사': {
+    en: 'Bound noun — a noun that cannot stand alone; needs a modifier (것, 수, 적, 줄, …).',
+    ko: '의존 명사 — 홀로 쓰이지 못하고 반드시 꾸미는 말을 필요로 하는 명사입니다 (것, 수, 적, 줄 등).',
+  },
+  '의존명사': {
+    en: 'Bound noun — a noun that cannot stand alone; needs a modifier (것, 수, 적, 줄, …).',
+    ko: '의존 명사 — 홀로 쓰이지 못하고 반드시 꾸미는 말을 필요로 하는 명사입니다 (것, 수, 적, 줄 등).',
+  },
+  '보조 동사': {
+    en: 'Auxiliary verb — follows a main verb to add aspect or meaning (있다, 보다, 주다 in compound forms).',
+    ko: '보조 동사 — 본동사 뒤에 붙어 상이나 의미를 더해 주는 용언입니다 (있다, 보다, 주다 등).',
+  },
+  '보조동사': {
+    en: 'Auxiliary verb — follows a main verb to add aspect or meaning (있다, 보다, 주다 in compound forms).',
+    ko: '보조 동사 — 본동사 뒤에 붙어 상이나 의미를 더해 주는 용언입니다 (있다, 보다, 주다 등).',
+  },
+  '보조 형용사': {
+    en: 'Auxiliary adjective — follows a main verb/adjective, adds nuance (싶다, 만하다, 듯하다, …).',
+    ko: '보조 형용사 — 본용언 뒤에 붙어 의미를 보태 주는 형용사입니다 (싶다, 만하다, 듯하다 등).',
+  },
+  '보조형용사': {
+    en: 'Auxiliary adjective — follows a main verb/adjective, adds nuance (싶다, 만하다, 듯하다, …).',
+    ko: '보조 형용사 — 본용언 뒤에 붙어 의미를 보태 주는 형용사입니다 (싶다, 만하다, 듯하다 등).',
+  },
+  '어미': {
+    en: 'Ending — attaches to a verb/adjective stem to convey tense, mood, or politeness.',
+    ko: '어미 — 용언의 어간에 붙어 시제·서법·존대 등 문법적 의미를 나타내는 형태소입니다.',
+  },
+  '접사': {
+    en: 'Affix — attaches to a root to form a new word.',
+    ko: '접사 — 어근에 붙어 새로운 단어를 만드는 형태소입니다.',
+  },
+  '접두사': {
+    en: 'Prefix — attaches before a root to form a new word (개-, 맨-, 헛-, …).',
+    ko: '접두사 — 어근의 앞에 붙어 새로운 단어를 만드는 형태소입니다 (개-, 맨-, 헛- 등).',
+  },
+  '접미사': {
+    en: 'Suffix — attaches after a root to form a new word (-님, -들, -답다, …).',
+    ko: '접미사 — 어근의 뒤에 붙어 새로운 단어를 만드는 형태소입니다 (-님, -들, -답다 등).',
+  },
+  '어근': {
+    en: 'Root — the core meaning-bearing part of a word, before any affixes.',
+    ko: '어근 — 단어에서 실질적 의미를 나타내는 부분으로, 접사가 붙기 전 핵심 형태소입니다.',
+  },
+  '명사구': {
+    en: 'Noun phrase — a multi-word unit that functions as a noun.',
+    ko: '명사구 — 여러 단어가 모여 명사처럼 기능하는 구입니다.',
+  },
+  '동사구': {
+    en: 'Verb phrase — a multi-word unit that functions as a verb.',
+    ko: '동사구 — 여러 단어가 모여 동사처럼 기능하는 구입니다.',
+  },
+  '형용사구': {
+    en: 'Adjective phrase — a multi-word unit that functions as an adjective.',
+    ko: '형용사구 — 여러 단어가 모여 형용사처럼 기능하는 구입니다.',
+  },
+  '부사구': {
+    en: 'Adverb phrase — a multi-word unit that functions as an adverb.',
+    ko: '부사구 — 여러 단어가 모여 부사처럼 기능하는 구입니다.',
+  },
+  '관용구': {
+    en: 'Idiom — a fixed multi-word expression with a non-literal meaning.',
+    ko: '관용구 — 둘 이상의 단어가 합쳐져 본래 뜻과 다른 특별한 의미를 나타내는 표현입니다.',
+  },
+  '속담': {
+    en: 'Proverb — a traditional short saying expressing a generally accepted truth.',
+    ko: '속담 — 예로부터 전해 내려오는 짧고 교훈적인 표현입니다.',
+  },
+};
+
+/**
  * Compact POS label for use in tab strips and other space-constrained spots.
  *
  * In English mode produces grammar-textbook abbreviations ("n.", "v.",

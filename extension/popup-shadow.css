@@ -52,7 +52,11 @@
 }
 
 #lws-popup {
-  position: fixed;
+  /* Page-anchored (not viewport-anchored): the popup is part of the
+     document and scrolls with the page. If a tab click grows the popup
+     past the viewport edge, scrolling the page reveals the rest — far
+     better than clipping content the user can't get to. */
+  position: absolute;
   /* Width grows with content (so a wide tab strip can extend the popup), but
      stays within sensible bounds. min-width keeps short single-entry popups
      readable; max-width caps the popup at a comfortable reading column —
@@ -110,19 +114,70 @@
   font-weight: 500;
 }
 
-/* Morpheme decomposition row — surfaces between the sentence band and the
-   dictionary entries. Only rendered when mecab returns 2+ content tokens. */
+/* Sentence words other than the current hit are clickable — clicking one
+   re-runs the lookup for that 어절 while keeping the same sentence as
+   the popup's context. Subtle dashed underline + hover background so the
+   affordance is discoverable without being noisy. */
+.lws-sentence-word {
+  cursor: pointer;
+  border-radius: 3px;
+  border-bottom: 1px dashed rgba(120, 140, 200, 0.35);
+  transition: background-color 0.12s ease, border-bottom-color 0.12s ease;
+}
+.lws-sentence-word:hover,
+.lws-sentence-word:focus-visible {
+  background: var(--soft);
+  border-bottom-color: rgba(120, 140, 200, 0.9);
+  outline: none;
+}
+
+/* Tab strip for the morpheme breakdown panel. Sits between the sentence
+   and the dictionary entries; click-to-expand and collapsed by default,
+   so the popup stays compact for users who only want the dictionary
+   entry. */
+.lws-insights {
+  border-bottom: 1px solid var(--border);
+}
+.lws-insights-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  flex-wrap: wrap;
+}
+.lws-insights-tab {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+  border-radius: 999px;
+  white-space: nowrap;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.lws-insights-tab:hover:not([aria-pressed="true"]) {
+  background: var(--soft);
+  color: var(--fg);
+}
+.lws-insights-tab[aria-pressed="true"] {
+  background: var(--chip-amber-bg);
+  color: var(--chip-amber-fg);
+  font-weight: 500;
+}
+/* The breakdown panel inside the wrapper loses its own bottom border (the
+   wrapper provides one) and tightens top padding so the content reads as
+   a continuation of the tab strip. */
+.lws-insights .lws-decomp {
+  border-bottom: 0;
+  padding-top: 2px;
+}
+
+/* Morpheme decomposition row — only rendered when mecab returned 2+
+   content tokens and the user clicked the Breakdown tab. */
 .lws-decomp {
   padding: 10px 16px 12px;
   border-bottom: 1px solid var(--border);
-}
-
-.lws-decomp-label {
-  display: block;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  margin-bottom: 6px;
 }
 
 /* Vertical stack so each morpheme has full row width — glosses can be
@@ -191,49 +246,6 @@
   margin-left: 2px;
   flex: 1 1 auto;
   min-width: 0;
-}
-
-/* Grammar-pattern matches surfaced between decomposition and the dictionary
-   entries when one or more patterns intersect the hovered word's range. */
-.lws-grammar {
-  padding: 10px 16px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.lws-grammar-label {
-  display: block;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  margin-bottom: 6px;
-}
-
-.lws-grammar-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-top: 4px;
-  flex-wrap: wrap;
-}
-
-.lws-grammar-chip {
-  flex: 0 0 auto;
-}
-
-.lws-grammar-def {
-  font-size: 13px;
-  color: var(--fg);
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.lws-grammar-def-name {
-  font-weight: 500;
-}
-
-.lws-grammar-def-alt {
-  color: var(--muted);
-  font-size: 12px;
 }
 
 /* Header strip: lemma chip + dictionary toggle */

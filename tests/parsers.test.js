@@ -16,6 +16,7 @@ import {
   hanjaCharUrl,
   koreanVerbUrl,
   isVerbLikePos,
+  posExplanation,
 } from '../extension/parsers.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -406,4 +407,34 @@ test('posToShortform: unknown values pass through, empty in/empty out', () => {
   assert.equal(posToShortform('', 'en'), '');
   assert.equal(posToShortform(null, 'en'), '');
   assert.equal(posToShortform(undefined, 'en'), '');
+});
+
+test('posExplanation: returns a non-empty English sentence for the major POS', () => {
+  for (const pos of ['명사', '동사', '형용사', '부사', '대명사', '조사', '어미', '관형사', '감탄사', '의존 명사', '보조 동사', '보조 형용사']) {
+    const en = posExplanation(pos, 'en');
+    assert.ok(en && en.length > 10, `English explanation missing for ${pos}: ${en}`);
+  }
+});
+
+test('posExplanation: returns Korean text for Korean lang', () => {
+  const ko = posExplanation('동사', 'ko');
+  assert.ok(ko && /[가-힣]/.test(ko), `Expected Hangul explanation, got: ${ko}`);
+  assert.notEqual(ko, posExplanation('동사', 'en'));
+});
+
+test('posExplanation: handles spaced and unspaced bound-noun/auxiliary variants', () => {
+  assert.equal(posExplanation('의존 명사', 'en'), posExplanation('의존명사', 'en'));
+  assert.equal(posExplanation('보조 동사', 'en'), posExplanation('보조동사', 'en'));
+  assert.equal(posExplanation('보조 형용사', 'ko'), posExplanation('보조형용사', 'ko'));
+});
+
+test('posExplanation: returns empty string for unknown / missing input', () => {
+  assert.equal(posExplanation('mystery', 'en'), '');
+  assert.equal(posExplanation('', 'en'), '');
+  assert.equal(posExplanation(null, 'en'), '');
+  assert.equal(posExplanation(undefined, 'en'), '');
+});
+
+test('posExplanation: defaults to English when lang omitted', () => {
+  assert.equal(posExplanation('명사'), posExplanation('명사', 'en'));
 });
