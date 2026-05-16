@@ -70,7 +70,8 @@ async function testKrdict() {
     url.searchParams.set('part', 'word');
     url.searchParams.set('translated', 'y');
     url.searchParams.set('trans_lang', '1');
-    url.searchParams.set('num', '1');
+    // KRDict requires num >= 10; sending 1 gets an "invalid num" error.
+    url.searchParams.set('num', '10');
     const res = await fetch(url.toString());
     const text = await res.text();
     if (/<error[\s>]/i.test(text)) {
