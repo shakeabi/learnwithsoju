@@ -129,7 +129,8 @@ header h1 {
 }
 
 .field input[type=password],
-.field input[type=text] {
+.field input[type=text],
+.field select {
   width: 100%;
   padding: 9px 11px;
   font: inherit;
@@ -141,7 +142,8 @@ header h1 {
   outline: none;
 }
 
-.field input:focus {
+.field input:focus,
+.field select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(125, 140, 255, 0.18);
 }
@@ -199,10 +201,21 @@ button.primary:hover {
 
 .checkbox {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   font-size: 14px;
   cursor: pointer;
+  margin-bottom: 8px;
+}
+.checkbox:last-child {
+  margin-bottom: 0;
+}
+.checkbox em.note {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 footer {

@@ -29,7 +29,14 @@
  *     match: /(^|\.)example\.com$/,                   // regex on host
  *     sentenceContainer: '.outer-line, .fallback-container',
  *     findVideo: () => document.querySelector('video') || null,
+ *     adapter: 'some-adapter.js',
  *   }
+ *
+ * 3. `adapter` — relative path to a site-specific JS module that runs its
+ *    own setup logic (caption replacement, custom UI, etc.). content.js
+ *    dynamic-imports the module at init time and calls its `setup()`
+ *    export. The adapter is responsible for its own lifecycle, including
+ *    teardown on SPA navigation.
  *
  * `closest()` walks up from the hovered word, so when multiple comma-
  * separated selectors are given, the tightest matching ancestor wins.
@@ -39,16 +46,18 @@ export const SITE_CONFIGS = [
   {
     name: 'YouTube',
     hostnames: ['youtube.com', 'www.youtube.com', 'm.youtube.com'],
-    // YouTube's caption DOM nests roughly like:
+    // Sentence-extraction container, tightest selector first (closest()
+    // returns the nearest matching ancestor):
+    //   .lws-ytsubs-ko          ← our own overlay's KO line (the dual-
+    //                             subs adapter mounts this; takes
+    //                             precedence over YouTube's natives
+    //                             since we hide those)
+    //   .captions-text          ← one native caption line (kept as a
+    //                             fallback for users who disable dual
+    //                             subs in the options page)
+    //   .caption-window
     //   .ytp-caption-window-container
-    //     > .caption-window
-    //       > .captions-text          ← one visible caption line
-    //         > .ytp-caption-segment  ← one segment (often one word)
-    // We want the captions-text scope so concurrent captions on a
-    // different line don't bleed into the sentence we extract. The
-    // additional selectors are fallbacks in case the inner classes
-    // change in future YouTube revisions.
-    sentenceContainer: '.captions-text, .caption-window, .ytp-caption-window-container',
+    sentenceContainer: '.lws-ytsubs-ko, .captions-text, .caption-window, .ytp-caption-window-container',
     // Auto-pause on popup open. The main player video sits in the page's
     // light DOM under .html5-video-container; the class on the <video>
     // element itself (html5-main-video) has been stable across YouTube
@@ -56,6 +65,10 @@ export const SITE_CONFIGS = [
     findVideo: () => document.querySelector('video.html5-main-video')
       || document.querySelector('.html5-video-container video')
       || document.querySelector('video') || null,
+    // Dual-subtitle overlay (Korean + English). Replaces YouTube's native
+    // caption rendering with our own time-synced div; English is the
+    // manual track if available, else YouTube auto-translate from KO.
+    adapter: 'youtube-adapter.js',
   },
 ];
 

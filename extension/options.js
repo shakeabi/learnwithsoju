@@ -2,11 +2,15 @@ const KEYS = {
   KRDICT_KEY: 'krdictApiKey',
   OPENDICT_KEY: 'opendictApiKey',
   ENABLED: 'enabled',
+  DUAL_SUBS_YT: 'dualSubsYouTube',
+  SECONDARY_LANG: 'secondaryLang',
 };
 
 const krInput = document.getElementById('krdict-key');
 const odInput = document.getElementById('opendict-key');
 const enabledToggle = document.getElementById('enabled-toggle');
+const dualSubsToggle = document.getElementById('dualsubs-toggle');
+const secondaryLangSelect = document.getElementById('secondary-lang');
 const saveBtn = document.getElementById('save-btn');
 const testBtn = document.getElementById('test-btn');
 const statusEl = document.getElementById('status');
@@ -26,10 +30,18 @@ function setStatus(text, kind) {
 }
 
 async function load() {
-  const data = await chrome.storage.sync.get([KEYS.KRDICT_KEY, KEYS.OPENDICT_KEY, KEYS.ENABLED]);
+  const data = await chrome.storage.sync.get([
+    KEYS.KRDICT_KEY,
+    KEYS.OPENDICT_KEY,
+    KEYS.ENABLED,
+    KEYS.DUAL_SUBS_YT,
+    KEYS.SECONDARY_LANG,
+  ]);
   krInput.value = data[KEYS.KRDICT_KEY] || '';
   odInput.value = data[KEYS.OPENDICT_KEY] || '';
   enabledToggle.checked = data[KEYS.ENABLED] !== false;
+  if (dualSubsToggle) dualSubsToggle.checked = data[KEYS.DUAL_SUBS_YT] !== false;
+  if (secondaryLangSelect) secondaryLangSelect.value = data[KEYS.SECONDARY_LANG] || 'en';
   const v = chrome.runtime.getManifest().version;
   versionLine.textContent = `v${v}`;
 }
@@ -82,6 +94,16 @@ testBtn.addEventListener('click', testKrdict);
 enabledToggle.addEventListener('change', () => {
   chrome.storage.sync.set({ [KEYS.ENABLED]: enabledToggle.checked });
 });
+if (dualSubsToggle) {
+  dualSubsToggle.addEventListener('change', () => {
+    chrome.storage.sync.set({ [KEYS.DUAL_SUBS_YT]: dualSubsToggle.checked });
+  });
+}
+if (secondaryLangSelect) {
+  secondaryLangSelect.addEventListener('change', () => {
+    chrome.storage.sync.set({ [KEYS.SECONDARY_LANG]: secondaryLangSelect.value });
+  });
+}
 
 const clearCacheBtn = document.getElementById('clear-cache-btn');
 const cacheStatus = document.getElementById('cache-status');

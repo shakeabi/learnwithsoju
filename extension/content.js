@@ -1440,6 +1440,16 @@
     scanRoot(document.body);
     attachWordHandlers(document.body);
     setupMutationObserver();
+    // Site-specific adapter: e.g. YouTube replaces native captions with
+    // a dual-language overlay. Fire-and-forget — adapter manages its own
+    // teardown on navigation / setting-toggle.
+    if (siteConfig && siteConfig.adapter) {
+      import(chrome.runtime.getURL(siteConfig.adapter))
+        .then((mod) => {
+          if (mod && typeof mod.setup === 'function') return mod.setup();
+        })
+        .catch((err) => console.warn('[learnwithsoju] adapter load failed:', err));
+    }
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {

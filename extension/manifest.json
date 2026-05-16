@@ -53,7 +53,9 @@
         "popup-shadow.css",
         "parsers.js",
         "grammar-glosses.js",
-        "site-configs.js"
+        "site-configs.js",
+        "youtube-adapter.js",
+        "youtube-page-hook.js"
       ],
       "matches": ["<all_urls>"]
     }
