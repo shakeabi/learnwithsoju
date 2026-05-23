@@ -557,18 +557,29 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
    hostname; for `youtube.com` this returns the YouTube config with
    `adapter: 'youtube-adapter.js'`.
 2. After scanning the page and setting up handlers, `init` dynamic-
-   imports the adapter and calls `setup()`.
-3. `youtube-adapter.js`'s `setup()`:
-    1. Registers `chrome.storage.onChanged` listener (sync:
-       dualSubsYouTube + secondaryLang; local: dualSubsOverrides).
-    2. Registers `chrome.runtime.onMessage` for `lws-yt-popup-info`.
-    3. Listens for `yt-navigate-start` / `yt-navigate-finish` and polls
-       `window.location.href` every 1 s as a fallback.
-    4. `injectHookOnce()` — appends a `<script src=chrome-extension://.../youtube-page-hook.js>` tag to `document.head`. The hook's IIFE
+   imports the adapter and calls `setup({ unwrap, rescan })` — the two
+   callbacks let the adapter ask content.js to strip and re-apply
+   `.lws-word` wrapping around SPA navigations (see the SPA-nav notes
+   in §7.11.x).
+3. `youtube-adapter.js`'s `setup(api)`:
+    1. Stashes `api.unwrap` / `api.rescan` (no-ops if missing).
+    2. Registers `chrome.storage.onChanged` listener (sync:
+       dualSubsYouTube + secondaryLang; local: dualSubsOverrides +
+       disabledHosts).
+    3. Registers `chrome.runtime.onMessage` for `lws-yt-popup-info`.
+    4. Wires `yt-navigate-start` → `handleNavStart` (deactivate +
+       unwrap) and `yt-navigate-finish` → `handleNavFinish` (after
+       250 ms: activate + rescan). Polls `window.location.href` every
+       1 s as a fallback for navigations that don't fire those events.
+    5. `injectHookOnce()` — appends a `<script src=chrome-extension://.../youtube-page-hook.js>` tag to `document.head`. The hook's IIFE
        checks `window.__lwsYtHookInstalled` to be idempotent.
-    5. `activate()` — guard against already-active and against not being
-       on `/watch`; check the `dualSubsYouTube` setting; call
-       `initForCurrentVideo()`.
+    6. `activate()` — bumps `activeGeneration`, tears down any
+       existing overlay, guards on `/watch` and `isEnabled()`, then
+       awaits `initForCurrentVideo()`. After each await it re-checks
+       `myGen === activeGeneration` and discards its own work if a
+       newer activate/deactivate has preempted it. Prevents two
+       concurrent activates from leaving an orphan overlay when
+       YouTube SPA-navs faster than the capture pipeline finishes.
 4. `initForCurrentVideo`:
     1. `waitForVideoElement` polls `document.querySelector('video.html5-main-video')` up to 10 s.
     2. `waitForTracklist` merges two sources every iteration:
@@ -1098,6 +1109,8 @@ Module-level state:
 | Binding              | Purpose                                              |
 |----------------------|------------------------------------------------------|
 | `teardownFn`         | When non-null, dual subs are active for this video   |
+| `activeGeneration`   | Bumped by every activate / deactivate. activate's post-await checks compare to this to detect supersession |
+| `hostUnwrap` / `hostRescan` | Callbacks supplied by content.js's loadAdapter — invoked around SPA navs to keep `.lws-word` spans out of YouTube's reconciliation path |
 | `hookInjected`       | Once true, don't re-add the `<script src>` tag       |
 | `lastTracklist`      | Most recent tracklist, exposed to popup via onMessage|
 | `lastVideoId`        | YT video ID currently active                         |
@@ -1106,8 +1119,9 @@ Module-level state:
 
 Public:
 
-- `setup()` — wires up storage listeners, message listener, navigation
-  listeners, injects the hook, calls `activate()`.
+- `setup(api)` — wires up storage listeners, message listener,
+  navigation listeners, injects the hook, calls `activate()`. `api`
+  is `{ unwrap, rescan }` from content.js; both default to no-ops.
 
 Implementation notes:
 
@@ -1118,7 +1132,27 @@ Implementation notes:
   Per-video override wins; default is `sync.secondaryLang || 'en'`.
 - The `setInterval(..., 1000)` href-poll is a fallback for cases where
   the `yt-navigate-finish` event doesn't fire (some YouTube internal
-  navigation paths skip it).
+  navigation paths skip it). It calls the same `handleNavStart` /
+  `handleNavFinish` pair so the unwrap / activate logic is shared.
+- **SPA navigation race**: `activate()` is async — its
+  `waitForVideoElement` + `waitForTracklist` + `captureBaseTrack`
+  chain can take seconds. Without the generation token, a YouTube
+  auto-advance to the next video would trigger
+  `deactivate()` → `activate(#2)` while `activate(#1)`'s pipeline was
+  still mid-flight. Both would eventually mount overlays, but only
+  `#2`'s `teardownFn` would be tracked — `#1`'s overlay stayed in the
+  DOM, so the next video showed both videos' subs. `activeGeneration`
+  fixes this: every `activate`/`deactivate` bumps it; after each
+  `await`, `activate` rechecks and tears down its own work if a
+  newer generation is current.
+- **"AB" title mangling**: YouTube SPA-nav reuses the same DOM
+  containers for the video title, description, channel sidebar, etc.
+  When those containers still contain our `.lws-word` spans from the
+  previous video, YouTube's renderer can't cleanly replace the text
+  — it ends up appending the new text alongside our stale spans
+  ("A" → "AB"). `handleNavStart` calls `hostUnwrap()` to strip the
+  spans BEFORE YouTube does its update; `handleNavFinish` calls
+  `hostRescan()` 250 ms later to rewrap the new content.
 - Caption-source picking is the most subtle bit — see §10.
 - Overlay container is `.html5-video-player` (the player root), not
   the inner `.html5-video-container`. The inner container is

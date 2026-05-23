@@ -1636,10 +1636,17 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     adapterLoaded = true;
     // Site-specific adapter: e.g. YouTube replaces native captions with
     // a dual-language overlay. Fire-and-forget — adapter manages its own
-    // teardown on navigation / setting-toggle.
+    // teardown on navigation / setting-toggle. We pass an `api` so the
+    // adapter can ask us to unwrap/rescan around SPA navigations: on
+    // YouTube, stale `.lws-word` spans in reused title / description /
+    // sidebar containers confuse YouTube's renderer and cause text to
+    // append rather than replace (the "AB" mangling).
     import(chrome.runtime.getURL(siteConfig.adapter))
       .then((mod) => {
-        if (mod && typeof mod.setup === 'function') return mod.setup();
+        if (mod && typeof mod.setup === 'function') return mod.setup({
+          unwrap: () => { if (enabled) unwrapAllWords(); },
+          rescan: () => { if (enabled && document.body) scanRoot(document.body); },
+        });
       })
       .catch((err) => console.warn('[learnwithsoju] adapter load failed:', err));
   }

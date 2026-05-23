@@ -51,7 +51,27 @@ let lastTracklist = [];
 let lastVideoId = null;
 let lastSecondaryLang = null;
 
-export async function setup() {
+// Generation token: every activate()/deactivate() bumps it. activate()
+// re-checks after each await and discards its work if its generation
+// is no longer current (i.e., we've been superseded by a later
+// activate or deactivate). Prevents two concurrent activates from
+// both mounting overlays — the older one's overlay would otherwise
+// stay orphaned because only the latest teardownFn assignment wins.
+let activeGeneration = 0;
+
+// Adapter ↔ content-script bridge. content.js's loadAdapter() passes
+// callbacks in via setup({unwrap, rescan}); we call them around SPA
+// navigation so the content script can strip its .lws-word wrapping
+// before YouTube re-renders the title / description / sidebar
+// (otherwise stale spans confuse YouTube's reconciliation and you get
+// "AB" mangling — old span "A" plus new appended "B"). Default to
+// no-op so the adapter doesn't crash on older callers.
+let hostUnwrap = () => {};
+let hostRescan = () => {};
+
+export async function setup(api = {}) {
+  if (typeof api.unwrap === 'function') hostUnwrap = api.unwrap;
+  if (typeof api.rescan === 'function') hostRescan = api.rescan;
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'sync') {
       if (changes[SETTING_KEY]) {
@@ -103,16 +123,17 @@ export async function setup() {
     return undefined;
   });
 
-  document.addEventListener('yt-navigate-start', deactivate);
-  document.addEventListener('yt-navigate-finish', () => {
-    setTimeout(() => { void activate(); }, 250);
-  });
+  document.addEventListener('yt-navigate-start', handleNavStart);
+  document.addEventListener('yt-navigate-finish', handleNavFinish);
+  // Safety net for navigations that don't fire yt-navigate-* (some
+  // playlist auto-advances and a few embed paths). Polls the URL and
+  // simulates the same start/finish sequence.
   let lastHref = window.location.href;
   setInterval(() => {
     if (window.location.href === lastHref) return;
     lastHref = window.location.href;
-    deactivate();
-    setTimeout(() => { void activate(); }, 250);
+    handleNavStart();
+    handleNavFinish();
   }, 1000);
 
   await injectHookOnce();
@@ -148,14 +169,49 @@ function log(...args) {
   console.log('[learnwithsoju/youtube]', ...args);
 }
 
+function handleNavStart() {
+  deactivate();
+  // Strip our word-wrapping spans so YouTube's renderer can replace
+  // the title / description / sidebar text cleanly. Stale spans cause
+  // the "AB" mangling where the new title appends to the old one.
+  try { hostUnwrap(); } catch {}
+}
+
+function handleNavFinish() {
+  // Wait a beat for YouTube to settle its new DOM before re-mounting.
+  setTimeout(() => {
+    void activate();
+    try { hostRescan(); } catch {}
+  }, 250);
+}
+
 async function activate() {
-  if (teardownFn) { log('activate skipped: already active'); return; }
+  const myGen = ++activeGeneration;
+  // Always tear down whatever's currently mounted — we're starting
+  // fresh for this generation. Avoids leaving an old-video overlay
+  // up if activate races with a navigation that triggers another
+  // activate before this one's deactivate path runs.
+  if (teardownFn) {
+    try { teardownFn(); } catch {}
+    teardownFn = null;
+  }
   if (!isWatchPage()) { log('activate skipped: not /watch (pathname:', window.location.pathname, ')'); return; }
   try {
     const enabled = await isEnabled();
+    if (myGen !== activeGeneration) return; // superseded during isEnabled
     if (!enabled) { log('activate skipped: dualSubsYouTube setting is false — enable it in the extension options page'); return; }
     log('activating for', window.location.href);
-    teardownFn = await initForCurrentVideo();
+    const teardown = await initForCurrentVideo();
+    if (myGen !== activeGeneration) {
+      // A later activate / deactivate ran while we were awaiting
+      // captures. Whatever we mounted is for a video the user has
+      // already moved past — clean it up so it doesn't stack with
+      // the newer overlay.
+      if (teardown) { try { teardown(); } catch {} }
+      log('activate superseded; cleaned up own work');
+      return;
+    }
+    teardownFn = teardown;
     if (teardownFn) log('dual subs mounted');
     else log('initForCurrentVideo returned null (check the log lines above for which guard rejected — tracklist, audio gate, primary source, or 0 KO lines)');
   } catch (err) {
@@ -164,6 +220,9 @@ async function activate() {
 }
 
 function deactivate() {
+  // Bump the generation so any in-flight activate's post-await check
+  // discards its work instead of leaving an orphan overlay.
+  ++activeGeneration;
   if (teardownFn) {
     try { teardownFn(); } catch (err) {
       console.warn('[learnwithsoju/youtube] teardown threw:', err);
