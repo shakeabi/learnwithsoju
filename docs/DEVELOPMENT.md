@@ -35,13 +35,21 @@ any Korean word and a popup appears showing:
   word-by-word table, and an exhaustive grammar deep-dive of the
   focused word. The prompt template is fully customizable
 
-On YouTube, the extension goes a step further: it replaces YouTube's native
-caption rendering with a dual-language overlay (Korean on top, the user's
-preferred secondary language below) — but only on videos whose audio is
-detected as Korean. The Korean line is then hoverable just like any other
-text on the page, so the user can build out vocabulary straight from the
-video they're watching. The secondary language has a default in settings
-and a per-video override from the toolbar popup.
+On YouTube, the extension goes a step further: when the video has a
+Korean caption track (manual or ASR), it replaces YouTube's native
+caption rendering with a dual-language overlay — Korean on top, the
+user's preferred secondary language below. The Korean line is then
+hoverable just like any other text on the page, so the user can build
+out vocabulary straight from the video they're watching. The
+secondary language has a default in settings and a per-video override
+from the toolbar popup.
+
+On Netflix the extension currently provides hover support only —
+Netflix's native captions are scanned for Korean text, hovering looks
+up the word, and the popup auto-pauses the video. A dual-subs overlay
+for Netflix is on the roadmap; the site-config entry leaves
+`adapter`/`popupModule` unset for now, so the popup's per-site adapter
+section is empty on Netflix.
 
 Per-site behaviour: the toolbar popup has a per-host disable toggle that
 takes effect immediately — dictionary popups stop firing, the dashed
@@ -134,26 +142,30 @@ External links the popup builds (outbound href only, no API):
 
 Component breakdown:
 
-| Component                        | World           | Lifetime         | Notes                                                                 |
-|----------------------------------|-----------------|------------------|-----------------------------------------------------------------------|
-| `content.js`                     | isolated        | per top-frame    | The only piece that touches the page DOM. One instance per tab/frame. |
-| `background.js`                  | service worker  | lazy / suspended | MV3 SW that handles dictionary requests and owns the mecab analyzer. |
-| `popup.{html,js}`                | extension page  | open/close       | Toolbar-action UI. Talks to the active tab via `chrome.tabs.sendMessage`. |
-| `options.{html,js}`              | extension page  | open/close       | Settings. Writes to `chrome.storage.sync`.                            |
-| `youtube-adapter.js`             | isolated        | per /watch       | Site adapter for YouTube. Replaces native captions with dual-line overlay. |
-| `youtube-page-hook.js`           | page main world | injected once    | Page-world hook that observes YouTube's caption fetches and drives `player.setOption`. |
-| Shadow-DOM popup                 | content.js      | per popup        | The actual hover UI; uses an open Shadow Root attached at the document root with adopted CSS. |
-| MeCab WASM + mecab-ko-dic        | service worker  | lazy, kept       | ~22 MB compressed; init on first lookup, retained until the SW dies. |
+
+| Component                 | World           | Lifetime         | Notes                                                                                         |
+| ------------------------- | --------------- | ---------------- | --------------------------------------------------------------------------------------------- |
+| `content.js`              | isolated        | per top-frame    | The only piece that touches the page DOM. One instance per tab/frame.                         |
+| `background.js`           | service worker  | lazy / suspended | MV3 SW that handles dictionary requests and owns the mecab analyzer.                          |
+| `popup.{html,js}`         | extension page  | open/close       | Toolbar-action UI. Talks to the active tab via `chrome.tabs.sendMessage`.                     |
+| `options.{html,js}`       | extension page  | open/close       | Settings. Writes to `chrome.storage.sync`.                                                    |
+| `youtube-adapter.js`      | isolated        | per /watch       | Site adapter for YouTube. Replaces native captions with dual-line overlay.                    |
+| `youtube-page-hook.js`    | page main world | injected once    | Page-world hook that observes YouTube's caption fetches and drives `player.setOption`.        |
+| Shadow-DOM popup          | content.js      | per popup        | The actual hover UI; uses an open Shadow Root attached at the document root with adopted CSS. |
+| MeCab WASM + mecab-ko-dic | service worker  | lazy, kept       | ~22 MB compressed; init on first lookup, retained until the SW dies.                          |
+
 
 External services touched at runtime:
 
-| Host                       | When                                                                 | Auth                  |
-|----------------------------|----------------------------------------------------------------------|-----------------------|
-| `krdict.korean.go.kr`      | Every dictionary lookup that misses the cache                        | User's KRDict API key |
-| `opendict.korean.go.kr`    | Only when KRDict returns nothing AND the user has provided a key     | User's OpenDict key   |
-| `hangulhanja.com`          | When the user clicks a Hanja origin chip in the popup (lazy, cached) | None (open API)       |
-| `koreanverb.app`           | Outbound `target=_blank` link only — no extension-initiated fetch    | n/a                   |
-| `chatgpt.com` / `claude.ai` | "Ask AI" pill in the popup — opens the chosen AI service in a new tab with the rendered prompt as `?q=`. Providers are listed in `extension/ai-providers.js`; the user picks one in the options page's Advanced section. No extension-initiated fetch — just an `<a target="_blank">`. | n/a |
+
+| Host                        | When                                                                                                                                                                                                                                                                                   | Auth                  |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `krdict.korean.go.kr`       | Every dictionary lookup that misses the cache                                                                                                                                                                                                                                          | User's KRDict API key |
+| `opendict.korean.go.kr`     | Only when KRDict returns nothing AND the user has provided a key                                                                                                                                                                                                                       | User's OpenDict key   |
+| `hangulhanja.com`           | When the user clicks a Hanja origin chip in the popup (lazy, cached)                                                                                                                                                                                                                   | None (open API)       |
+| `koreanverb.app`            | Outbound `target=_blank` link only — no extension-initiated fetch                                                                                                                                                                                                                      | n/a                   |
+| `chatgpt.com` / `claude.ai` | "Ask AI" pill in the popup — opens the chosen AI service in a new tab with the rendered prompt as `?q=`. Providers are listed in `extension/ai-providers.js`; the user picks one in the options page's Advanced section. No extension-initiated fetch — just an `<a target="_blank">`. | n/a                   |
+
 
 ---
 
@@ -242,15 +254,17 @@ can grow past the 5 MB default.
 
 ### `chrome.storage.sync`
 
-| Key                | Type      | Default  | Written by                       | Read by                                  |
-|--------------------|-----------|----------|----------------------------------|------------------------------------------|
-| `krdictApiKey`     | string    | `""`     | `options.js`                     | `background.js` (every lookup)           |
-| `opendictApiKey`   | string    | `""`     | `options.js`                     | `background.js` (only when KRDict empty) |
-| `defLang`          | `'en' \| 'ko'` | `'en'` | `content.js` (popup toggle) | `content.js` (popup render)              |
-| `dualSubsYouTube`  | boolean   | `true`*  | `options.js`                     | `youtube-adapter.js` (onChanged + isEnabled) |
-| `secondaryLang`    | string    | `'en'`   | `options.js`                     | `youtube-adapter.js`, `popup.js` (default) |
-| `askAiPrompt`      | string    | unset → built-in default | `options.js` (Advanced section) | `content.js` (init + onChanged → `buildAskAiUrl`) |
-| `askAiProvider`    | string    | `'chatgpt'`     | `options.js` (Advanced section) | `content.js` (init + onChanged → `buildAskAiUrl` picks the URL prefix from `ai-providers.js`) |
+
+| Key               | Type          | Default                  | Written by                      | Read by                                                                                       |
+| ----------------- | ------------- | ------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------- |
+| `krdictApiKey`    | string        | `""`                     | `options.js`                    | `background.js` (every lookup)                                                                |
+| `opendictApiKey`  | string        | `""`                     | `options.js`                    | `background.js` (only when KRDict empty)                                                      |
+| `defLang`         | `'en' \| 'ko'` | `'en'`                   | `content.js` (popup toggle)     | `content.js` (popup render)                                                                   |
+| `dualSubsYouTube` | boolean       | `true`*                  | `options.js`                    | `youtube-adapter.js` (onChanged + isEnabled)                                                  |
+| `secondaryLang`   | string        | `'en'`                   | `options.js`                    | `youtube-adapter.js`, `popup.js` (default)                                                    |
+| `askAiPrompt`     | string        | unset → built-in default | `options.js` (Advanced section) | `content.js` (init + onChanged → `buildAskAiUrl`)                                             |
+| `askAiProvider`   | string        | `'chatgpt'`              | `options.js` (Advanced section) | `content.js` (init + onChanged → `buildAskAiUrl` picks the URL prefix from `ai-providers.js`) |
+
 
 *`dualSubsYouTube` defaults to `true` in the adapter's `isEnabled()` —
 the setting is treated as "off only if explicitly set to `false`". The
@@ -273,8 +287,7 @@ key (the options page's textarea handler does this), so the live
 default in code is what's used.
 
 `askAiProvider` is a key into the `AI_PROVIDERS` registry exported
-from `extension/ai-providers.js`. Each entry contributes `{ name,
-urlPrefix }`; the pill's href is `urlPrefix + encodeURIComponent(prompt)`
+from `extension/ai-providers.js`. Each entry contributes `{ name, urlPrefix }`; the pill's href is `urlPrefix + encodeURIComponent(prompt)`
 and the tooltip says `Ask <name> to explain...`. Adding a provider is
 one entry in `ai-providers.js` — the options-page dropdown is
 populated from the same registry (no HTML edits) and `content.js`
@@ -283,12 +296,14 @@ picks it up via `chrome.runtime.getURL` import (the file is listed in
 
 ### `chrome.storage.local`
 
-| Key (or namespace)        | Type              | Written by                                    | Read by                       |
-|---------------------------|-------------------|-----------------------------------------------|-------------------------------|
-| `lookup:<surface>`        | `LookupResponse`  | `background.js` (`cache.set`)                 | `background.js` (`cache.get`) |
-| `hanja:<chars>`           | Hanja gloss array | `background.js` (`hanjaCache.set`)            | `background.js`               |
-| `dualSubsOverrides`       | `{ [videoId]: lang }` | `popup.js` (per-video radio selection)    | `youtube-adapter.js` (onChanged + resolveSecondaryLang) |
-| `disabledHosts`           | `string[]`        | `popup.js` (per-site toggle)                  | `content.js` init + onChanged listener |
+
+| Key (or namespace)  | Type                  | Written by                             | Read by                                                 |
+| ------------------- | --------------------- | -------------------------------------- | ------------------------------------------------------- |
+| `lookup:<surface>`  | `LookupResponse`      | `background.js` (`cache.set`)          | `background.js` (`cache.get`)                           |
+| `hanja:<chars>`     | Hanja gloss array     | `background.js` (`hanjaCache.set`)     | `background.js`                                         |
+| `dualSubsOverrides` | `{ [videoId]: lang }` | `popup.js` (per-video radio selection) | `youtube-adapter.js` (onChanged + resolveSecondaryLang) |
+| `disabledHosts`     | `string[]`            | `popup.js` (per-site toggle)           | `content.js` init + onChanged listener                  |
+
 
 `lookup:` and `hanja:` are namespaces enforced by `cache.js` (see §11) —
 the actual storage entries are keyed `lookup:먹다`, `hanja:豫約`, etc.
@@ -327,13 +342,15 @@ page main world.
 All from `content.js` (or from inside the popup's button-handlers).
 `background.js`'s `onMessage` listener dispatches by `msg.type`:
 
-| `msg.type`     | Payload                       | Response                                              | Notes |
-|----------------|-------------------------------|-------------------------------------------------------|-------|
-| `lookup`       | `{ surface: string }`         | `LookupResponse` (see §7 main flows)                  | Async (`return true`). Surface keyed; cache-bypassing not exposed. |
-| `lookupHanja`  | `{ chars: string }`           | `{ chars, hanjas: [{character, sino, summary}], cachedAt }` or `{ chars, error, ... }` | Async. Failures (5xx/429) are NOT cached so the next click retries. |
-| `openOptions`  | `{}`                          | `{ ok: true }`                                        | Sync; `chrome.runtime.openOptionsPage()`. |
-| `ping`         | `{}`                          | `{ ok: true }`                                        | Sync; used to wake the SW. |
-| `clearCache`   | `{}`                          | `{ ok: true }` or `{ ok: false, error }`              | Async. Clears BOTH `lookup:` and `hanja:` namespaces. |
+
+| `msg.type`    | Payload               | Response                                                                               | Notes                                                               |
+| ------------- | --------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `lookup`      | `{ surface: string }` | `LookupResponse` (see §7 main flows)                                                   | Async (`return true`). Surface keyed; cache-bypassing not exposed.  |
+| `lookupHanja` | `{ chars: string }`   | `{ chars, hanjas: [{character, sino, summary}], cachedAt }` or `{ chars, error, ... }` | Async. Failures (5xx/429) are NOT cached so the next click retries. |
+| `openOptions` | `{}`                  | `{ ok: true }`                                                                         | Sync; `chrome.runtime.openOptionsPage()`.                           |
+| `ping`        | `{}`                  | `{ ok: true }`                                                                         | Sync; used to wake the SW.                                          |
+| `clearCache`  | `{}`                  | `{ ok: true }` or `{ ok: false, error }`                                               | Async. Clears BOTH `lookup:` and `hanja:` namespaces.               |
+
 
 ### `chrome.tabs.sendMessage` — popup module → content (then content → adapter)
 
@@ -342,10 +359,12 @@ content-script-side adapter using a site-specific message type. The
 generic `popup.js` shell doesn't send these — only the dynamic-imported
 module does.
 
-| `msg.type`            | From               | To                  | Response                                                                   |
-|-----------------------|--------------------|---------------------|----------------------------------------------------------------------------|
-| `lws-yt-popup-info`   | `youtube-popup.js` | content script tab  | `youtube-adapter.js`: `{ active, videoId, tracks: [{languageCode, languageName, kind, vssId}], secondaryLang }` |
-| `lws-site-info`       | `popup.js`         | content script tab  | `content.js`: `{ host, protocol, href }` — fallback for when `chrome.tabs.query` returns an undefined `tab.url` |
+
+| `msg.type`          | From               | To                 | Response                                                                                                        |
+| ------------------- | ------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `lws-yt-popup-info` | `youtube-popup.js` | content script tab | `youtube-adapter.js`: `{ active, videoId, tracks: [{languageCode, languageName, kind, vssId}], secondaryLang }` |
+| `lws-site-info`     | `popup.js`         | content script tab | `content.js`: `{ host, protocol, href }` — fallback for when `chrome.tabs.query` returns an undefined `tab.url` |
+
 
 The YT-adapter `onMessage` listener and the content-script `lws-site-info`
 listener both intercept before `content.js`'s normal lookup paths see
@@ -360,15 +379,17 @@ The YouTube hook is in the page main world (`<script src=…>` injection)
 because content scripts can't see page expandos like
 `html5VideoPlayer.getOption`. All communication is via `window.postMessage`:
 
-| Direction                | Shape                                                                    | Sent by               | Handled by               |
-|--------------------------|--------------------------------------------------------------------------|-----------------------|--------------------------|
-| isolated → main          | `{ __lwsYtCmd: 'tracklist', reqId }`                                     | `youtube-adapter.js`  | `youtube-page-hook.js`   |
-| isolated → main          | `{ __lwsYtCmd: 'player-response-tracks', reqId }`                        | `youtube-adapter.js`  | `youtube-page-hook.js`   |
-| isolated → main          | `{ __lwsYtCmd: 'load-track', reqId, lang: 'ko' \| 'en' \| ... }`         | `youtube-adapter.js`  | `youtube-page-hook.js`   |
-| main → isolated          | `{ __lwsYtReply: 'tracklist', reqId, tracks }`                           | hook                  | `awaitHookReply` in adapter |
-| main → isolated          | `{ __lwsYtReply: 'player-response-tracks', reqId, tracks }`              | hook                  | `awaitHookReply` in adapter |
-| main → isolated          | `{ __lwsYtReply: 'load-track', reqId, ok, error? }`                      | hook                  | adapter (fire-and-forget) |
-| main → isolated (broadcast) | `{ __lwsYtCaption: true, url, status, body }`                         | hook (XHR/fetch tap)  | `captureCaption` in adapter |
+
+| Direction                   | Shape                                                          | Sent by              | Handled by                  |
+| --------------------------- | -------------------------------------------------------------- | -------------------- | --------------------------- |
+| isolated → main             | `{ __lwsYtCmd: 'tracklist', reqId }`                           | `youtube-adapter.js` | `youtube-page-hook.js`      |
+| isolated → main             | `{ __lwsYtCmd: 'player-response-tracks', reqId }`              | `youtube-adapter.js` | `youtube-page-hook.js`      |
+| isolated → main             | `{ __lwsYtCmd: 'load-track', reqId, lang: 'ko' \| 'en' \| ... }` | `youtube-adapter.js` | `youtube-page-hook.js`      |
+| main → isolated             | `{ __lwsYtReply: 'tracklist', reqId, tracks }`                 | hook                 | `awaitHookReply` in adapter |
+| main → isolated             | `{ __lwsYtReply: 'player-response-tracks', reqId, tracks }`    | hook                 | `awaitHookReply` in adapter |
+| main → isolated             | `{ __lwsYtReply: 'load-track', reqId, ok, error? }`            | hook                 | adapter (fire-and-forget)   |
+| main → isolated (broadcast) | `{ __lwsYtCaption: true, url, status, body }`                  | hook (XHR/fetch tap) | `captureCaption` in adapter |
+
 
 (There used to be an `audio-info` command pair here too. Removed in
 favour of in-adapter `detectAudioLangFromTracklist` — see §15.11 for
@@ -382,14 +403,16 @@ commands in flight without their replies getting cross-wired.
 In addition to direct messaging, the storage onChanged event acts as a
 broadcast bus for settings:
 
-| Key                  | Listener                                | What the listener does                                  |
-|----------------------|-----------------------------------------|---------------------------------------------------------|
-| `disabledHosts` (local) | `content.js`                         | Toggle scanning + popup activity for this tab. On the disabled transition: hide the popup AND `unwrapAllWords()` to strip the `.lws-word` spans (dashed underline + cursor: help). Re-enabling re-scans. |
-| `disabledHosts` (local) | `youtube-adapter.js`                  | Calls `deactivate()` and then `activate()` (which re-checks `isEnabled()`) — so the dual-subs overlay actually unmounts when the user disables on a YouTube page, not just the dictionary popup. |
-| `defLang`            | `content.js`                            | `rerenderActivePopup()` if popup is showing             |
-| `dualSubsYouTube`    | `youtube-adapter.js`                    | Re-activate / deactivate dual subs on the current page  |
-| `secondaryLang`      | `youtube-adapter.js`                    | Re-activate so the new default applies                  |
-| `dualSubsOverrides`  | `youtube-adapter.js` (local area)       | Re-activate if the override changed for the current video |
+
+| Key                     | Listener                          | What the listener does                                                                                                                                                                                   |
+| ----------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `disabledHosts` (local) | `content.js`                      | Toggle scanning + popup activity for this tab. On the disabled transition: hide the popup AND `unwrapAllWords()` to strip the `.lws-word` spans (dashed underline + cursor: help). Re-enabling re-scans. |
+| `disabledHosts` (local) | `youtube-adapter.js`              | Calls `deactivate()` and then `activate()` (which re-checks `isEnabled()`) — so the dual-subs overlay actually unmounts when the user disables on a YouTube page, not just the dictionary popup.         |
+| `defLang`               | `content.js`                      | `rerenderActivePopup()` if popup is showing                                                                                                                                                              |
+| `dualSubsYouTube`       | `youtube-adapter.js`              | Re-activate / deactivate dual subs on the current page                                                                                                                                                   |
+| `secondaryLang`         | `youtube-adapter.js`              | Re-activate so the new default applies                                                                                                                                                                   |
+| `dualSubsOverrides`     | `youtube-adapter.js` (local area) | Re-activate if the override changed for the current video                                                                                                                                                |
+
 
 This keeps the options page from having to know which tabs to message —
 it just writes to storage and any interested content scripts react.
@@ -407,7 +430,7 @@ Files: `content.js`.
 
 1. `init()` runs at `document_idle` (manifest setting).
 2. Read `defLang` + `askAiPrompt` from `chrome.storage.sync` and
-   `disabledHosts` from `chrome.storage.local` in parallel. The
+  `disabledHosts` from `chrome.storage.local` in parallel. The
    effective gate is just `enabled = !hostDisabled` where
    `hostDisabled = disabledHosts.includes(location.hostname.toLowerCase())`.
    Handlers and the mutation observer are attached even when disabled
@@ -415,70 +438,70 @@ Files: `content.js`.
    page without a reload. Only the expensive scan and the site adapter
    are skipped when disabled.
 3. Resolve `siteConfig = findSiteConfig(location.hostname)` once for the
-   lifetime of this content script.
+  lifetime of this content script.
 4. `scanRoot(document.body)` →
-   `collectTextNodes` (TreeWalker, skips `<script>`, `<style>`,
+  `collectTextNodes` (TreeWalker, skips `<script>`, `<style>`,
    `<textarea>`, `<input>`, `<code>`, `<pre>`, `<noscript>`, `<iframe>`,
    `<canvas>`, `<svg>`, `contenteditable`, and existing `.lws-word`
    spans) → `processInChunks` (80 nodes per tick via
    `requestIdleCallback`).
 5. For each accepted text node, `wrapTextNode` walks the node's value
-   with the global Hangul regex
+  with the global Hangul regex
    `/[가-힣ᄀ-ᇿ㄰-㆏]+/g` and replaces every Hangul run with a
    `<span class="lws-word" data-surface="…">…</span>` inside a document
    fragment, preserving the non-Hangul text in between.
 6. `attachWordHandlers(document.body)` registers capture-phase
-   `mouseenter` / `mouseleave` / `click` delegates.
+  `mouseenter` / `mouseleave` / `click` delegates.
 7. `setupMutationObserver()` watches `document.body` for newly added
-   nodes (SPA navigation, lazy-rendered comments, ...) and scans them
+  nodes (SPA navigation, lazy-rendered comments, ...) and scans them
    too.
 8. If `siteConfig.adapter` is set, dynamically import it and call
-   `setup()` (fire-and-forget — see §6.8).
+  `setup()` (fire-and-forget — see §6.8).
 
 ### 6.2 Hover: dictionary lookup and popup render
 
 Files: `content.js`, `background.js`, `lemmatizer.js`, `parsers.js`,
-`grammar-glosses.js`, `cache.js`, `vendor/mecab-ko/*`.
+`grammar-glosses.js`, `cache.js`, `vendor/mecab-ko/`*.
 
 1. Mouse enters a `.lws-word` span. `delegateEnter` →
-   `onWordEnter(target)`.
+  `onWordEnter(target)`.
 2. After a 60 ms hover delay (lets the user pass over a word without
-   triggering), `performLookup(target)` runs.
+  triggering), `performLookup(target)` runs.
 3. `performLookup` increments `pendingRequestId` (so a slow response
-   can be discarded if the user has already moved on), resets per-popup
+  can be discarded if the user has already moved on), resets per-popup
    state (`expandedExamples`, `expandedHanja`, `relatedExpanded`,
    `activeInsightTab`, popup min-size memos), then renders a loading
    placeholder via `showPopup(anchor, buildLoadingNode(surface))`.
 4. `chrome.runtime.sendMessage({ type: 'lookup', surface })` →
-   `background.js` `handleLookup(surface)`:
-    1. Cache hit? Return cached `LookupResponse` (still includes the
-       mecab tokens and parallel queries; the cache stores the full
-       response payload).
-    2. `tokenizeSurface(surface)` — lazy-init mecab if first call (~1–2 s
-       on cold SW), then return token objects with their POS, lemma,
-       reading, features.
-    3. `lemmaCandidates(tokens, surface)` produces an ordered list of
-       dictionary candidates (see §8).
-    4. Read `krdictApiKey` from `chrome.storage.sync`. If missing,
-       return `{ error: 'NO_API_KEY' }`.
-    5. Pick the top 4 distinct candidates and fire `Promise.all` of
-       `fetchXml(buildKrdictUrl(q, key))` — see §9 for the partition
-       logic that depends on the order of these results.
-    6. If none of the 4 returned anything, fall through to remaining
-       candidates sequentially.
-    7. If `opendictApiKey` is set AND KRDict came back empty, try
-       OpenDict in candidate order until one returns content.
-    8. Build the response object — `surface`, `lemma`, `queryUsed`,
-       `queriesUsed`, `multiPrimary` flag, `tokens`, `krXmls[]`,
-       `odXml`, `cachedAt`. Persist to cache and return.
+  `background.js` `handleLookup(surface)`:
+  1. Cache hit? Return cached `LookupResponse` (still includes the
+    mecab tokens and parallel queries; the cache stores the full
+     response payload).
+  2. `tokenizeSurface(surface)` — lazy-init mecab if first call (~1–2 s
+    on cold SW), then return token objects with their POS, lemma,
+     reading, features.
+  3. `lemmaCandidates(tokens, surface)` produces an ordered list of
+    dictionary candidates (see §8).
+  4. Read `krdictApiKey` from `chrome.storage.sync`. If missing,
+    return `{ error: 'NO_API_KEY' }`.
+  5. Pick the top 4 distinct candidates and fire `Promise.all` of
+    `fetchXml(buildKrdictUrl(q, key))` — see §9 for the partition
+     logic that depends on the order of these results.
+  6. If none of the 4 returned anything, fall through to remaining
+    candidates sequentially.
+  7. If `opendictApiKey` is set AND KRDict came back empty, try
+    OpenDict in candidate order until one returns content.
+  8. Build the response object — `surface`, `lemma`, `queryUsed`,
+    `queriesUsed`, `multiPrimary` flag, `tokens`, `krXmls[]`,
+     `odXml`, `cachedAt`. Persist to cache and return.
 5. Back in `content.js`, the response arrives. If
-   `requestId !== pendingRequestId`, the user has moved on; bail.
+  `requestId !== pendingRequestId`, the user has moved on; bail.
 6. Handle error responses (`NO_API_KEY`, `FETCH_FAILED`, other) with
-   `buildErrorNode`.
+  `buildErrorNode`.
 7. On success: store `lastPayload` and `lastSentence`, render
-   `buildResultNode(payload, { sentence })` and show via `showPopup`.
+  `buildResultNode(payload, { sentence })` and show via `showPopup`.
 8. `extractSentence(anchor)` walks up from the hovered word (using the
-   site's `sentenceContainer` selector if set, else the default block-
+  site's `sentenceContainer` selector if set, else the default block-
    level tag set) to find the surrounding sentence, then truncates with
    ellipses if longer than 80 chars on either side of the hit.
 
@@ -489,11 +512,11 @@ Files: `content.js`.
 The click path (`onWordClick`) is mostly identical to hover but:
 
 - `e.preventDefault()` + `e.stopPropagation()` — keeps the click from
-  navigating when the word happens to be inside an `<a>` (e.g. linked
-  YouTube subtitles).
+navigating when the word happens to be inside an `<a>` (e.g. linked
+YouTube subtitles).
 - Skips the 60 ms hover delay — `performLookup` runs immediately.
 - Useful for touch and for sites where mouseenter is unreliable (custom
-  event interceptors, overlays).
+event interceptors, overlays).
 
 ### 6.4 Sentence-word click: re-look-up without moving the popup
 
@@ -507,12 +530,12 @@ its own click handler.
 
 1. User clicks one of those spans. `onSentenceWordClick(surface, fullText, offset)` runs.
 2. A new `{before, word, after}` sentence is built — same `fullText`,
-   but with the clicked chunk as the hit.
+  but with the clicked chunk as the hit.
 3. `performLookup(null, { surface, sentence: newSentence })` runs.
-   `target` is null, so `anchor = activeWordEl` (kept from the original
+  `target` is null, so `anchor = activeWordEl` (kept from the original
    hover) and `reposition = false` — the popup stays exactly where it is.
 4. `extractSentence` is bypassed (the `opts.sentence` is used directly),
-   so the popup keeps the same sentence band as the user reads through it
+  so the popup keeps the same sentence band as the user reads through it
    one 어절 at a time.
 
 ### 6.5 EN / KR language toggle
@@ -521,10 +544,10 @@ Files: `content.js`.
 
 1. User clicks the `[영어] [한국어]` toggle in the popup strip.
 2. `onToggleLang(lang)` flips `defLang`, writes to
-   `chrome.storage.sync` (so other tabs and a reopened popup also pick
+  `chrome.storage.sync` (so other tabs and a reopened popup also pick
    up the change), then `rerenderActivePopup()`.
 3. `rerenderActivePopup` re-renders from the cached `lastPayload` +
-   `lastSentence` with `reposition: false` — no DOM-derived sentence
+  `lastSentence` with `reposition: false` — no DOM-derived sentence
    re-extraction (which would clobber a sentence-word-click rebuild),
    no popup move.
 
@@ -538,36 +561,36 @@ partitions the merged set of entries (across all parallel queries) into
 (everything else). See §9 for the partition logic.
 
 1. Primary entries get rendered as tabs in `buildTabBar`. The active tab
-   shows in `buildKrEntryNode`.
+  shows in `buildKrEntryNode`.
 2. If there are hidden related entries, a `+N related` pill appears at
-   the end of the tab strip.
+  the end of the tab strip.
 3. Clicking a normal tab calls `onTabClick(idx)` →
-   `rerenderActivePopup()` with `reposition: false` (so the user's click
+  `rerenderActivePopup()` with `reposition: false` (so the user's click
    on the next tab in the strip doesn't get eaten by the popup moving
    away mid-click).
 4. Clicking `+N related` sets `relatedExpanded = true` and re-renders.
-   The previously hidden entries are now appended to the tab list.
+  The previously hidden entries are now appended to the tab list.
 
 ### 6.7 Hanja meanings: click-to-expand per-character panel
 
 Files: `content.js`, `background.js`.
 
 1. The dictionary entry's `origin` field (e.g. `豫約 (예약)`) becomes a
-   button via `makeHanjaChip` — only when at least one character passes
+  button via `makeHanjaChip` — only when at least one character passes
    `isHanjaChar` (CJK Unified or Extension A).
 2. User clicks the chip. `expandedHanja` set toggles; `rerenderActivePopup`.
 3. `buildHanjaMeaningsNode` mounts a panel below the meta row. On the
-   first expansion for a given Hanja string, it sends
+  first expansion for a given Hanja string, it sends
    `{ type: 'lookupHanja', chars }` to `background.js`.
 4. `handleHanjaLookup(chars)` checks the `hanja:` cache namespace, then
-   `fetch('https://hangulhanja.com/api/search?q=...&mode=hanzi&locale=en')`,
+  `fetch('https://hangulhanja.com/api/search?q=...&mode=hanzi&locale=en')`,
    normalizes the JSON response to `[{character, sino, summary}]`, caches
    it, and returns it.
 5. The panel renders one row per character. The character itself is a
-   link to `https://hangulhanja.com/en/hanja/<encoded char>` for the full
+  link to `https://hangulhanja.com/en/hanja/<encoded char>` for the full
    per-character breakdown page.
 6. A session-only `hanjaSession` Map in `content.js` short-circuits
-   subsequent rerenders of the same popup so the panel doesn't flash
+  subsequent rerenders of the same popup so the panel doesn't flash
    "Loading…" again when the user toggles a tab.
 
 ### 6.8 YouTube dual subs activation
@@ -576,77 +599,77 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
 `youtube-page-hook.js`.
 
 1. `content.js`'s `init` resolves `siteConfig` for the current
-   hostname; for `youtube.com` this returns the YouTube config with
+  hostname; for `youtube.com` this returns the YouTube config with
    `adapter: 'youtube-adapter.js'`.
 2. After scanning the page and setting up handlers, `init` dynamic-
-   imports the adapter and calls `setup({ unwrap, rescan })` — the two
+  imports the adapter and calls `setup({ unwrap, rescan })` — the two
    callbacks let the adapter ask content.js to strip and re-apply
    `.lws-word` wrapping around SPA navigations (see the SPA-nav notes
    in §7.11.x).
 3. `youtube-adapter.js`'s `setup(api)`:
-    1. Stashes `api.unwrap` / `api.rescan` (no-ops if missing).
-    2. Registers `chrome.storage.onChanged` listener (sync:
-       dualSubsYouTube + secondaryLang; local: dualSubsOverrides +
-       disabledHosts).
-    3. Registers `chrome.runtime.onMessage` for `lws-yt-popup-info`.
-    4. Wires `yt-navigate-start` → `handleNavStart` (deactivate +
-       unwrap) and `yt-navigate-finish` → `handleNavFinish` (after
-       250 ms: activate + rescan). Polls `window.location.href` every
-       1 s as a fallback for navigations that don't fire those events.
-    5. `injectHookOnce()` — appends a `<script src=chrome-extension://.../youtube-page-hook.js>` tag to `document.head`. The hook's IIFE
-       checks `window.__lwsYtHookInstalled` to be idempotent.
-    6. `activate()` — bumps `activeGeneration`, tears down any
-       existing overlay, guards on `/watch` and `isEnabled()`, then
-       awaits `initForCurrentVideo()`. After each await it re-checks
-       `myGen === activeGeneration` and discards its own work if a
-       newer activate/deactivate has preempted it. Prevents two
-       concurrent activates from leaving an orphan overlay when
-       YouTube SPA-navs faster than the capture pipeline finishes.
+  1. Stashes `api.unwrap` / `api.rescan` (no-ops if missing).
+  2. Registers `chrome.storage.onChanged` listener (sync:
+    dualSubsYouTube + secondaryLang; local: dualSubsOverrides +
+     disabledHosts).
+  3. Registers `chrome.runtime.onMessage` for `lws-yt-popup-info`.
+  4. Wires `yt-navigate-start` → `handleNavStart` (deactivate +
+    unwrap) and `yt-navigate-finish` → `handleNavFinish` (after
+     250 ms: activate + rescan). Polls `window.location.href` every
+     1 s as a fallback for navigations that don't fire those events.
+  5. `injectHookOnce()` — appends a `<script src=chrome-extension://.../youtube-page-hook.js>` tag to `document.head`. The hook's IIFE
+    checks `window.__lwsYtHookInstalled` to be idempotent.
+  6. `activate()` — bumps `activeGeneration`, tears down any
+    existing overlay, guards on `/watch` and `isEnabled()`, then
+     awaits `initForCurrentVideo()`. After each await it re-checks
+     `myGen === activeGeneration` and discards its own work if a
+     newer activate/deactivate has preempted it. Prevents two
+     concurrent activates from leaving an orphan overlay when
+     YouTube SPA-navs faster than the capture pipeline finishes.
 4. `initForCurrentVideo`:
-    1. `waitForVideoElement` polls `document.querySelector('video.html5-main-video')` up to 10 s.
-    2. `waitForTracklist` merges two sources every iteration:
-       `player.getOption('captions','tracklist')` (rich metadata but
-       unreliable for ASR-only videos — the player sometimes returns []
-       until the user enables CC manually) AND a fresh
-       `player.getPlayerResponse().captions.playerCaptionsTracklistRenderer.captionTracks`
-       (always present, complete, but thinner shape, AND updated per
-       SPA-nav — see "stale ytInitialPlayerResponse" gotcha below).
-       Dedupes by `(languageCode, kind)` — player entries win on
-       overlap. Polls every 250 ms for up to 10 s.
-    3. **No separate audio-language gate.** Whether to engage dual subs
-       is decided entirely by `pickPrimarySource` below: if the
-       tracklist contains any Korean track (manual or ASR), engage;
-       otherwise skip. There's no need to also inspect "audio language"
-       because the tracklist only contains base tracks — manual
-       (uploader-provided) and ASR (YouTube auto-generated, always in
-       the actual spoken language). Auto-translated tracks via
-       `tlang=…` aren't enumerated; they're derived on demand. So a
-       KO entry in the tracklist always means either "uploader added
-       it" or "the audio is Korean" — both legitimate reasons. See
-       §15.11 for the design history (we tried two more complex
-       gates first and they were both either redundant or broken).
-    4. `resolveSecondaryLang(videoId)` — per-video override (from
-       `local.dualSubsOverrides`) wins over `sync.secondaryLang`, which
-       defaults to `'en'`.
-    5. `pickPrimarySource(tracklist)` and `pickSecondarySource` —
-       see §10 for the fallback chains.
-    5. For each unique base track involved, `captureBaseTrack(lang)`:
-       posts `{__lwsYtCmd:'load-track', lang}`, then waits for a
-       `__lwsYtCaption` postMessage whose URL has `lang=…` and no
-       `tlang=` (signaling it's the original, not an auto-translation).
-    6. `materializeLines` — for each source, either parse the captured
-       body directly (`parseJson3` or `parseSrv1Xml`), or refetch the
-       captured URL with `&tlang=<target>` appended. The signed
-       `sparams` don't include `lang`/`tlang`, so YouTube's signature
-       still validates the second URL.
-    7. Mount the overlay on `.html5-video-player` (the player root —
-       NOT `.html5-video-container`, which has wrong positioning).
-    8. Inject a `<style>#lws-hide-yt-captions { .ytp-caption-window-container { display: none !important; }}</style>` to hide the native captions.
-    9. Attach `timeupdate` / `seeking` / `seeked` listeners on the
-       video element. Each tick does a binary search over the lines
-       array (`findLineIdx`) and updates the KO and EN `<div>`s.
+  1. `waitForVideoElement` polls `document.querySelector('video.html5-main-video')` up to 10 s.
+  2. `waitForTracklist` merges two sources every iteration:
+    `player.getOption('captions','tracklist')` (rich metadata but
+     unreliable for ASR-only videos — the player sometimes returns []
+     until the user enables CC manually) AND a fresh
+     `player.getPlayerResponse().captions.playerCaptionsTracklistRenderer.captionTracks`
+     (always present, complete, but thinner shape, AND updated per
+     SPA-nav — see "stale ytInitialPlayerResponse" gotcha below).
+     Dedupes by `(languageCode, kind)` — player entries win on
+     overlap. Polls every 250 ms for up to 10 s.
+  3. **No separate audio-language gate.** Whether to engage dual subs
+    is decided entirely by `pickPrimarySource` below: if the
+     tracklist contains any Korean track (manual or ASR), engage;
+     otherwise skip. There's no need to also inspect "audio language"
+     because the tracklist only contains base tracks — manual
+     (uploader-provided) and ASR (YouTube auto-generated, always in
+     the actual spoken language). Auto-translated tracks via
+     `tlang=…` aren't enumerated; they're derived on demand. So a
+     KO entry in the tracklist always means either "uploader added
+     it" or "the audio is Korean" — both legitimate reasons. See
+     §15.11 for the design history (we tried two more complex
+     gates first and they were both either redundant or broken).
+  4. `resolveSecondaryLang(videoId)` — per-video override (from
+    `local.dualSubsOverrides`) wins over `sync.secondaryLang`, which
+     defaults to `'en'`.
+  5. `pickPrimarySource(tracklist)` and `pickSecondarySource` —
+    see §10 for the fallback chains.
+  6. For each unique base track involved, `captureBaseTrack(lang)`:
+    posts `{__lwsYtCmd:'load-track', lang}`, then waits for a
+     `__lwsYtCaption` postMessage whose URL has `lang=…` and no
+     `tlang=` (signaling it's the original, not an auto-translation).
+  7. `materializeLines` — for each source, either parse the captured
+    body directly (`parseJson3` or `parseSrv1Xml`), or refetch the
+     captured URL with `&tlang=<target>` appended. The signed
+     `sparams` don't include `lang`/`tlang`, so YouTube's signature
+     still validates the second URL.
+  8. Mount the overlay on `.html5-video-player` (the player root —
+    NOT `.html5-video-container`, which has wrong positioning).
+  9. Inject a `<style>#lws-hide-yt-captions { .ytp-caption-window-container { display: none !important; }}</style>` to hide the native captions.
+  10. Attach `timeupdate` / `seeking` / `seeked` listeners on the
+    video element. Each tick does a binary search over the lines
+     array (`findLineIdx`) and updates the KO and EN `<div>`s.
 5. Teardown: returned closure removes listeners, detaches the overlay,
-   detaches the style tag. Called by `deactivate` on navigation away,
+  detaches the style tag. Called by `deactivate` on navigation away,
    on settings change, or on per-video override change.
 
 ### 6.9 Toolbar popup → YouTube per-video override
@@ -655,30 +678,30 @@ Files: `popup.js`, `popup.html`, `site-configs.js`, `youtube-popup.js`, `youtube
 
 1. User clicks the extension's toolbar icon → `popup.html` opens.
 2. `popup.js` `loadAdapterSection()`:
-    1. `resolveActiveSite()` → `{ tab, host, protocol, href }`. Tries
-       `tab.url` first (works under `activeTab`); falls back to a
-       `lws-site-info` message to the content script (which always
-       knows `window.location`).
-    2. Resolves `findSiteConfig(site.host)` from `site-configs.js`;
-       on YouTube this matches the entry whose `popupModule` is
-       `'youtube-popup.js'`.
-    3. Dynamic-imports `./youtube-popup.js` and calls
-       `renderSection({ tab, href, container })`.
+  1. `resolveActiveSite()` → `{ tab, host, protocol, href }`. Tries
+    `tab.url` first (works under `activeTab`); falls back to a
+     `lws-site-info` message to the content script (which always
+     knows `window.location`).
+  2. Resolves `findSiteConfig(site.host)` from `site-configs.js`;
+    on YouTube this matches the entry whose `popupModule` is
+     `'youtube-popup.js'`.
+  3. Dynamic-imports `./youtube-popup.js` and calls
+    `renderSection({ tab, href, container })`.
 3. `youtube-popup.js` `renderSection`:
-    1. Bails if the URL isn't `youtube.com/watch?...` (the adapter
-       section stays hidden).
-    2. `chrome.tabs.sendMessage(tab.id, { type: 'lws-yt-popup-info' })`.
-    3. Adapter responds with `{ active, videoId, tracks, secondaryLang }`.
+  1. Bails if the URL isn't `youtube.com/watch?...` (the adapter
+    section stays hidden).
+  2. `chrome.tabs.sendMessage(tab.id, { type: 'lws-yt-popup-info' })`.
+  3. Adapter responds with `{ active, videoId, tracks, secondaryLang }`.
 4. `renderTrackSelect` builds a single `<select>` row labelled
-   "Secondary". Options are every distinct non-Korean language in the
+  "Secondary". Options are every distinct non-Korean language in the
    tracklist (ASR tracks get an `(auto)` suffix), plus the user's
    currently-selected secondary as `(translated)` if not in the
    tracklist, plus a final `Off` option.
 5. User picks an option. `setOverride(videoId, lang)` reads
-   `chrome.storage.local.dualSubsOverrides`, merges in
+  `chrome.storage.local.dualSubsOverrides`, merges in
    `{[videoId]: lang}`, writes it back.
 6. The adapter's `onChanged` listener for `local.dualSubsOverrides`
-   fires, sees the entry for the current videoId changed, calls
+  fires, sees the entry for the current videoId changed, calls
    `deactivate()` + `activate()`. The overlay tears down and remounts
    with the new secondary.
 
@@ -703,26 +726,26 @@ module-level state, and the non-obvious invariants.
 MV3 manifest. Notable bits:
 
 - `permissions: ["storage", "unlimitedStorage", "activeTab"]` — no
-  host permissions on `<all_urls>` because the dictionary fetches
-  happen from the background service worker, which is bound by
-  `host_permissions`. `activeTab` is needed so the toolbar popup can
-  read `tab.url` for the active tab (used by the per-site disable
-  toggle and the per-site adapter section). Without it, both
-  `chrome.tabs.query` calls return a tab whose `url` is undefined and
-  the popup silently bails before unhiding anything.
+host permissions on `<all_urls>` because the dictionary fetches
+happen from the background service worker, which is bound by
+`host_permissions`. `activeTab` is needed so the toolbar popup can
+read `tab.url` for the active tab (used by the per-site disable
+toggle and the per-site adapter section). Without it, both
+`chrome.tabs.query` calls return a tab whose `url` is undefined and
+the popup silently bails before unhiding anything.
 - `host_permissions`: `krdict.korean.go.kr`, `opendict.korean.go.kr`,
-  `hangulhanja.com`. That's the entire network surface.
+`hangulhanja.com`. That's the entire network surface.
 - `content_security_policy.extension_pages: "script-src 'self' 'wasm-unsafe-eval'; ..."` — the WASM analyzer needs `wasm-unsafe-eval` to instantiate inside the MV3 service worker.
 - `browser_specific_settings.gecko.strict_min_version: "121.0"` —
-  Firefox 121+ for MV3 service-worker support (the SW is `type: "module"`).
+Firefox 121+ for MV3 service-worker support (the SW is `type: "module"`).
 - `content_scripts`: `content.js` + `content.css`, matches
-  `<all_urls>`, `run_at: document_idle`, `all_frames: false`.
+`<all_urls>`, `run_at: document_idle`, `all_frames: false`.
 - `web_accessible_resources`: every JS module that `content.js`
-  dynamic-imports (`parsers.js`, `grammar-glosses.js`, `site-configs.js`,
-  `youtube-adapter.js`, `youtube-page-hook.js`), plus
-  `popup-shadow.css`. These are accessed via
-  `chrome.runtime.getURL(...)` — the dynamic `import()` in
-  `content.js` needs the absolute extension URL.
+dynamic-imports (`parsers.js`, `grammar-glosses.js`, `site-configs.js`,
+`youtube-adapter.js`, `youtube-page-hook.js`), plus
+`popup-shadow.css`. These are accessed via
+`chrome.runtime.getURL(...)` — the dynamic `import()` in
+`content.js` needs the absolute extension URL.
 
 ### 7.2 `content.js`
 
@@ -736,24 +759,26 @@ This is the biggest file in the extension (~1500 lines). Key sections:
 
 All `let` bindings inside the top-level async IIFE:
 
-| Binding                  | Purpose                                                  |
-|--------------------------|----------------------------------------------------------|
-| `enabled`, `hostDisabled` | `enabled = !hostDisabled`; flips on `disabledHosts` onChanged |
-| `defLang`, `secondaryLang`, `askAiPromptTemplate` | Read at init; updated by onChanged       |
-| `popupHost`, `popupRoot`, `popupEl` | Shadow-DOM popup parts; created lazily         |
-| `activeWordEl`           | The `.lws-word` currently being hovered                  |
-| `lastPayload`            | Last `LookupResponse` for re-rendering after toggles     |
-| `lastSentence`           | The `{before, word, after}` used for the current popup   |
-| `activeInsightTab`       | `'breakdown' \| null` — which insights panel is open     |
-| `activeTabIdx`           | Active KRDict-entry tab (homograph switching)            |
-| `relatedExpanded`        | Whether the "+N related" pill has been clicked           |
-| `popupMinHeight`, `popupMinWidth` | Monotonic non-decreasing — popup never shrinks during a session |
-| `expandedExamples`       | Set of `senseId` keys whose examples are open            |
-| `expandedHanja`          | Set of Hanja-character strings whose meanings panels are open |
-| `hideTimer`, `hoverTimer`| Timeout handles for the 120 ms hide / 60 ms hover delay  |
-| `pendingRequestId`       | Monotonic counter; lookup responses past this are discarded |
-| `pausedVideo`, `resumeVideoOnHide`, `suppressNextPauseEvent`, `videoPauseListener` | Video auto-pause state (see below) |
-| `hanjaSession`           | Per-session Map of Hanja chars → result (avoids re-flash on rerender) |
+
+| Binding                                                                            | Purpose                                                               |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `enabled`, `hostDisabled`                                                          | `enabled = !hostDisabled`; flips on `disabledHosts` onChanged         |
+| `defLang`, `secondaryLang`, `askAiPromptTemplate`                                  | Read at init; updated by onChanged                                    |
+| `popupHost`, `popupRoot`, `popupEl`                                                | Shadow-DOM popup parts; created lazily                                |
+| `activeWordEl`                                                                     | The `.lws-word` currently being hovered                               |
+| `lastPayload`                                                                      | Last `LookupResponse` for re-rendering after toggles                  |
+| `lastSentence`                                                                     | The `{before, word, after}` used for the current popup                |
+| `activeInsightTab`                                                                 | `'breakdown' | null` — which insights panel is open                   |
+| `activeTabIdx`                                                                     | Active KRDict-entry tab (homograph switching)                         |
+| `relatedExpanded`                                                                  | Whether the "+N related" pill has been clicked                        |
+| `popupMinHeight`, `popupMinWidth`                                                  | Monotonic non-decreasing — popup never shrinks during a session       |
+| `expandedExamples`                                                                 | Set of `senseId` keys whose examples are open                         |
+| `expandedHanja`                                                                    | Set of Hanja-character strings whose meanings panels are open         |
+| `hideTimer`, `hoverTimer`                                                          | Timeout handles for the 120 ms hide / 60 ms hover delay               |
+| `pendingRequestId`                                                                 | Monotonic counter; lookup responses past this are discarded           |
+| `pausedVideo`, `resumeVideoOnHide`, `suppressNextPauseEvent`, `videoPauseListener` | Video auto-pause state (see below)                                    |
+| `hanjaSession`                                                                     | Per-session Map of Hanja chars → result (avoids re-flash on rerender) |
+
 
 #### Word scanning
 
@@ -781,22 +806,24 @@ shadow root, mounts a `<link rel="stylesheet" href="...popup-shadow.css">`
 inside, and creates the inner `#lws-popup` element.
 
 `positionPopup(target)`:
+
 - Computes preferred position in viewport coords (below the word + 8 px,
-  flipped above if it would overflow the bottom, clipped at the right
-  edge).
+flipped above if it would overflow the bottom, clipped at the right
+edge).
 - Converts to document coords (`+ window.scrollX/Y`) before writing —
-  the popup is `position: absolute` so it stays attached to the document
-  origin and scrolls with the page.
+the popup is `position: absolute` so it stays attached to the document
+origin and scrolls with the page.
 
 `showPopup(target, contentNode, opts)`:
+
 - Replaces popup contents, applies remembered `min-height`/`min-width`
-  so the popup never shrinks below its largest-seen size this session
-  (keeps the cursor inside the popup boundary across tab/lang/example
-  toggles).
+so the popup never shrinks below its largest-seen size this session
+(keeps the cursor inside the popup boundary across tab/lang/example
+toggles).
 - `opts.reposition !== false` is the default for fresh shows; tab/lang
-  re-renders pass `reposition: false`.
+re-renders pass `reposition: false`.
 - After the next paint, captures the actual rendered size and bumps the
-  monotonic min-size memos.
+monotonic min-size memos.
 - Calls `pauseVideoIfApplicable(target)` (idempotent within a session).
 
 `hidePopup` is wired to a 120 ms `mouseleave` delay (`scheduleHide`),
@@ -807,57 +834,57 @@ cancellable when the cursor re-enters either the word or the popup.
 When `siteConfig.findVideo()` returns a video element:
 
 - `pauseVideoIfApplicable(anchor)` first checks that the hovered word
-  (`anchor`) is inside the configured `sentenceContainer` — the same
-  selector that identifies caption-style text. This prevents hovers on
-  the video title, comments, description, or any other non-caption text
-  from interrupting playback. If the anchor isn't in a caption
-  container, no pause happens.
+(`anchor`) is inside the configured `sentenceContainer` — the same
+selector that identifies caption-style text. This prevents hovers on
+the video title, comments, description, or any other non-caption text
+from interrupting playback. If the anchor isn't in a caption
+container, no pause happens.
 - On first eligible `showPopup` of a session, pauses the video, sets
-  `pausedVideo` and `resumeVideoOnHide`, and attaches a `pause` event
-  listener.
+`pausedVideo` and `resumeVideoOnHide`, and attaches a `pause` event
+listener.
 - The listener swallows exactly one event (the one our own
-  `.pause()` emitted) via `suppressNextPauseEvent`. Any subsequent pause
-  event is the user's, and it flips `resumeVideoOnHide` to `false`
-  (so we don't override their explicit pause when they're done reading
-  the popup).
+`.pause()` emitted) via `suppressNextPauseEvent`. Any subsequent pause
+event is the user's, and it flips `resumeVideoOnHide` to `false`
+(so we don't override their explicit pause when they're done reading
+the popup).
 - `resumeVideoIfApplicable` runs on `hidePopup`; only resumes if
-  `resumeVideoOnHide` is still `true` and the video is still paused.
+`resumeVideoOnHide` is still `true` and the video is still paused.
 
 #### Sentence extraction
 
 `extractSentence(wordEl)`:
+
 1. If `siteConfig.sentenceContainer` is set, use
-   `wordEl.closest(selector)` — for YouTube this is `.lws-ytsubs-ko,
-   .captions-text, .caption-window, .ytp-caption-window-container`.
+  `wordEl.closest(selector)` — for YouTube this is `.lws-ytsubs-ko,  .captions-text, .caption-window, .ytp-caption-window-container`.
 2. If `closest()` returned null OR no site-specific selector exists,
-   walk up the DOM until hitting a `SENTENCE_BLOCK_TAGS` element
+  walk up the DOM until hitting a `SENTENCE_BLOCK_TAGS` element
    (`<p>`, `<li>`, `<td>`, `<th>`, `<blockquote>`, `<figcaption>`,
    `<article>`, `<section>`, `<h1-6>`, `<dt>`, `<dd>`, `<caption>`,
    `<summary>`) — or stop at a `<div>` that has reasonable text.
 3. Read `block.textContent`, normalize whitespace, reject if shorter
-   than 3 chars or longer than 800 chars.
+  than 3 chars or longer than 800 chars.
 4. Locate the surface within that text, truncate to ±80 chars with
-   ellipses, return `{before, word, after}`.
+  ellipses, return `{before, word, after}`.
 
 #### Result rendering
 
 `buildResultNode(payload, options)` is the big one:
 
 1. Parse the XML — `payload.krXmls[]` (new format) or
-   `[krXml, krXmlExtra].filter(Boolean)` (legacy cached payloads).
+  `[krXml, krXmlExtra].filter(Boolean)` (legacy cached payloads).
 2. `mergeKrEntriesAll(groups)` dedupes across parallel-query result
-   groups by `(word|pos|definition[0..40])` — earlier groups (more
+  groups by `(word|pos|definition[0..40])` — earlier groups (more
    specific queries) win.
 3. Render the strip (lemma chip + EN/KR toggle), the sentence band,
-   the insights node (morpheme breakdown tab).
+  the insights node (morpheme breakdown tab).
 4. Partition entries into primary vs related using the multiPrimary
-   flag and promoted forms (see §9).
+  flag and promoted forms (see §9).
 5. Sort primary so entries whose word equals the literal surface lead
-   (stable sort).
+  (stable sort).
 6. Render tab bar (if >1 entry or hidden related entries), then the
-   active entry via `buildKrEntryNode`.
+  active entry via `buildKrEntryNode`.
 7. If OpenDict has results, render those under a "OpenDict experimental"
-   section label.
+  section label.
 
 `buildKrEntryNode` lays out: headline (word + ★ stars), meta row (POS
 chip, pronunciation chip, Hanja-origin chip), the Hanja meanings panel
@@ -893,22 +920,24 @@ and the network-side dictionary requests.
 
 Module-level state:
 
-| Binding              | Purpose                                            |
-|----------------------|----------------------------------------------------|
-| `cache`              | `createCache(adapter)` — `lookup:` namespace       |
-| `hanjaCache`         | `createCache(adapter, { namespace: 'hanja' })`     |
-| `mecabInstance`      | `Mecab` instance once initialized, otherwise null  |
-| `mecabReadyPromise`  | In-flight init promise (so concurrent first-hovers don't double-init) |
+
+| Binding             | Purpose                                                               |
+| ------------------- | --------------------------------------------------------------------- |
+| `cache`             | `createCache(adapter)` — `lookup:` namespace                          |
+| `hanjaCache`        | `createCache(adapter, { namespace: 'hanja' })`                        |
+| `mecabInstance`     | `Mecab` instance once initialized, otherwise null                     |
+| `mecabReadyPromise` | In-flight init promise (so concurrent first-hovers don't double-init) |
+
 
 `ensureMecab()`:
 
 1. Returns cached instance if already initialized.
 2. Otherwise: `init({ module_or_path: chrome.runtime.getURL('vendor/mecab-ko/mecab_ko_wasm_bg.wasm') })` — the wasm-bindgen `init` import accepts an explicit URL so the SW doesn't try to import.meta.url-resolve against itself.
 3. `Promise.all` fetches `sys.dic.gz`, `matrix.bin.gz`, `entries.bin.gz`
-   and pipes each through `DecompressionStream('gzip')` (built into MV3
+  and pipes each through `DecompressionStream('gzip')` (built into MV3
    SWs since Chrome 80).
 4. `Mecab.withDictBytes(trie, matrix, entries)` — the fork-only
-   constructor that takes in-memory bytes instead of filesystem paths
+  constructor that takes in-memory bytes instead of filesystem paths
    (see [MECAB_INTEGRATION.md](MECAB_INTEGRATION.md)).
 
 `tokenizeSurface(surface)` wraps `mecab.tokenize(surface)` and
@@ -921,16 +950,16 @@ to surface-only candidates.
 points:
 
 - Top 4 distinct candidates fired in parallel via `Promise.all`. The
-  first non-empty per slot is collected into `krXmls[]` along with
-  the corresponding query in `queriesUsed[]`.
+first non-empty per slot is collected into `krXmls[]` along with
+the corresponding query in `queriesUsed[]`.
 - `multiPrimary = candidates.length > 0 && candidates[0] === surface` —
-  this is the lemmatizer's surface-first signal that the surface is a
-  pure noun compound (see §8). It controls how the partition logic in
-  `buildResultNode` divvies primary vs related entries.
+this is the lemmatizer's surface-first signal that the surface is a
+pure noun compound (see §8). It controls how the partition logic in
+`buildResultNode` divvies primary vs related entries.
 - Backward-compat: `krXml = krXmls[0]`, `krXmlExtra = krXmls[1]`,
-  `queryUsed = queriesUsed[0]`, `queryUsedExtra = queriesUsed[1]` —
-  older cached payloads in `storage.local` don't have the new array
-  field, so `buildResultNode` reads both.
+`queryUsed = queriesUsed[0]`, `queryUsedExtra = queriesUsed[1]` —
+older cached payloads in `storage.local` don't have the new array
+field, so `buildResultNode` reads both.
 
 `handleHanjaLookup(chars)` is much simpler: the whole Hanja string is
 the cache key, the API takes the whole string at once and returns one
@@ -961,13 +990,15 @@ export function inflectStem(features): string | null
 
 See §8 below for a deep dive on the rules. Key tag groups:
 
-| Constant                | Tags                                              | Used to                                                          |
-|-------------------------|---------------------------------------------------|------------------------------------------------------------------|
-| `VERB_LEAD_TAGS`        | VV VA VX VCN VCP XSV XSA                          | Build `<stem>다` per-token                                       |
-| `NOUN_LEAD_TAGS`        | NNG NNP NR NP SL SH SN                            | Use morpheme as-is per-token                                     |
-| `COMPOUND_PREFIX_TAGS`  | NNG NNP NNB NR NP MM XR XSN                       | Accumulate as prefix before an XSV/XSA — wider than NOUN_LEAD_TAGS so 한잔하다 works |
-| `COMPOUND_DERIV_TAGS`   | XSV XSA                                            | Consume the accumulator and emit `<prefix><stem>다`              |
-| `COMPOUND_NOUN_TAGS`    | NNG NNP NR NP XSN                                 | Surface-first promotion when every token is one of these         |
+
+| Constant               | Tags                        | Used to                                                                          |
+| ---------------------- | --------------------------- | -------------------------------------------------------------------------------- |
+| `VERB_LEAD_TAGS`       | VV VA VX VCN VCP XSV XSA    | Build `<stem>다` per-token                                                        |
+| `NOUN_LEAD_TAGS`       | NNG NNP NR NP SL SH SN      | Use morpheme as-is per-token                                                     |
+| `COMPOUND_PREFIX_TAGS` | NNG NNP NNB NR NP MM XR XSN | Accumulate as prefix before an XSV/XSA — wider than NOUN_LEAD_TAGS so 한잔하다 works |
+| `COMPOUND_DERIV_TAGS`  | XSV XSA                     | Consume the accumulator and emit `<prefix><stem>다`                               |
+| `COMPOUND_NOUN_TAGS`   | NNG NNP NR NP XSN           | Surface-first promotion when every token is one of these                         |
+
 
 ### 7.5 `parsers.js`
 
@@ -982,26 +1013,26 @@ Exports:
 - `parseKrdictXml(xml, DOMParserCtor): KrEntry[]`
 - `parseOpendictXml(xml, DOMParserCtor): OdEntry[]`
 - `filterTranslations(translations, target)` — OpenDict translations
-  are tagged with `language_type` (e.g. `"영어"`); this filters to a
-  single language using a regex matcher (`en` → `/영어|english/i`).
+are tagged with `language_type` (e.g. `"영어"`); this filters to a
+single language using a regex matcher (`en` → `/영어|english/i`).
 - `gradeToStars(grade)` — `"초급" → "★★★"`, `"중급" → "★★"`,
-  `"고급" → "★"`, else `""`.
+`"고급" → "★"`, else `""`.
 - `gradeToTooltip(grade)` — human-readable tooltip explaining the
-  difficulty level.
+difficulty level.
 - `posToEnglish(pos)` — KRDict's `"동사"` → `"Verb"`, etc.
-  Falls through to the original string for unknown values (so they still
-  render).
+Falls through to the original string for unknown values (so they still
+render).
 - `posToShortform(pos, lang)` — abbreviated form for tab strips.
-  English (default) produces `"n."`, `"v."`, `"adj."`; Korean produces
-  the single-character Sejong-style `"명"`, `"동"`, `"형"`.
+English (default) produces `"n."`, `"v."`, `"adj."`; Korean produces
+the single-character Sejong-style `"명"`, `"동"`, `"형"`.
 - `posExplanation(pos, lang)` — one-sentence tooltip explaining the POS.
 - `isHanjaChar(ch)` — `[一-鿿㐀-䶿]` (CJK Unified + Extension A).
 - `hanjaCharUrl(ch)` — builds the `hangulhanja.com/en/hanja/<encoded>` link.
 - `isVerbLikePos(pos)` — true for verbs and adjectives ("descriptive
-  verbs"), which both conjugate the same way in Korean.
+verbs"), which both conjugate the same way in Korean.
 - `koreanVerbUrl(hangulWord, pos)` — builds the `koreanverb.app/?search=`
-  link, but only for verb-like POS and only when the word ends in `다`
-  (defensive: malformed data shouldn't link out).
+link, but only for verb-like POS and only when the word ends in `다`
+(defensive: malformed data shouldn't link out).
 
 `KrEntry` shape: `{ word, pronunciation, grade, pos, origin, senses: [{ definition, translations: [{trans_word, trans_dfn}], examples: [string] }] }`.
 
@@ -1019,19 +1050,19 @@ Exports:
 
 - `KRDICT_ENDPOINT`, `OPENDICT_ENDPOINT`, `MIN_NUM` constants.
 - `buildKrdictUrl(query, apiKey, options)` — sets `part=word`,
-  `translated=y`, `trans_lang=1` (English), `num` clamped to `[10, 100]`,
-  `sort=dict`.
+`translated=y`, `trans_lang=1` (English), `num` clamped to `[10, 100]`,
+`sort=dict`.
 - `buildOpendictUrl(query, apiKey, options)` — same family;
-  `req_type=xml` by default. OpenDict doesn't gate translations behind
-  a `trans_lang` parameter — they're inline in `<translation_info>`
-  blocks.
+`req_type=xml` by default. OpenDict doesn't gate translations behind
+a `trans_lang` parameter — they're inline in `<translation_info>`
+blocks.
 - `looksEmpty(xml)` — used by the SW to decide whether to fall through
-  to the next candidate without DOMParser-parsing in the SW (no DOM
-  available there). Returns `true` for: falsy/empty, `<error …>`
-  wrapper, `<total>0</total>`, or missing `<item>`.
+to the next candidate without DOMParser-parsing in the SW (no DOM
+available there). Returns `true` for: falsy/empty, `<error …>`
+wrapper, `<total>0</total>`, or missing `<item>`.
 - `extractApiError(xml)` — `{ code, message }` from a KRDict error
-  envelope, or `null` if not an error response. Used by the options-page
-  "Test KRDict key" button.
+envelope, or `null` if not an error response. Used by the options-page
+"Test KRDict key" button.
 
 ### 7.7 `cache.js`
 
@@ -1043,10 +1074,10 @@ namespace).
 Exports:
 
 - `createCache(storage, opts)` — `opts: { l1Limit?: 500, namespace?: 'lookup' }`.
-  Returns `{ get, set, clear, l1Size }`.
+Returns `{ get, set, clear, l1Size }`.
 - `chromeStorageAdapter(area)` — wraps `chrome.storage.local` (or
-  `.sync`) into the adapter shape, handling both Promise and callback
-  styles defensively.
+`.sync`) into the adapter shape, handling both Promise and callback
+styles defensively.
 
 L1 is a `Map` — `Map`'s insertion-order iteration plus delete-and-re-set on access gives LRU for free.
 
@@ -1069,52 +1100,55 @@ each piece.
 Exports:
 
 - `morphemeGloss(form, pos)` — three-tier lookup:
-    1. `FORM_POS_GLOSSES['<form>|<lead>']` — disambiguates homographs
-       like `을|JKO` (object marker) vs `을|ETM` (future-tense modifier),
-       `이|JKS` vs `이|VCP`, `은|JX` vs `은|ETM`.
-    2. `FORM_GLOSSES[form]` — exact-form matches that aren't ambiguous
-       (`에서`, `으면`, `었`, `습니다`, ...).
-    3. `POS_GLOSSES[lead]` — last-resort fallback ("subject particle",
-       "pre-final ending", "noun-forming suffix", ...).
+  1. `FORM_POS_GLOSSES['<form>|<lead>']` — disambiguates homographs
+  like `을|JKO` (object marker) vs `을|ETM` (future-tense modifier),
+  `이|JKS` vs `이|VCP`, `은|JX` vs `은|ETM`.
+  2. `FORM_GLOSSES[form]` — exact-form matches that aren't ambiguous
+  (`에서`, `으면`, `었`, `습니다`, ...).
+  3. `POS_GLOSSES[lead]` — last-resort fallback ("subject particle",
+  "pre-final ending", "noun-forming suffix", ...).
 - `isContentMorpheme(m)` — for filtering: drops punctuation marks
-  (`SF/SE/SS/SP/SO/SW/SY`) but keeps `SH` (Hanja), `SL` (Latin/foreign),
-  `SN` (numerals), which are real content morphemes.
+(`SF/SE/SS/SP/SO/SW/SY`) but keeps `SH` (Hanja), `SL` (Latin/foreign),
+`SN` (numerals), which are real content morphemes.
 
 ### 7.9 `site-configs.js`
 
 Purpose: the single registry that makes the extension's video-site
-behavior modular. Adding Netflix / Viki is "append a SITE_CONFIGS entry
-+ drop in two files" — no edits to `content.js` or `popup.js`. Fields:
+behavior modular. Currently registers YouTube (full adapter + popup
+module) and Netflix (Phase-1 hover support — just sentence selector
+and findVideo, no adapter yet). Adding another site is "append a
+SITE_CONFIGS entry, optionally drop in two files" — no edits to
+`content.js` or `popup.js`. Fields:
 
 - `sentenceContainer` — CSS selector used by `content.js`'s
-  `extractSentence` instead of the default block-element walk, AND the
-  caption-vs-prose signal that gates auto-pause. Tightest match wins
-  (we use `closest()`). For YouTube, this points at our own overlay's
-  KO line first, then YouTube's native caption containers as fallbacks.
+`extractSentence` instead of the default block-element walk, AND the
+caption-vs-prose signal that gates auto-pause. Tightest match wins
+(we use `closest()`). For YouTube, this points at our own overlay's
+KO line first, then YouTube's native caption containers as fallbacks.
 - `findVideo()` — returns the page's main video element (or null). Used
-  by `content.js` to auto-pause when the popup opens, but only when the
-  hover is inside `sentenceContainer` (so comments / titles don't pause
-  the video).
+by `content.js` to auto-pause when the popup opens, but only when the
+hover is inside `sentenceContainer` (so comments / titles don't pause
+the video).
 - `adapter` — relative path to a content-script-side JS module that
-  gets dynamic-imported and whose `setup()` is invoked. The adapter
-  owns its lifecycle including teardown on SPA navigation. For YouTube
-  this is the dual-subs overlay + page-hook injection.
+gets dynamic-imported and whose `setup()` is invoked. The adapter
+owns its lifecycle including teardown on SPA navigation. For YouTube
+this is the dual-subs overlay + page-hook injection.
 - `popupModule` — relative path to a popup-side module. `popup.js`
-  dynamic-imports it when the active tab matches this config and calls
-  `renderSection({ tab, href, container })` (`href` is the page URL,
-  resolved by popup.js from `tab.url` or the content-script fallback).
-  The module owns all DOM inside
-  the container (a hidden `<section id="site-adapter-section">` in
-  `popup.html`) and is responsible for `container.hidden = false`. Use
-  this for per-site UI in the toolbar popup — e.g. YouTube's
-  per-video secondary-language picker.
+dynamic-imports it when the active tab matches this config and calls
+`renderSection({ tab, href, container })` (`href` is the page URL,
+resolved by popup.js from `tab.url` or the content-script fallback).
+The module owns all DOM inside
+the container (a hidden `<section id="site-adapter-section">` in
+`popup.html`) and is responsible for `container.hidden = false`. Use
+this for per-site UI in the toolbar popup — e.g. YouTube's
+per-video secondary-language picker.
 
 Exports:
 
 - `SITE_CONFIGS` — currently a single YouTube entry.
 - `findSiteConfig(hostname)` — exact host match or regex (`cfg.match`).
-  Returns `null` for unknown hosts (which is the most common case;
-  default `content.js` behavior applies).
+Returns `null` for unknown hosts (which is the most common case;
+default `content.js` behavior applies).
 
 ### 7.10 `youtube-adapter.js`
 
@@ -1124,62 +1158,64 @@ secondary language).
 
 Module-level state:
 
-| Binding              | Purpose                                              |
-|----------------------|------------------------------------------------------|
-| `teardownFn`         | When non-null, dual subs are active for this video   |
-| `activeGeneration`   | Bumped by every activate / deactivate. activate's post-await checks compare to this to detect supersession |
+
+| Binding                     | Purpose                                                                                                                                 |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `teardownFn`                | When non-null, dual subs are active for this video                                                                                      |
+| `activeGeneration`          | Bumped by every activate / deactivate. activate's post-await checks compare to this to detect supersession                              |
 | `hostUnwrap` / `hostRescan` | Callbacks supplied by content.js's loadAdapter — invoked around SPA navs to keep `.lws-word` spans out of YouTube's reconciliation path |
-| `hookInjected`       | Once true, don't re-add the `<script src>` tag       |
-| `lastTracklist`      | Most recent tracklist, exposed to popup via onMessage|
-| `lastVideoId`        | YT video ID currently active                         |
-| `lastSecondaryLang`  | Currently-rendered secondary language                |
-| `cmdSeq`             | Monotonic counter for `reqId` in postMessage cmds    |
+| `hookInjected`              | Once true, don't re-add the `<script src>` tag                                                                                          |
+| `lastTracklist`             | Most recent tracklist, exposed to popup via onMessage                                                                                   |
+| `lastVideoId`               | YT video ID currently active                                                                                                            |
+| `lastSecondaryLang`         | Currently-rendered secondary language                                                                                                   |
+| `cmdSeq`                    | Monotonic counter for `reqId` in postMessage cmds                                                                                       |
+
 
 Public:
 
 - `setup(api)` — wires up storage listeners, message listener,
-  navigation listeners, injects the hook, calls `activate()`. `api`
-  is `{ unwrap, rescan }` from content.js; both default to no-ops.
+navigation listeners, injects the hook, calls `activate()`. `api`
+is `{ unwrap, rescan }` from content.js; both default to no-ops.
 
 Implementation notes:
 
 - `currentVideoId()` reads `?v=` from the URL — robust to the
-  back-button SPA-style navigation YouTube does.
+back-button SPA-style navigation YouTube does.
 - `resolveSecondaryLang(videoId)` does a parallel sync+local read,
-  catches per-promise failures so one bad read doesn't sink the other.
-  Per-video override wins; default is `sync.secondaryLang || 'en'`.
+catches per-promise failures so one bad read doesn't sink the other.
+Per-video override wins; default is `sync.secondaryLang || 'en'`.
 - The `setInterval(..., 1000)` href-poll is a fallback for cases where
-  the `yt-navigate-finish` event doesn't fire (some YouTube internal
-  navigation paths skip it). It calls the same `handleNavStart` /
-  `handleNavFinish` pair so the unwrap / activate logic is shared.
+the `yt-navigate-finish` event doesn't fire (some YouTube internal
+navigation paths skip it). It calls the same `handleNavStart` /
+`handleNavFinish` pair so the unwrap / activate logic is shared.
 - **SPA navigation race**: `activate()` is async — its
-  `waitForVideoElement` + `waitForTracklist` + `captureBaseTrack`
-  chain can take seconds. Without the generation token, a YouTube
-  auto-advance to the next video would trigger
-  `deactivate()` → `activate(#2)` while `activate(#1)`'s pipeline was
-  still mid-flight. Both would eventually mount overlays, but only
-  `#2`'s `teardownFn` would be tracked — `#1`'s overlay stayed in the
-  DOM, so the next video showed both videos' subs. `activeGeneration`
-  fixes this: every `activate`/`deactivate` bumps it; after each
-  `await`, `activate` rechecks and tears down its own work if a
-  newer generation is current.
+`waitForVideoElement` + `waitForTracklist` + `captureBaseTrack`
+chain can take seconds. Without the generation token, a YouTube
+auto-advance to the next video would trigger
+`deactivate()` → `activate(#2)` while `activate(#1)`'s pipeline was
+still mid-flight. Both would eventually mount overlays, but only
+`#2`'s `teardownFn` would be tracked — `#1`'s overlay stayed in the
+DOM, so the next video showed both videos' subs. `activeGeneration`
+fixes this: every `activate`/`deactivate` bumps it; after each
+`await`, `activate` rechecks and tears down its own work if a
+newer generation is current.
 - **"AB" title mangling**: YouTube SPA-nav reuses the same DOM
-  containers for the video title, description, channel sidebar, etc.
-  When those containers still contain our `.lws-word` spans from the
-  previous video, YouTube's renderer can't cleanly replace the text
-  — it ends up appending the new text alongside our stale spans
-  ("A" → "AB"). `handleNavStart` calls `hostUnwrap()` to strip the
-  spans BEFORE YouTube does its update; `handleNavFinish` calls
-  `hostRescan()` 250 ms later to rewrap the new content.
+containers for the video title, description, channel sidebar, etc.
+When those containers still contain our `.lws-word` spans from the
+previous video, YouTube's renderer can't cleanly replace the text
+— it ends up appending the new text alongside our stale spans
+("A" → "AB"). `handleNavStart` calls `hostUnwrap()` to strip the
+spans BEFORE YouTube does its update; `handleNavFinish` calls
+`hostRescan()` 250 ms later to rewrap the new content.
 - Caption-source picking is the most subtle bit — see §10.
 - Overlay container is `.html5-video-player` (the player root), not
-  the inner `.html5-video-container`. The inner container is
-  `position: static`, so a `bottom: 80px` on a `position: absolute`
-  child resolves against the wrong ancestor and the overlay floats above
-  the visible video area. Cost a bit of debugging to figure out.
+the inner `.html5-video-container`. The inner container is
+`position: static`, so a `bottom: 80px` on a `position: absolute`
+child resolves against the wrong ancestor and the overlay floats above
+the visible video area. Cost a bit of debugging to figure out.
 - `findLineIdx(lines, t)` is a binary search — for a long video with
-  thousands of subtitle lines this matters; a linear scan on every
-  `timeupdate` (which fires ~250 ms) would burn CPU.
+thousands of subtitle lines this matters; a linear scan on every
+`timeupdate` (which fires ~250 ms) would burn CPU.
 
 ### 7.11 `youtube-page-hook.js`
 
@@ -1188,15 +1224,15 @@ Purpose: runs in the page main world. Monkey-patches `XMLHttpRequest.prototype.o
 Message protocol:
 
 1. `__lwsYtCaption` — broadcast on every captured request. The adapter's
-   `captureCaption` filters by URL predicate.
+  `captureCaption` filters by URL predicate.
 2. `__lwsYtCmd: 'tracklist'` — request. Hook returns
-   `player.getOption('captions','tracklist')` (live for the current
+  `player.getOption('captions','tracklist')` (live for the current
    video, but sometimes empty on ASR-only videos before CC is enabled).
 3. `__lwsYtCmd: 'player-response-tracks'` — request. Hook returns the
-   tracklist from `getCurrentPlayerResponse()` as a fallback /
+  tracklist from `getCurrentPlayerResponse()` as a fallback /
    supplement to (2). Adapter merges both sources in `waitForTracklist`.
 4. `__lwsYtCmd: 'load-track'` — request; the hook calls
-   `player.setOption('captions', 'track', {})` then
+  `player.setOption('captions', 'track', {})` then
    `player.setOption('captions', 'track', { languageCode: lang })`. The
    clear-then-set pattern forces a fresh `/api/timedtext` fetch even
    when the player thinks it already has the target track loaded.
@@ -1218,24 +1254,24 @@ The toolbar action UI — what opens when the user clicks the extension's
 icon. Three sections:
 
 - Per-site toggle — shown only on `http(s):` pages. Reads the active
-  tab's hostname via `resolveActiveSite()` (tabs API first, content
-  script fallback if `tab.url` is undefined), then toggles membership
-  in `disabledHosts` (`chrome.storage.local` array). When the user
-  flips it, the content script's `onChanged` listener for
-  `disabledHosts` activates / deactivates immediately. The list is
-  sorted on every write so storage diffs stay small. There is no
-  global hover-dictionary toggle here anymore — for "off everywhere",
-  use `chrome://extensions`.
+tab's hostname via `resolveActiveSite()` (tabs API first, content
+script fallback if `tab.url` is undefined), then toggles membership
+in `disabledHosts` (`chrome.storage.local` array). When the user
+flips it, the content script's `onChanged` listener for
+`disabledHosts` activates / deactivates immediately. The list is
+sorted on every write so storage diffs stay small. There is no
+global hover-dictionary toggle here anymore — for "off everywhere",
+use `chrome://extensions`.
 - Status row (API key status / active).
 - Adapter section — generic shell. `loadAdapterSection()` resolves the
-  active tab's hostname against `findSiteConfig(...)` from
-  `site-configs.js`, and if the matched config declares a
-  `popupModule`, dynamic-imports that module and calls
-  `renderSection({ tab, container })`. The module owns the DOM under
-  `<section id="site-adapter-section">`. For YouTube this is
-  `youtube-popup.js` (secondary-language dropdown). Adding Netflix / Viki is a
-  new SITE_CONFIGS entry + its own `*-popup.js` — no edits to
-  `popup.js` or `popup.html`.
+active tab's hostname against `findSiteConfig(...)` from
+`site-configs.js`, and if the matched config declares a
+`popupModule`, dynamic-imports that module and calls
+`renderSection({ tab, container })`. The module owns the DOM under
+`<section id="site-adapter-section">`. For YouTube this is
+`youtube-popup.js` (secondary-language dropdown). Adding Netflix / Viki is a
+new SITE_CONFIGS entry + its own `*-popup.js` — no edits to
+`popup.js` or `popup.html`.
 
 `popup.js` itself never imports `parsers.js` or anything
 Korean-related — it's a settings/status shell. Per-site UI lives in the
@@ -1248,16 +1284,16 @@ Popup-side counterpart to `youtube-adapter.js`. Exports
 
 1. Returns silently if the tab isn't on `/watch`.
 2. Renders an italic "Asking the page…" status line and unhides the
-   container so the user sees something while we wait.
+  container so the user sees something while we wait.
 3. Sends `lws-yt-popup-info` to the active tab; the content-script
-   adapter responds with `{ tracks, secondaryLang, ... }`.
+  adapter responds with `{ tracks, secondaryLang, ... }`.
 4. Replaces the status line with a single `<select>` (label
-   "Secondary") containing every distinct non-Korean language in the
+  "Secondary") containing every distinct non-Korean language in the
    tracklist. ASR-only tracks get an `(auto)` suffix; if the user's
    currently-selected secondary isn't natively in the tracklist, it's
    surfaced as `(translated)`. Final option is `Off`.
 5. Writes the per-video selection to
-   `chrome.storage.local.dualSubsOverrides`; the adapter's onChanged
+  `chrome.storage.local.dualSubsOverrides`; the adapter's onChanged
    listener picks it up and re-activates without a direct message.
 
 ### 7.13 `options.html` / `options.js` / `options.css`
@@ -1266,17 +1302,17 @@ The settings page. Linked from the popup ("Open settings →") and from
 `chrome://extensions` via the manifest's `options_page` field. Sections:
 
 - API keys: KRDict (required) + OpenDict (optional, experimental).
-  Both inputs are `type="password"`. A "Test KRDict key" button hits
-  the real API with `q=사람` and surfaces the error code or success.
+Both inputs are `type="password"`. A "Test KRDict key" button hits
+the real API with `q=사람` and surfaces the error code or success.
 - Behaviour: dual-subs toggle, default secondary language dropdown.
 - Advanced (collapsible `<details>`, closed by default): "Ask AI"
-  prompt template textarea + "Reset to default" button. Auto-saves
-  to `askAiPrompt` (sync) on blur. Saving an empty value or the
-  default text removes the key so the live default re-applies. Also
-  an AI-service `<select>` populated dynamically from
-  `ai-providers.js` and bound to `askAiProvider` (sync).
+prompt template textarea + "Reset to default" button. Auto-saves
+to `askAiPrompt` (sync) on blur. Saving an empty value or the
+default text removes the key so the live default re-applies. Also
+an AI-service `<select>` populated dynamically from
+`ai-providers.js` and bound to `askAiProvider` (sync).
 - Cache: a "Clear cache" button that sends `{type: 'clearCache'}` to
-  the SW.
+the SW.
 
 Every change is written to `chrome.storage.sync` and propagates to all
 content scripts via the `onChanged` event — no direct messaging from the
@@ -1293,13 +1329,13 @@ uses CSS custom properties for theming and includes a
 Key sizing decisions:
 
 - `min-width: 380px`, `max-width: min(520px, calc(100vw - 16px))`,
-  `max-height: 70vh` with `overflow-y: auto`. Width grows with content
-  so a wide tab strip can extend the popup, but caps at a comfortable
-  reading column.
+`max-height: 70vh` with `overflow-y: auto`. Width grows with content
+so a wide tab strip can extend the popup, but caps at a comfortable
+reading column.
 - `position: absolute` (not `fixed`) — the popup scrolls with the page.
-  If a tab click grows it past the viewport, scrolling the page reveals
-  the rest, which is far better than clipping content the user can't
-  reach.
+If a tab click grows it past the viewport, scrolling the page reveals
+the rest, which is far better than clipping content the user can't
+reach.
 
 ### 7.15 `content.css`
 
@@ -1313,14 +1349,14 @@ Vendored, not an npm package. See [MECAB_INTEGRATION.md](MECAB_INTEGRATION.md)
 for the fork story. Files:
 
 - `mecab_ko_wasm.js` — wasm-bindgen ES-module glue. Exports `init`
-  (the WASM initializer) and `Mecab` (the analyzer class).
+(the WASM initializer) and `Mecab` (the analyzer class).
 - `mecab_ko_wasm.d.ts`, `mecab_ko_wasm_bg.wasm.d.ts` — TypeScript
-  declarations (informational only — the extension is plain JS).
+declarations (informational only — the extension is plain JS).
 - `mecab_ko_wasm_bg.wasm` — ~145 KB. The analyzer with no dictionary
-  baked in.
+baked in.
 - `sys.dic.gz`, `matrix.bin.gz`, `entries.bin.gz` — gzipped output of
-  `mecab-ko-dict-builder` against mecab-ko-dic 2.1.1. ~22 MB total
-  compressed; ~90 MB raw.
+`mecab-ko-dict-builder` against mecab-ko-dic 2.1.1. ~22 MB total
+compressed; ~90 MB raw.
 
 The dict files are NOT loaded eagerly. `background.js`'s `ensureMecab()`
 fetches and gunzips them on first lookup.
@@ -1384,69 +1420,37 @@ top 4 in parallel and the first hit wins.
 The push order is:
 
 1. **Surface-first promotion** — if tokens.length > 1 AND every token's
-   lead tag is in `COMPOUND_NOUN_TAGS` (NNG NNP NR NP XSN), push the
+  lead tag is in `COMPOUND_NOUN_TAGS` (NNG NNP NR NP XSN), push the
    surface BEFORE walking the individual pieces. This is the
    pure-noun-compound case.
-
-   ```
-   한국말   → [한국/NNP, 말/NNG]                  ⇒ '한국말' pushed first
-   반말     → [반/NNG, 말/NNG]                    ⇒ '반말' first
-   무조건   → [무/NNG, 조건/NNG]                  ⇒ '무조건' first
-   친구들   → [친구/NNG, 들/XSN]                  ⇒ '친구들' first
-   ```
-
    Sets `multiPrimary` in the response — see §9.
-
 2. **Compound-prefix accumulator** — walk left to right; accumulate the
-   surface of every COMPOUND_PREFIX_TAG token (NNG NNP NNB NR NP MM XR
+  surface of every COMPOUND_PREFIX_TAG token (NNG NNP NNB NR NP MM XR
    XSN) into `prefix`. When you hit an XSV or XSA token, push
    `prefix + stem + '다'` where `stem` is the Inflect-extracted stem if
    any, otherwise the token's lemma or surface (with a trailing `다`
    stripped first so we don't end up with `다다`).
-
    Anything OTHER than COMPOUND_PREFIX_TAGS / COMPOUND_DERIV_TAGS resets
    the accumulator (so a stray particle doesn't fold into the prefix).
    After the first XSV/XSA, we break — only the first compound is
    emitted.
-
-   ```
-   어색하려고  → [어색/NNG, 하/XSV, 려고/EC]          ⇒ '어색하다'
-   예약해야    → [예약/NNG, 해야/XSV+EC]              ⇒ '예약하다'
-                                                       (해야's Inflect: 하/XSV/*+아야/EC/*)
-   한잔해     → [한/MM, 잔/NNB, 해/XSV+EC]           ⇒ '한잔하다'
-   깨끗하다    → [깨끗/XR, 하/XSA, 다/EF]              ⇒ '깨끗하다'
-   ```
-
    The prefix tag set is intentionally wider than NOUN_LEAD_TAGS. MM
    (determiners like 한, 두, 새), NNB (bound nouns like 잔, 번, 적), and
    XR (roots like 깨끗, 행복) all need to participate as prefix so
    determiner+bound-noun+verb-deriving-suffix compounds resolve.
-
 3. **Per-token push** — walk left to right; for each token:
-   - Compute `stem = inflectStem(features) || lemma || surface`.
-   - If lead tag is in VERB_LEAD_TAGS, push `stem` (or `stem + '다'` if
-     it doesn't already end in 다).
-   - If lead tag is in NOUN_LEAD_TAGS, push `stem` as-is.
-   - Otherwise skip — particles, endings, and pure-suffix tokens aren't
-     dictionary headwords on their own.
-
-   ```
-   먹었어요  → [먹/VV, 었/EP, 어요/EF]
-              ⇒ '먹다' (EP/EF skipped)
-   학교에서  → [학교/NNG, 에서/JKB]
-              ⇒ '학교' (JKB skipped)
-   친구들과  → [친구/NNG, 들/XSN, 과/JKB]
-              ⇒ '친구' (XSN doesn't appear in NOUN_LEAD_TAGS;
-                        JKB skipped)
-   ```
-
+  - Compute `stem = inflectStem(features) || lemma || surface`.
+  - If lead tag is in VERB_LEAD_TAGS, push `stem` (or `stem + '다'` if
+  it doesn't already end in 다).
+  - If lead tag is in NOUN_LEAD_TAGS, push `stem` as-is.
+  - Otherwise skip — particles, endings, and pure-suffix tokens aren't
+  dictionary headwords on their own.
    Note: XR and NNB on their own — without a following XSV/XSA — aren't
    standalone candidates. The per-token loop skips them (they're not in
    NOUN_LEAD_TAGS or VERB_LEAD_TAGS). They only participate when the
    compound-prefix accumulator picks them up.
-
 4. **Surface fallback** — always push the trimmed surface at the end.
-   Catches anything the per-token logic skipped (e.g. punctuation-only
+  Catches anything the per-token logic skipped (e.g. punctuation-only
    surface, multi-word inputs).
 
 ### 8.3 Why the Inflect gate matters
@@ -1476,42 +1480,44 @@ not the Inflect-extracted prefix.
 
 For reference, the relevant Sejong tags are:
 
-| Family    | Tag   | Meaning                              |
-|-----------|-------|--------------------------------------|
-| Nouns     | NNG   | Common noun                          |
-|           | NNP   | Proper noun                          |
-|           | NNB   | Bound noun (의존명사)                |
-|           | NR    | Numeral                              |
-|           | NP    | Pronoun                              |
-| Pre-noun  | MM    | Determiner (관형사)                  |
-| Verbs     | VV    | Verb                                 |
-|           | VA    | Adjective ("descriptive verb")       |
-|           | VX    | Auxiliary verb / adjective            |
-|           | VCN   | Negative copula (아니다)             |
-|           | VCP   | Copula (이다)                        |
-| Suffixes  | XPN   | Noun-prefixing                       |
-|           | XSN   | Noun-forming                         |
-|           | XSV   | Verb-forming                         |
-|           | XSA   | Adjective-forming                    |
-|           | XR    | Root                                 |
-| Endings   | EP    | Pre-final ending                     |
-|           | EF    | Final ending                         |
-|           | EC    | Connecting ending                    |
-|           | ETN   | Nominalizing ending                  |
-|           | ETM   | Modifier ending                      |
-| Particles | JKS   | Subject                              |
-|           | JKC   | Complement                           |
-|           | JKO   | Object                               |
-|           | JKG   | Possessive                           |
-|           | JKB   | Adverbial                            |
-|           | JKV   | Vocative                             |
-|           | JKQ   | Quotative                            |
-|           | JX    | Auxiliary (topic, also, only, …)     |
-|           | JC    | Connective                           |
-| Symbols   | SL    | Foreign / Latin                      |
-|           | SH    | Hanja                                |
-|           | SN    | Numeral characters                   |
-|           | SF/SE/SS/SP/SO/SW/SY | Punctuation              |
+
+| Family    | Tag                  | Meaning                          |
+| --------- | -------------------- | -------------------------------- |
+| Nouns     | NNG                  | Common noun                      |
+|           | NNP                  | Proper noun                      |
+|           | NNB                  | Bound noun (의존명사)                |
+|           | NR                   | Numeral                          |
+|           | NP                   | Pronoun                          |
+| Pre-noun  | MM                   | Determiner (관형사)                 |
+| Verbs     | VV                   | Verb                             |
+|           | VA                   | Adjective ("descriptive verb")   |
+|           | VX                   | Auxiliary verb / adjective       |
+|           | VCN                  | Negative copula (아니다)            |
+|           | VCP                  | Copula (이다)                      |
+| Suffixes  | XPN                  | Noun-prefixing                   |
+|           | XSN                  | Noun-forming                     |
+|           | XSV                  | Verb-forming                     |
+|           | XSA                  | Adjective-forming                |
+|           | XR                   | Root                             |
+| Endings   | EP                   | Pre-final ending                 |
+|           | EF                   | Final ending                     |
+|           | EC                   | Connecting ending                |
+|           | ETN                  | Nominalizing ending              |
+|           | ETM                  | Modifier ending                  |
+| Particles | JKS                  | Subject                          |
+|           | JKC                  | Complement                       |
+|           | JKO                  | Object                           |
+|           | JKG                  | Possessive                       |
+|           | JKB                  | Adverbial                        |
+|           | JKV                  | Vocative                         |
+|           | JKQ                  | Quotative                        |
+|           | JX                   | Auxiliary (topic, also, only, …) |
+|           | JC                   | Connective                       |
+| Symbols   | SL                   | Foreign / Latin                  |
+|           | SH                   | Hanja                            |
+|           | SN                   | Numeral characters               |
+|           | SF/SE/SS/SP/SO/SW/SY | Punctuation                      |
+
 
 ### 8.5 The surface-first signal as a multiPrimary trigger
 
@@ -1549,7 +1555,7 @@ queries KRDict entries into two visual buckets:
 
 - **Primary** entries get tabs in the tab strip.
 - **Related** entries hide behind a `+N related` pill that, when
-  clicked, appends them as additional tabs.
+clicked, appends them as additional tabs.
 
 The partition key is a `promotedForms` set. An entry belongs in primary
 iff its `word` (trimmed) is in that set.
@@ -1564,19 +1570,21 @@ split across a primary/related fold.
 Then, depending on `multiPrimary`:
 
 - **multiPrimary === true (pure-noun compound case)**: every entry from
-  `queriesUsed` is promoted. With its `하다`/`되다` variants, that's
-  potentially 3N forms in the set.
+`queriesUsed` is promoted. With its `하다`/`되다` variants, that's
+potentially 3N forms in the set.
 - **multiPrimary === false (verb compound or anything else)**: only the
-  first query — the canonical lemma — is promoted, plus its `하다`/`되다`
-  variants. The other queries' constituents stay in "related".
+first query — the canonical lemma — is promoted, plus its `하다`/`되다`
+variants. The other queries' constituents stay in "related".
 
 Concrete examples:
 
-| Surface     | candidates                       | multiPrimary | promotedForms                                 |
-|-------------|----------------------------------|--------------|-----------------------------------------------|
-| `반말`      | ['반말', '반', '말']             | true         | {반말, 반말하다, 반말되다, 반, 반하다, 반되다, 말, 말하다, 말되다} |
-| `예약해야`  | ['예약하다', '예약', '하다', …]  | false        | {예약해야, 예약해야하다, 예약해야되다, 예약하다, 예약하다하다, 예약하다되다} |
-| `학교에서`  | ['학교', '학교에서']             | false        | {학교에서, 학교에서하다, 학교에서되다, 학교, 학교하다, 학교되다} |
+
+| Surface | candidates              | multiPrimary | promotedForms                                |
+| ------- | ----------------------- | ------------ | -------------------------------------------- |
+| `반말`    | ['반말', '반', '말']        | true         | {반말, 반말하다, 반말되다, 반, 반하다, 반되다, 말, 말하다, 말되다}   |
+| `예약해야`  | ['예약하다', '예약', '하다', …] | false        | {예약해야, 예약해야하다, 예약해야되다, 예약하다, 예약하다하다, 예약하다되다} |
+| `학교에서`  | ['학교', '학교에서']          | false        | {학교에서, 학교에서하다, 학교에서되다, 학교, 학교하다, 학교되다}       |
+
 
 Yes, you'll see entries like "예약하다하다" in promotedForms — they
 don't match anything in KRDict, so they cost nothing. The set inclusion
@@ -1631,8 +1639,7 @@ The `pot=...` parameter is a PoToken computed by the player's BotGuard
 runtime; the `signature=...` parameter is signed and includes a list of
 `sparams` (signed parameters).
 
-The URLs you can read from `ytInitialPlayerResponse.captions
-.playerCaptionsTracklistRenderer.captionTracks[].baseUrl` are missing
+The URLs you can read from `ytInitialPlayerResponse.captions .playerCaptionsTracklistRenderer.captionTracks[].baseUrl` are missing
 the PoToken. A third-party fetch of one of those URLs returns 200 OK and
 0 bytes — YouTube serves you a successful-looking but empty response.
 
@@ -1641,7 +1648,7 @@ player generated for itself. So to get a caption body we have to:
 
 1. Tell the player to load the track we want.
 2. Observe the network request the player makes for the corresponding
-   caption.
+  caption.
 3. Capture the response body.
 
 Steps 1 and 2 both require access to page-world globals
@@ -1653,13 +1660,15 @@ communicate over `window.postMessage`.
 
 ### 10.2 The command channel
 
-| Direction | Message shape                                         | Purpose                                |
-|-----------|-------------------------------------------------------|----------------------------------------|
-| iso → main| `{ __lwsYtCmd: 'tracklist', reqId }`                  | "What captions does this video have?"  |
-| iso → main| `{ __lwsYtCmd: 'load-track', reqId, lang }`           | "Switch to the lang track."             |
-| main → iso| `{ __lwsYtReply: 'tracklist', reqId, tracks }`        | tracklist reply                         |
-| main → iso| `{ __lwsYtReply: 'load-track', reqId, ok, error? }`   | load-track ACK                          |
-| main → iso| `{ __lwsYtCaption: true, url, status, body }`         | broadcast — every captured timedtext    |
+
+| Direction  | Message shape                                       | Purpose                               |
+| ---------- | --------------------------------------------------- | ------------------------------------- |
+| iso → main | `{ __lwsYtCmd: 'tracklist', reqId }`                | "What captions does this video have?" |
+| iso → main | `{ __lwsYtCmd: 'load-track', reqId, lang }`         | "Switch to the lang track."           |
+| main → iso | `{ __lwsYtReply: 'tracklist', reqId, tracks }`      | tracklist reply                       |
+| main → iso | `{ __lwsYtReply: 'load-track', reqId, ok, error? }` | load-track ACK                        |
+| main → iso | `{ __lwsYtCaption: true, url, status, body }`       | broadcast — every captured timedtext  |
+
 
 `reqId` is a monotonic-per-content-script-lifetime sequence
 (`lws-${Date.now()}-${++cmdSeq}`) so concurrent commands don't get
@@ -1682,13 +1691,13 @@ when the player thinks it already has the target track loaded
 
 1. Sets up a `window.message` listener filtering on `__lwsYtCaption: true`.
 2. For every captured request, invokes `predicate(data)` — typically a
-   URL test like "has `lang=ko` and does NOT have `tlang=`".
+  URL test like "has `lang=ko` and does NOT have `tlang=`".
 3. Resolves on first match; rejects on timeout.
 
 `captureBaseTrack(lang)`:
 
 1. Starts a `captureCaption` race that waits for a URL with
-   `lang=<lang>` and no `tlang=`.
+  `lang=<lang>` and no `tlang=`.
 2. Sends `__lwsYtCmd: 'load-track'` with that lang.
 3. Awaits the capture (or 6 s timeout).
 
@@ -1699,7 +1708,7 @@ For each unique base language we need, we capture exactly once.
 `pickPrimarySource(tracks)`:
 
 1. Manual KO track (kind !== 'asr') → use directly, target='ko',
-   translate=false.
+  translate=false.
 2. KO ASR (auto-generated) → use directly.
 
 We deliberately don't fall back to translating another language's
@@ -1717,7 +1726,7 @@ adapter logs and silently exits — no overlay is mounted.
 
 1. Manual track in target lang → direct.
 2. Any manual track (not in target lang) → translate to target via
-   `&tlang=<target>`.
+  `&tlang=<target>`.
 3. Any ASR track → translate to target via `&tlang=<target>`.
 
 If `secondaryLang === 'off'`, we skip this entirely and only render the
@@ -1750,7 +1759,7 @@ YouTube serves timedtext in two formats:
 
 - JSON3 (`fmt=json3`): JSON with `events: [{ tStartMs, dDurationMs, segs: [{ utf8 }] }]`.
 - SRV1 XML: `<text start="..." dur="...">…</text>` entries with HTML-
-  encoded text.
+encoded text.
 
 `parseTimedText(body)` tries JSON3 first (because it's faster and
 unambiguous about whitespace), falls back to SRV1 XML. Both produce
@@ -1822,10 +1831,12 @@ needs clearing). `cache.clear()` only deletes keys with its own prefix.
 
 ### 11.3 Cache keys
 
-| Cache         | Key                  | Value                                          |
-|---------------|----------------------|------------------------------------------------|
-| `lookup:*`    | `surface` (raw)      | Full `LookupResponse` with the raw XMLs etc.   |
-| `hanja:*`     | concatenated Hanja   | `{ chars, hanjas: [{character, sino, summary}], cachedAt }` |
+
+| Cache      | Key                | Value                                                       |
+| ---------- | ------------------ | ----------------------------------------------------------- |
+| `lookup:`* | `surface` (raw)    | Full `LookupResponse` with the raw XMLs etc.                |
+| `hanja:*`  | concatenated Hanja | `{ chars, hanjas: [{character, sino, summary}], cachedAt }` |
+
 
 The KRDict response payload is keyed by **surface** (not lemma) —
 because the popup re-renders from `lastPayload` and needs to know what
@@ -1853,7 +1864,7 @@ the L1 capacity bound applies only to the in-memory tier.
 The extension's morphological analysis uses a forked build of
 mecab-ko-wasm with a `Mecab.withDictBytes(trie, matrix, entries)`
 constructor that accepts in-memory bytes (upstream expects a
-filesystem). Built from <https://github.com/abishake/mecab-ko>.
+filesystem). Built from [https://github.com/abishake/mecab-ko](https://github.com/abishake/mecab-ko).
 
 See [MECAB_INTEGRATION.md](MECAB_INTEGRATION.md) for the full story —
 the four-phase integration plan, the Rust-side changes, the wasm-pack
@@ -1862,16 +1873,16 @@ build commands, the dict-builder invocation, and the manual smoke tests.
 Short summary of the runtime side:
 
 - `background.js` lazy-inits on first lookup. `ensureMecab()` runs
-  `init()` then `Promise.all` fetches and gunzips the three dict files.
+`init()` then `Promise.all` fetches and gunzips the three dict files.
 - Time: ~1–2 s on a cold service worker; subsequent lookups within the
-  same SW lifetime tokenize in ~5 ms.
+same SW lifetime tokenize in ~5 ms.
 - `Mecab.tokenize(surface)` returns class instances with getters; we
-  normalize to plain objects in `tokenizeSurface` so the result is
-  structured-clone-safe for `sendMessage` and `chrome.storage.local`.
+normalize to plain objects in `tokenizeSurface` so the result is
+structured-clone-safe for `sendMessage` and `chrome.storage.local`.
 - Failure mode: if init throws, `tokenizeSurface` returns null; the
-  lemmatizer treats null tokens as "no info" and falls back to
-  surface-only candidates. The user gets a slightly worse hit rate
-  but no error UI.
+lemmatizer treats null tokens as "no info" and falls back to
+surface-only candidates. The user gets a slightly worse hit rate
+but no error UI.
 
 ---
 
@@ -1880,13 +1891,15 @@ Short summary of the runtime side:
 Unit tests live in `tests/` and run with `npm test`
 (`node --test 'tests/**/*.test.js'`). 122 tests, all green.
 
-| File                          | Tests | Covers                                                            |
-|-------------------------------|-------|-------------------------------------------------------------------|
-| `tests/api.test.js`           | 20    | URL builders for KRDict / OpenDict; `looksEmpty`; `extractApiError` |
-| `tests/cache.test.js`         | 11    | Two-tier cache: set/get round-trip; namespacing; LRU eviction; clear with and without `getKeys` |
-| `tests/grammar-glosses.test.js`| 11   | `morphemeGloss` three-tier lookup; homograph disambiguation; `isContentMorpheme` filter |
-| `tests/lemmatizer.test.js`    | 29    | Verb / adjective stems; Inflect decomposition; compound nouns (NNG+NNG, NNG+XSV, XR+XSA, MM+NNB+XSV); particle skipping; dedup |
-| `tests/parsers.test.js`       | 51    | KRDict and OpenDict XML parsing; example extraction; POS translation tables (English / Korean / shortform); Hanja URL builders; grade-to-stars; verb-link URL builders |
+
+| File                            | Tests | Covers                                                                                                                                                                 |
+| ------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/api.test.js`             | 20    | URL builders for KRDict / OpenDict; `looksEmpty`; `extractApiError`                                                                                                    |
+| `tests/cache.test.js`           | 11    | Two-tier cache: set/get round-trip; namespacing; LRU eviction; clear with and without `getKeys`                                                                        |
+| `tests/grammar-glosses.test.js` | 11    | `morphemeGloss` three-tier lookup; homograph disambiguation; `isContentMorpheme` filter                                                                                |
+| `tests/lemmatizer.test.js`      | 29    | Verb / adjective stems; Inflect decomposition; compound nouns (NNG+NNG, NNG+XSV, XR+XSA, MM+NNB+XSV); particle skipping; dedup                                         |
+| `tests/parsers.test.js`         | 51    | KRDict and OpenDict XML parsing; example extraction; POS translation tables (English / Korean / shortform); Hanja URL builders; grade-to-stars; verb-link URL builders |
+
 
 The five pure modules — `api.js`, `cache.js`, `grammar-glosses.js`,
 `lemmatizer.js`, `parsers.js` — have full coverage of their public
@@ -1905,7 +1918,7 @@ CI lives in `.github/workflows/ci.yml`. Three jobs in one workflow:
 
 1. `npm ci && npm test` — run the suite on Node 20.
 2. Parse-check every `extension/*.js` with `node --check`. Catches
-   syntax errors without trying to actually run the SW code in Node.
+  syntax errors without trying to actually run the SW code in Node.
 3. Validate `manifest.json` is valid JSON with `python3 -c "import json; json.load(open(...))"`.
 
 ---
@@ -1914,11 +1927,13 @@ CI lives in `.github/workflows/ci.yml`. Three jobs in one workflow:
 
 Three categories of extension surface, in roughly increasing scope:
 
-| Surface                                | Where it lives                            | Add by                                           |
-|----------------------------------------|-------------------------------------------|--------------------------------------------------|
-| Per-site behavior                      | `site-configs.js` + optional `*-adapter.js` / `*-popup.js` / `*-page-hook.js` | Append a SITE_CONFIGS entry, drop files in `extension/`, add to `web_accessible_resources` |
-| "Ask AI" pill providers                | `ai-providers.js`                         | Append one entry to `AI_PROVIDERS`               |
-| Persistent settings                    | `options.html` + `options.js` + the consumer | Add a field, wire `load()` / `change` handler, react in `chrome.storage.onChanged` |
+
+| Surface                 | Where it lives                                                                | Add by                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Per-site behavior       | `site-configs.js` + optional `*-adapter.js` / `*-popup.js` / `*-page-hook.js` | Append a SITE_CONFIGS entry, drop files in `extension/`, add to `web_accessible_resources` |
+| "Ask AI" pill providers | `ai-providers.js`                                                             | Append one entry to `AI_PROVIDERS`                                                         |
+| Persistent settings     | `options.html` + `options.js` + the consumer                                  | Add a field, wire `load()` / `change` handler, react in `chrome.storage.onChanged`         |
+
 
 Subsections below walk each in detail. §14.8 collects design principles
 that apply to every extension surface.
@@ -2031,29 +2046,29 @@ content script dynamic-imports needs to be listed there):
 The adapter is responsible for its own:
 
 - **Storage listeners**: settings (sync) + per-site overrides (local)
-  + the `disabledHosts` key in `chrome.storage.local` (otherwise your
+  - the `disabledHosts` key in `chrome.storage.local` (otherwise your
   active manipulation won't tear down when the user toggles your site
   off in the popup). See `youtube-adapter.js`'s `isEnabled()` for the
   pattern.
 - **Navigation handling**: SPA navigation events + a `setInterval`
-  URL-poll fallback (some host-internal nav paths skip the events).
-  On nav-start call `hostUnwrap()` and your own `deactivate()`; on
-  nav-finish (after a short timeout for the new DOM to settle) call
-  your `activate()` and `hostRescan()`.
+URL-poll fallback (some host-internal nav paths skip the events).
+On nav-start call `hostUnwrap()` and your own `deactivate()`; on
+nav-finish (after a short timeout for the new DOM to settle) call
+your `activate()` and `hostRescan()`.
 - **Race-safe activate / deactivate**: `activate()` is almost always
-  async — captures, fetches, waiting for elements to appear. SPA navs
-  fire faster than that chain completes, so naive implementations
-  leave stacked overlays. Use a generation token: bump it in both
-  `activate()` and `deactivate()`; after every `await` in `activate`,
-  check `myGen === activeGeneration` and tear down your own work if
-  not. Pattern is in `youtube-adapter.js`'s `activate()`.
+async — captures, fetches, waiting for elements to appear. SPA navs
+fire faster than that chain completes, so naive implementations
+leave stacked overlays. Use a generation token: bump it in both
+`activate()` and `deactivate()`; after every `await` in `activate`,
+check `myGen === activeGeneration` and tear down your own work if
+not. Pattern is in `youtube-adapter.js`'s `activate()`.
 - **DOM teardown**: return a teardown closure from your "init for
-  current state" function, store it in `teardownFn`, call it from
-  `deactivate()`, and null `teardownFn` afterward.
+current state" function, store it in `teardownFn`, call it from
+`deactivate()`, and null `teardownFn` afterward.
 - **Popup communication** (if needed): `chrome.runtime.onMessage`
-  listener for a site-specific message type (e.g.
-  `lws-myservice-info`). The adapter responds with whatever the
-  toolbar popup's site module needs.
+listener for a site-specific message type (e.g.
+`lws-myservice-info`). The adapter responds with whatever the
+toolbar popup's site module needs.
 
 ### 14.4 If you need page-world access
 
@@ -2063,22 +2078,20 @@ needs to inject a page-world script — like
 `youtube-page-hook.js`. The recipe:
 
 1. Create the hook script. Use an IIFE with an idempotence guard
-   (`if (window.__myAdapterHookInstalled) return; window.__myAdapterHookInstalled = true;`).
+  (`if (window.__myAdapterHookInstalled) return; window.__myAdapterHookInstalled = true;`).
 2. Communicate with the isolated-world adapter via
-   `window.postMessage` with a unique tag in the message data (e.g.
+  `window.postMessage` with a unique tag in the message data (e.g.
    `__myAdapterCmd`, `__myAdapterReply`).
 3. Add the file to `web_accessible_resources` in `manifest.json`.
 4. From the adapter, inject the hook once:
-
-   ```js
+  ```js
    const script = document.createElement('script');
    script.src = chrome.runtime.getURL('myadapter-page-hook.js');
    script.onload = () => script.remove();
    (document.head || document.documentElement).appendChild(script);
-   ```
-
+  ```
 5. Use a `reqId` mechanism (monotonic counter) so multiple in-flight
-   commands don't get their replies cross-wired.
+  commands don't get their replies cross-wired.
 
 See `youtube-adapter.js` (`sendHookCmd`, `awaitHookReply`,
 `captureCaption`) for a working example.
@@ -2159,12 +2172,12 @@ same `chrome.runtime.getURL` import path as `site-configs.js`.
 Requirements for a new provider:
 
 - The service must accept a single URL query parameter that pre-fills
-  the chat prompt (most do — `?q=`, `?prompt=`, `?text=`, etc.).
+the chat prompt (most do — `?q=`, `?prompt=`, `?text=`, etc.).
 - Use `urlPrefix` ending with `=` so the URL-encoded prompt appends
-  directly. If the parameter name differs, just bake it into the prefix
-  (`'https://example.com/chat?prompt='`).
+directly. If the parameter name differs, just bake it into the prefix
+(`'https://example.com/chat?prompt='`).
 - Don't list providers that require auth headers / POST bodies — the
-  pill is just an `<a target="_blank">`, no extension-initiated fetch.
+pill is just an `<a target="_blank">`, no extension-initiated fetch.
 
 If you remove a provider whose key some users have already saved as
 their `askAiProvider`, `content.js` falls back to `DEFAULT_ASK_AI_PROVIDER`
@@ -2177,35 +2190,26 @@ rate-limited) or `local` (per-device, unlimitedStorage, immediate)?
 
 - Single small value (boolean, language code, API key): `sync`.
 - Array / map written from the popup or frequently: `local` (the
-  `disabledHosts` key learned this the hard way — see the
-  "Why `chrome.storage.local` (not `sync`) for `disabledHosts`"
-  subsection in §4).
+`disabledHosts` key learned this the hard way — see the
+"Why `chrome.storage.local` (not `sync`) for `disabledHosts`"
+subsection in §4).
 
 Then:
 
 1. **Pick a stable key name**. Camel-case, no prefix needed
-   (the storage area is the namespace). Add it to the relevant `KEYS`
+  (the storage area is the namespace). Add it to the relevant `KEYS`
    constants in whichever files use it.
 2. **Add UI** in `options.html` (or `popup.html` for per-session
-   things). Wire the load + change handler in `options.js`. The
+  things). Wire the load + change handler in `options.js`. The
    pattern: read in `load()`, write in a `change` listener. Use
    `chrome.storage.sync.remove(KEY)` when the value equals the
    in-code default so the live default re-applies if you ever change
    it.
 3. **Read it in the consumer** (`content.js`, `youtube-adapter.js`,
-   etc.). At init: `await chrome.storage.<area>.get(KEY)`, with a
+  etc.). At init: `await chrome.storage.<area>.get(KEY)`, with a
    default-arg fallback. Update via `chrome.storage.onChanged`:
-
-   ```js
-   chrome.storage.onChanged.addListener((changes, area) => {
-     if (area !== '<area>') return;
-     if (!(MY_KEY in changes)) return;
-     myCachedValue = changes[MY_KEY].newValue ?? DEFAULT;
-     // ... react: rerender popup, re-run scan, etc. ...
-   });
-   ```
 4. **Document it** in §4's storage tables in this file. If the consumer
-   reacts to changes, also add a row in the onChanged-bus table.
+  reacts to changes, also add a row in the onChanged-bus table.
 
 If the setting needs sensible defaults across both the options page
 and the consumer, share the constant via a small module in
@@ -2215,33 +2219,32 @@ duplicating it in two files.
 ### 14.8 Design principles for any extension surface
 
 - **Fail open, log a named reason**. When a guard rejects, log
-  `[lws] <context>: <why>` and proceed safely. Silent
-  `try {…} catch { return; }` blocks have repeatedly hidden real
-  bugs in this codebase — an undefined `isKoreanCode()` killed dual
-  subs for weeks because the only signal was a quiet `null` return.
-  Reserve fail-closed for security boundaries (e.g. invalid API key →
-  refuse the request); for behavior gates, prefer fail-open with a
-  downstream check (e.g. dual subs engages if audio language is
-  unknown, gated by "is there even a Korean track to show?").
+`[lws] <context>: <why>` and proceed safely. Silent
+`try {…} catch { return; }` blocks have repeatedly hidden real
+bugs in this codebase — an undefined `isKoreanCode()` killed dual
+subs for weeks because the only signal was a quiet `null` return.
+Reserve fail-closed for security boundaries (e.g. invalid API key →
+refuse the request); for behavior gates, prefer fail-open with a
+downstream check (e.g. dual subs engages if audio language is
+unknown, gated by "is there even a Korean track to show?").
 - **Async guards need generation tokens**. Anything that does
-  `deactivate(); await initThing(); mount(...)` needs to handle the
-  user / host re-triggering before `initThing()` resolves. Bump a
-  counter in every entry-and-exit, compare after each `await`, tear
-  down your own work on supersession.
+`deactivate(); await initThing(); mount(...)` needs to handle the
+user / host re-triggering before `initThing()` resolves. Bump a
+counter in every entry-and-exit, compare after each `await`, tear
+down your own work on supersession.
 - **No global state hidden in closures**. Adapter and popup module
-  parameters (`setup({unwrap, rescan})`, `renderSection({tab, href,
-  container})`) are explicit so future maintainers can see the contract
-  without grepping for who-calls-who.
+parameters (`setup({unwrap, rescan})`, `renderSection({tab, href, container})`) are explicit so future maintainers can see the contract
+without grepping for who-calls-who.
 - **Storage keys are durable**. Once shipped, you can't rename a key
-  without migration code. Pick names you can live with — the
-  `disabledHosts` array got moved from `sync` to `local` mid-flight
-  and we just orphaned the old `sync` value (users had no UI to set
-  it, so harmless).
+without migration code. Pick names you can live with — the
+`disabledHosts` array got moved from `sync` to `local` mid-flight
+and we just orphaned the old `sync` value (users had no UI to set
+it, so harmless).
 - **Tests cover pure modules** (`lemmatizer.js`, `parsers.js`,
-  `grammar-glosses.js`, `cache.js`). DOM-touching code (`content.js`,
-  `youtube-adapter.js`, popup files) has no harness — be extra careful
-  there. The `node --check` syntax pass is the cheapest correctness
-  check available; run it before committing.
+`grammar-glosses.js`, `cache.js`). DOM-touching code (`content.js`,
+`youtube-adapter.js`, popup files) has no harness — be extra careful
+there. The `node --check` syntax pass is the cheapest correctness
+check available; run it before committing.
 
 ---
 
@@ -2257,9 +2260,9 @@ a separate global scope. You can read element attributes, observe
 mutations, register event listeners. You CANNOT see:
 
 - Page-script-created expandos on `window` or DOM elements
-  (e.g. `html5VideoPlayer.getOption` is a YouTube player expando).
+(e.g. `html5VideoPlayer.getOption` is a YouTube player expando).
 - Page-script monkey-patches of built-ins (the page's own `fetch`
-  override isn't visible from the isolated world).
+override isn't visible from the isolated world).
 - Page-script-defined custom elements' shadow DOMs (mode: closed).
 
 To bridge: inject a `<script src=chrome-extension://.../...>` tag and
@@ -2310,9 +2313,9 @@ There are two rules in `lemmatizer.js` that interact with pure noun
 compounds:
 
 1. **Surface-first push** — if every token is in COMPOUND_NOUN_TAGS,
-   push the surface FIRST. (Rule #1 in §8.2.)
+  push the surface FIRST. (Rule #1 in §8.2.)
 2. **inflectStem gating** — `inflectStem` returns null unless
-   `type === 'Inflect'`. (Discussion in §8.3.)
+  `type === 'Inflect'`. (Discussion in §8.3.)
 
 You might be tempted to think the surface-first push alone is enough —
 just push the whole compound and we're done. But without the Inflect
@@ -2333,10 +2336,10 @@ paused it. But the play/pause state changes also fire `pause` events,
 including our own programmatic `video.pause()` call. So:
 
 - `suppressNextPauseEvent` swallows exactly one event (the one our own
-  `.pause()` emits).
+`.pause()` emits).
 - Any subsequent `pause` event is the user clicking pause again — they
-  want it stopped, so we set `resumeVideoOnHide = false` to skip the
-  auto-resume.
+want it stopped, so we set `resumeVideoOnHide = false` to skip the
+auto-resume.
 
 This dance is robust but fragile to changes. If a future browser does
 something weird with event ordering during programmatic pause (multiple
@@ -2376,9 +2379,9 @@ accumulator (which IS in COMPOUND_PREFIX_TAGS). This is intentional:
 
 - `깨끗` (XR) alone isn't a dictionary word — `깨끗하다` is.
 - `잔` (NNB) alone isn't typically what a learner wants to look up
-  when they hovered `한잔하다`.
+when they hovered `한잔하다`.
 - `한` (MM) alone is too low-frequency standalone to be a useful
-  fallback.
+fallback.
 
 If you ever need to look up XR/NNB/MM standalone (e.g. for a debugging
 feature), add a separate code path — don't widen the per-token rule.
@@ -2456,23 +2459,25 @@ workaround.
 
 ## 16. Where to make changes for common requests
 
-| User request                                | What to change                                                |
-|---------------------------------------------|---------------------------------------------------------------|
-| Add a new POS-to-English mapping            | `parsers.js` `KOREAN_POS_TO_ENGLISH` + test                   |
-| Add a morpheme gloss for a new particle     | `grammar-glosses.js` `FORM_GLOSSES` + test                    |
-| Fix a wrong lemma for a specific surface    | `lemmatizer.js` candidate ordering + test                     |
-| Add a new site-specific sentence selector   | `site-configs.js` entry (see §14.1)                           |
-| Auto-pause a page's video on popup open     | `findVideo` in the `site-configs.js` entry (see §14.2)        |
-| Replace a site's captions with dual subs    | New `*-adapter.js` + SITE_CONFIGS entry + manifest WAR (see §14.3) |
-| Add a toolbar-popup section for a site      | New `*-popup.js` + `popupModule` on the SITE_CONFIGS entry (see §14.5) |
-| Add a new "Ask AI" provider (ChatGPT-style) | One entry in `ai-providers.js` `AI_PROVIDERS` (see §14.6)     |
+
+| User request                                | What to change                                                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Add a new POS-to-English mapping            | `parsers.js` `KOREAN_POS_TO_ENGLISH` + test                                                 |
+| Add a morpheme gloss for a new particle     | `grammar-glosses.js` `FORM_GLOSSES` + test                                                  |
+| Fix a wrong lemma for a specific surface    | `lemmatizer.js` candidate ordering + test                                                   |
+| Add a new site-specific sentence selector   | `site-configs.js` entry (see §14.1)                                                         |
+| Auto-pause a page's video on popup open     | `findVideo` in the `site-configs.js` entry (see §14.2)                                      |
+| Replace a site's captions with dual subs    | New `*-adapter.js` + SITE_CONFIGS entry + manifest WAR (see §14.3)                          |
+| Add a toolbar-popup section for a site      | New `*-popup.js` + `popupModule` on the SITE_CONFIGS entry (see §14.5)                      |
+| Add a new "Ask AI" provider (ChatGPT-style) | One entry in `ai-providers.js` `AI_PROVIDERS` (see §14.6)                                   |
 | Add a new persistent setting                | UI in `options.html` / `options.js`; storage onChanged listener in the consumer (see §14.7) |
-| Hook a new dictionary API                   | `api.js` URL builder + `parsers.js` XML parser + `background.js` `handleLookup` |
-| Change in-page hover-popup look             | `popup-shadow.css`, NOT `popup.css`                           |
-| Change toolbar popup look                   | `popup.css`                                                   |
-| Change settings page look                   | `options.css`                                                 |
-| Tweak word scanning (e.g. add a skip tag)   | `content.js` `SKIP_TAGS`                                      |
-| Change the default "Ask AI" prompt          | `DEFAULT_ASK_AI_PROMPT` in BOTH `content.js` and `options.js` (kept in sync) |
+| Hook a new dictionary API                   | `api.js` URL builder + `parsers.js` XML parser + `background.js` `handleLookup`             |
+| Change in-page hover-popup look             | `popup-shadow.css`, NOT `popup.css`                                                         |
+| Change toolbar popup look                   | `popup.css`                                                                                 |
+| Change settings page look                   | `options.css`                                                                               |
+| Tweak word scanning (e.g. add a skip tag)   | `content.js` `SKIP_TAGS`                                                                    |
+| Change the default "Ask AI" prompt          | `DEFAULT_ASK_AI_PROMPT` in BOTH `content.js` and `options.js` (kept in sync)                |
+
 
 When in doubt, search the codebase for the user-facing string you see in
 the popup — almost all rendering goes through `buildResultNode`,
@@ -2489,3 +2494,4 @@ module produced the data.
 - [docs/MECAB_INTEGRATION.md](MECAB_INTEGRATION.md) — the mecab-ko-wasm fork story.
 - [docs/THIRD-PARTY.md](THIRD-PARTY.md) — license attribution for vendored components.
 - [docs/original-spec.md](original-spec.md) — the original V1 spec, kept for historical context. The current code has diverged substantially.
+

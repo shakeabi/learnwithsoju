@@ -92,6 +92,35 @@ export const SITE_CONFIGS = [
     // video. See extension/youtube-popup.js.
     popupModule: 'youtube-popup.js',
   },
+  {
+    name: 'Netflix',
+    // Netflix serves /<country>/ paths but the host is the same. If
+    // you find a country-specific host that isn't covered, add it here.
+    hostnames: ['www.netflix.com'],
+    // Netflix renders subtitles as DOM text inside a fixed structure:
+    //   .player-timedtext                       ← overall caption layer
+    //     .player-timedtext-text-container      ← one per caption line
+    //       <span> ... <span>                   ← styled fragments
+    // closest() up from a hovered .lws-word lands on the line
+    // container; we use its textContent as the sentence.
+    // (Some Netflix titles use canvas-rendered captions in low-bandwidth
+    // /low-DRM modes — those won't be hoverable. Most modern titles
+    // render to the DOM.)
+    sentenceContainer: '.player-timedtext-text-container, .player-timedtext',
+    // Netflix's main video element. The watch route mounts the player
+    // under `.watch-video`; some embed paths and the post-play screen
+    // use a plain top-level <video>.
+    findVideo: () => document.querySelector('.watch-video video')
+      || document.querySelector('video') || null,
+    // No adapter / popupModule yet. Phase 2 is a netflix-adapter.js
+    // mirroring youtube-adapter.js (capture TTML/IMSC1 fetches, hide
+    // native captions, mount a dual-lang overlay, time-sync to
+    // <video>.currentTime). Until that ships, Netflix gets:
+    //  - hover dictionary on the existing native captions
+    //  - per-site disable (toolbar popup)
+    //  - auto-pause on popup open (findVideo above)
+    // but NOT dual subs (no secondary-language overlay).
+  },
 ];
 
 /**
