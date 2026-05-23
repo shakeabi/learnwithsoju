@@ -37,6 +37,7 @@ const DEFAULT_SECONDARY_KEY = 'secondaryLang';
 // silent throw on read. local is unrestricted and has the nice property
 // that per-video preferences survive a browser restart.
 const PER_VIDEO_OVERRIDE_KEY = 'dualSubsOverrides';
+const DISABLED_HOSTS_KEY = 'disabledHosts';
 const STYLE_ID = 'lws-hide-yt-captions';
 const OVERLAY_CLASS = 'lws-ytsubs-overlay';
 const HOOK_PATH = 'youtube-page-hook.js';
@@ -73,6 +74,13 @@ export async function setup() {
         deactivate();
         void activate();
       }
+    } else if (area === 'local' && changes[DISABLED_HOSTS_KEY]) {
+      // Per-host disable flipped (from the toolbar popup). Tear down
+      // the overlay if we're now disabled here, or activate if it was
+      // just re-enabled. activate()'s isEnabled() check will gate on
+      // the new list value.
+      deactivate();
+      void activate();
     }
   });
 
@@ -169,8 +177,15 @@ function isWatchPage() {
 }
 
 async function isEnabled() {
-  const data = await chrome.storage.sync.get(SETTING_KEY);
-  return data[SETTING_KEY] !== false;
+  const [sync, local] = await Promise.all([
+    chrome.storage.sync.get(SETTING_KEY),
+    chrome.storage.local.get(DISABLED_HOSTS_KEY),
+  ]);
+  if (sync[SETTING_KEY] === false) return false;
+  const list = Array.isArray(local[DISABLED_HOSTS_KEY]) ? local[DISABLED_HOSTS_KEY] : [];
+  const host = (window.location && window.location.hostname || '').toLowerCase();
+  if (host && list.includes(host)) return false;
+  return true;
 }
 
 /**

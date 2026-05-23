@@ -235,9 +235,12 @@ can grow past the 5 MB default.
 | `secondaryLang`    | string    | `'en'`   | `options.js`                     | `youtube-adapter.js`, `popup.js` (default) |
 
 *`dualSubsYouTube` defaults to `true` in the adapter's `isEnabled()` —
-the setting is treated as "off only if explicitly set to `false`". On
-fresh install, `background.js` writes `enabled: true` and opens the
-options page; nothing else is initialized.
+the setting is treated as "off only if explicitly set to `false`". The
+adapter's `isEnabled()` ALSO checks `disabledHosts` (local) and bails
+when the current hostname is in the list, so per-site disable tears
+down dual subs in addition to the dictionary. On fresh install,
+`background.js` writes `enabled: true` and opens the options page;
+nothing else is initialized.
 
 ### `chrome.storage.local`
 
@@ -337,7 +340,8 @@ broadcast bus for settings:
 | Key                  | Listener                                | What the listener does                                  |
 |----------------------|-----------------------------------------|---------------------------------------------------------|
 | `enabled`            | `content.js`                            | Toggle scanning + popup activity for this tab           |
-| `disabledHosts` (local) | `content.js`                         | Same effect as `enabled`, but only when this hostname's membership changes (compares against `window.location.hostname`) |
+| `disabledHosts` (local) | `content.js`                         | Same effect as `enabled`, plus `unwrapAllWords()` to strip the `.lws-word` spans (dashed underline + cursor: help) when going to disabled — re-enabling re-scans. |
+| `disabledHosts` (local) | `youtube-adapter.js`                  | Calls `deactivate()` and then `activate()` (which re-checks `isEnabled()`) — so the dual-subs overlay actually unmounts when the user disables on a YouTube page, not just the dictionary popup. |
 | `defLang`            | `content.js`                            | `rerenderActivePopup()` if popup is showing             |
 | `dualSubsYouTube`    | `youtube-adapter.js`                    | Re-activate / deactivate dual subs on the current page  |
 | `secondaryLang`      | `youtube-adapter.js`                    | Re-activate so the new default applies                  |

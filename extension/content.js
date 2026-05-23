@@ -197,6 +197,22 @@
     if (nodes.length) processInChunks(nodes);
   }
 
+  // Undo every wrapTextNode() — replace each .lws-word span with a text
+  // node containing its text content. Called when the user disables the
+  // extension on this host so the dashed underline / cursor-help styling
+  // goes away too, not just the popup. Re-enabling re-runs scanRoot which
+  // re-wraps. The mutation observer's processInChunks is gated on
+  // `enabled`, so the replacement DOM activity during unwrap doesn't
+  // re-wrap anything.
+  function unwrapAllWords() {
+    const spans = document.querySelectorAll('span.' + WORD_CLASS);
+    for (const span of spans) {
+      const parent = span.parentNode;
+      if (!parent) continue;
+      parent.replaceChild(document.createTextNode(span.textContent), span);
+    }
+  }
+
   function ensurePopup() {
     if (popupHost) return;
     popupHost = document.createElement('div');
@@ -1635,6 +1651,7 @@
       } else if (!next && enabled) {
         enabled = false;
         hidePopup();
+        unwrapAllWords();
       }
     }
     if (area !== 'sync') return;
