@@ -282,14 +282,26 @@ async function renderLookupResult(word, res) {
       : '(none)'
   );
   debug.appendChild(tokensLine);
+  // Full lemmatizer output (every candidate, in priority order).
+  // `queriesUsed` is the subset that returned non-empty KRDict results,
+  // which is what actually drove the displayed lemma. Showing both
+  // tells you (a) what we tried and (b) which ones the dictionary had.
   const candsLine = document.createElement('div');
   candsLine.className = 'lookup-debug-line';
   candsLine.innerHTML = '<b>candidates:</b> ' + (
+    Array.isArray(res.candidates) && res.candidates.length
+      ? res.candidates.map(escapeHtml).join(', ')
+      : '(none)'
+  );
+  debug.appendChild(candsLine);
+  const hitsLine = document.createElement('div');
+  hitsLine.className = 'lookup-debug-line';
+  hitsLine.innerHTML = '<b>got hits for:</b> ' + (
     Array.isArray(res.queriesUsed) && res.queriesUsed.length
       ? res.queriesUsed.map(escapeHtml).join(', ')
       : '(none)'
   );
-  debug.appendChild(candsLine);
+  debug.appendChild(hitsLine);
   lookupResult.appendChild(debug);
 }
 

@@ -161,13 +161,30 @@ export function lemmaCandidates(tokens, surface) {
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i];
       const tag = leadTag(t.pos || '');
-      // Prefer the Inflect decomposition stem when available (irregulars).
-      // Otherwise fall through to lemma/surface — which is correct for
-      // already-split tokens (e.g. 먹/VV from 먹었어요).
-      const stem = inflectStem(t.features) || t.lemma || t.surface || '';
+      // Prefer the Inflect decomposition stem when available (irregulars
+      // like 봐요 → 보, 해야 → 하, 걸려 → 걸리). Otherwise fall through
+      // to lemma/surface — which is correct for already-split tokens
+      // (e.g. 먹/VV from 먹었어요).
+      const decompStem = inflectStem(t.features);
+      const tSurface = String(t.surface || '');
+      const stem = decompStem || t.lemma || tSurface || '';
       if (!stem) continue;
       if (VERB_LEAD_TAGS.has(tag)) {
-        push(stem.endsWith('다') ? stem : stem + '다');
+        // Ambiguous-ㄹ guard: when the decomposition's stem is a single
+        // syllable AND the surface is a different single syllable,
+        // mecab-ko-dic has picked an unusual etymological analysis
+        // (surface 가 → stem 갈 via phantom ㄹ-deletion, surface 사
+        // → stem 살, etc.). The surface itself is the much more common
+        // dictionary form in everyday text. Push surface+다 first;
+        // keep the Inflect stem as a fallback so the rarer reading
+        // still surfaces if the surface lemma isn't in KRDict.
+        if (decompStem && tSurface && decompStem !== tSurface
+            && decompStem.length === 1 && tSurface.length === 1) {
+          push(tSurface + '다');
+          push(decompStem + '다');
+        } else {
+          push(stem.endsWith('다') ? stem : stem + '다');
+        }
       } else if (NOUN_LEAD_TAGS.has(tag)) {
         push(stem);
       }

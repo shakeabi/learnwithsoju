@@ -306,3 +306,61 @@ test('verb stem already ending in 다 is not double-suffixed', () => {
   assert.ok(!candidates.includes('먹다다'));
   assert.equal(candidates[0], '먹다');
 });
+
+test('ambiguous-ㄹ guard: single-syllable surface 가 with Inflect stem 갈 → 가다 first', () => {
+  // mecab-ko-dic's decomposition for "가" inside "가볼게요" lists 갈/VV
+  // as the stem (phantom ㄹ-deletion analysis), which would otherwise
+  // resolve to 갈다 ("to grind") instead of the much more common 가다
+  // ("to go"). The lemmatizer's ambiguous-ㄹ guard pushes surface+다
+  // first when both surface and decomp-stem are single syllables and
+  // differ.
+  //
+  // Features format: pos,semantic,jongseong,reading,type,first_pos,last_pos,decomposition
+  const features = 'VV,*,F,가,Inflect,VV,*,갈/VV/*';
+  const tokens = [
+    tok('가', 'VV', '가', features),
+    tok('볼게요', 'EC+VX+EF', '볼게요'),
+  ];
+  const candidates = lemmaCandidates(tokens, '가볼게요');
+  assert.equal(candidates[0], '가다', 'expected 가다 first, got ' + candidates.join(','));
+  assert.ok(candidates.includes('갈다'), 'expected 갈다 to remain as a fallback');
+  assert.ok(candidates.indexOf('가다') < candidates.indexOf('갈다'),
+    '가다 should come before 갈다');
+});
+
+test('ambiguous-ㄹ guard: single-syllable surface 사 with Inflect stem 살 → 사다 first', () => {
+  // Same pattern for 사다 (to buy) vs 살다 (to live) — the future
+  // modifier 살 from either verb's stem produces ambiguity. Surface 사
+  // (e.g. in 사볼게요 if mecab were to break it that way) should
+  // resolve to 사다.
+  const features = 'VV,*,F,사,Inflect,VV,*,살/VV/*';
+  const tokens = [tok('사', 'VV', '사', features)];
+  const candidates = lemmaCandidates(tokens, '사');
+  assert.equal(candidates[0], '사다');
+  assert.ok(candidates.includes('살다'));
+  assert.ok(candidates.indexOf('사다') < candidates.indexOf('살다'));
+});
+
+test('ambiguous-ㄹ guard does NOT fire for multi-syllable surfaces (봐요 → 보다)', () => {
+  // Irregular conjugation: surface "봐요" is 보 + 아요. inflectStem
+  // correctly returns 보. The guard checks `surface.length === 1`, so
+  // this multi-char surface bypasses it — and we still get 보다
+  // (not "봐요다" or "보다, 봐요다").
+  const features = 'VV+EF,*,F,봐요,Inflect,VV,EF,보/VV/*+아요/EF/*';
+  const tokens = [tok('봐요', 'VV+EF', '봐요', features)];
+  const candidates = lemmaCandidates(tokens, '봐요');
+  assert.equal(candidates[0], '보다');
+  assert.ok(!candidates.includes('봐요다'));
+});
+
+test('ambiguous-ㄹ guard does NOT fire when surface equals decomp stem', () => {
+  // Regular case: mecab returns surface 갈 with decomposition 갈/VV
+  // (genuine 갈다 / "to grind"). Both single-syllable but EQUAL, so
+  // the guard doesn't kick in and we get 갈다 as the only verb
+  // candidate (plus the surface fallback).
+  const features = 'VV,*,T,갈,*,*,*,*'; // not Inflect — inflectStem returns null
+  const tokens = [tok('갈', 'VV', '갈', features)];
+  const candidates = lemmaCandidates(tokens, '갈');
+  assert.equal(candidates[0], '갈다');
+  assert.ok(!candidates.includes('가다'));
+});

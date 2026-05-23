@@ -169,6 +169,11 @@ async function handleLookup(surface) {
     queryUsed: queryUsed || null,
     queryUsedExtra: queryUsedExtra || null,
     queriesUsed,
+    // Full ordered candidate list from the lemmatizer (not just the
+    // subset that got non-empty KRDict results). Useful for the
+    // popup's lookup-debug panel — shows every interpretation we
+    // considered, in priority order.
+    candidates,
     multiPrimary,
     tokens,
     krXml,

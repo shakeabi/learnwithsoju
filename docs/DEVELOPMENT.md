@@ -1457,9 +1457,14 @@ The push order is:
    XR (roots like 깨끗, 행복) all need to participate as prefix so
    determiner+bound-noun+verb-deriving-suffix compounds resolve.
 3. **Per-token push** — walk left to right; for each token:
-  - Compute `stem = inflectStem(features) || lemma || surface`.
-  - If lead tag is in VERB_LEAD_TAGS, push `stem` (or `stem + '다'` if
-  it doesn't already end in 다).
+  - Compute `decompStem = inflectStem(features)`, and
+    `stem = decompStem || lemma || surface`.
+  - If lead tag is in VERB_LEAD_TAGS:
+    - **Ambiguous-ㄹ guard** (see §8.3.5 below): when `decompStem` is
+      a single syllable AND `surface` is a *different* single syllable,
+      push `surface + '다'` first, then `decompStem + '다'` as a
+      fallback. Otherwise push `stem` (or `stem + '다'` if it doesn't
+      already end in 다).
   - If lead tag is in NOUN_LEAD_TAGS, push `stem` as-is.
   - Otherwise skip — particles, endings, and pure-suffix tokens aren't
   dictionary headwords on their own.
@@ -1493,6 +1498,45 @@ This split is what makes both pure-noun-compound rules safe to apply at
 once: the surface-first rule pushes the whole compound first, and the
 per-token loop's NNG path then uses the lemma (the canonical noun form),
 not the Inflect-extracted prefix.
+
+### 8.3.5 The ambiguous-ㄹ guard
+
+Even when the Inflect gate fires correctly (`type === 'Inflect'`),
+mecab-ko-dic occasionally picks an etymological analysis that gives a
+misleading stem. Reproducible case: hovering `가볼게요` ("I'll try
+going" / "I'll go and see"). mecab returns two tokens:
+
+```
+가/VV     features=… type=Inflect … decomposition=갈/VV/*
+볼게요/EC+VX+EF
+```
+
+The surface IS `가`, but the dictionary's decomposition column claims
+the underlying stem is `갈` (treating `가` as a contracted form of
+`갈다` via phantom ㄹ-deletion). `inflectStem` faithfully extracts
+`갈`, the per-token loop pushes `갈다` ("to grind"), KRDict happily
+returns that — and the learner gets the wrong word.
+
+The guard: when `decompStem` is a single syllable AND `surface` is
+ALSO a single syllable AND they differ, the per-token loop pushes
+`surface + '다'` FIRST and keeps `decompStem + '다'` as a fallback.
+Rationale:
+
+- For irregular conjugations the surface is multi-syllable (`봐요`,
+  `해야`, `걸려`, `예뻐요`) — the guard's length check skips them.
+- For single-syllable ambiguities (`가`/`갈`, `사`/`살`, `나`/`날`,
+  `자`/`잘`), the surface itself is overwhelmingly the more common
+  dictionary form in everyday Korean. Pushing it first means KRDict's
+  first-hit-wins logic returns 가다 / 사다 / 나다 / 자다 — almost
+  always the right answer.
+- The rarer reading still gets a fair shot via the fallback push, so
+  a genuine 갈다 / 살다 query (when surface really IS that stem) still
+  resolves correctly because mecab returns surface=`갈` with stem=`갈`
+  — no length mismatch, guard doesn't fire, normal path.
+
+Tests in `tests/lemmatizer.test.js` cover the four cases: 가 fires
+the guard, 사 fires the guard, 봐요 (multi-syllable) doesn't, 갈
+with matching stem doesn't.
 
 ### 8.4 The Sejong POS tags the lemmatizer cares about
 
