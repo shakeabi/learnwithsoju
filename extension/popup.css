@@ -143,14 +143,120 @@ header .brand {
 }
 
 .yt-sub-select {
-  flex: 1 1 auto;
+  width: 100%;
   font: inherit;
   font-size: 13px;
-  padding: 3px 6px;
+  padding: 4px 6px;
   border-radius: 4px;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--fg);
+}
+
+/* Stacked field: small uppercase label above an input/select.
+ * Used by the YouTube secondary-subs picker and the Lookup box so the
+ * dropdown gets the full popup width instead of competing with an
+ * inline label for the narrow 260px-wide row. */
+.field-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lookup-section {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lookup-input {
+  width: 100%;
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  outline: none;
+}
+
+.lookup-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(125, 140, 255, 0.18);
+}
+
+.lookup-result {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.lookup-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.lookup-lemma {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lookup-from {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.lookup-pos {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.lookup-trans-word {
+  font-weight: 500;
+}
+
+.lookup-trans-dfn {
+  color: var(--muted);
+}
+
+.lookup-debug {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.lookup-debug summary {
+  cursor: pointer;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  user-select: none;
+}
+
+.lookup-debug-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  word-break: break-all;
+  margin-top: 4px;
 }
 
 .actions {

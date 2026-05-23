@@ -24,6 +24,21 @@
 
   <section id="site-adapter-section" class="adapter-section" hidden></section>
 
+  <section class="lookup-section">
+    <label for="lookup-input" class="section-label">Look up a word</label>
+    <form id="lookup-form">
+      <input
+        type="text"
+        id="lookup-input"
+        class="lookup-input"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="Paste a Korean word…"
+      />
+    </form>
+    <div id="lookup-result" class="lookup-result" hidden></div>
+  </section>
+
   <div class="actions">
     <button type="button" id="open-options" class="link-btn">Open settings →</button>
   </div>

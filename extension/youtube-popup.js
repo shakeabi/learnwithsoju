@@ -76,14 +76,18 @@ function renderTrackSelect(container, videoId, info) {
   }
   choices.push({ code: 'off', label: 'Off' });
 
-  const row = document.createElement('div');
-  row.className = 'row';
+  // Stacked layout: small uppercase label above a full-width dropdown.
+  // Reads cleaner than the prior inline label/select row when the
+  // language name in the option (e.g. "Chinese (Simplified) (auto)")
+  // is long enough to push the dropdown into a cramped column.
+  const field = document.createElement('div');
+  field.className = 'field-stacked';
 
   const label = document.createElement('label');
-  label.className = 'row-label';
+  label.className = 'section-label';
   label.textContent = 'Secondary Subs';
   label.htmlFor = 'yt-secondary-select';
-  row.appendChild(label);
+  field.appendChild(label);
 
   const select = document.createElement('select');
   select.id = 'yt-secondary-select';
@@ -96,9 +100,9 @@ function renderTrackSelect(container, videoId, info) {
     select.appendChild(opt);
   }
   select.addEventListener('change', () => setOverride(videoId, select.value));
-  row.appendChild(select);
+  field.appendChild(select);
 
-  container.appendChild(row);
+  container.appendChild(field);
 }
 
 async function setOverride(videoId, lang) {

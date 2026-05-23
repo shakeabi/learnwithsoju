@@ -1259,31 +1259,41 @@ The hook is idempotent via `window.__lwsYtHookInstalled`.
 ### 7.12 `popup.html` / `popup.js` / `popup.css`
 
 The toolbar action UI — what opens when the user clicks the extension's
-icon. Three sections:
+icon. Four sections:
 
 - Per-site toggle — shown only on `http(s):` pages. Reads the active
-tab's hostname via `resolveActiveSite()` (tabs API first, content
-script fallback if `tab.url` is undefined), then toggles membership
-in `disabledHosts` (`chrome.storage.local` array). When the user
-flips it, the content script's `onChanged` listener for
-`disabledHosts` activates / deactivates immediately. The list is
-sorted on every write so storage diffs stay small. There is no
-global hover-dictionary toggle here anymore — for "off everywhere",
-use `chrome://extensions`.
+  tab's hostname via `resolveActiveSite()` (tabs API first, content
+  script fallback if `tab.url` is undefined), then toggles membership
+  in `disabledHosts` (`chrome.storage.local` array). When the user
+  flips it, the content script's `onChanged` listener for
+  `disabledHosts` activates / deactivates immediately. The list is
+  sorted on every write so storage diffs stay small. There is no
+  global hover-dictionary toggle here anymore — for "off everywhere",
+  use `chrome://extensions`.
 - Status row (API key status / active).
 - Adapter section — generic shell. `loadAdapterSection()` resolves the
-active tab's hostname against `findSiteConfig(...)` from
-`site-configs.js`, and if the matched config declares a
-`popupModule`, dynamic-imports that module and calls
-`renderSection({ tab, container })`. The module owns the DOM under
-`<section id="site-adapter-section">`. For YouTube this is
-`youtube-popup.js` (secondary-language dropdown). Adding Netflix / Viki is a
-new SITE_CONFIGS entry + its own `*-popup.js` — no edits to
-`popup.js` or `popup.html`.
+  active tab's hostname against `findSiteConfig(...)` from
+  `site-configs.js`, and if the matched config declares a
+  `popupModule`, dynamic-imports that module and calls
+  `renderSection({ tab, href, container })`. The module owns the DOM
+  under `<section id="site-adapter-section">`. For YouTube this is
+  `youtube-popup.js` (secondary-subs dropdown). Adding Netflix / Viki is
+  a new SITE_CONFIGS entry + its own `*-popup.js` — no edits to
+  `popup.js` or `popup.html`.
+- Lookup box — input + result area. User types/pastes a Korean word
+  and hits Enter; `popup.js` sends the same `{type: 'lookup', surface}`
+  message background gets from in-page hovers, then dynamic-imports
+  `parsers.js` to parse the returned KRDict XML into a compact
+  headword + first-translation display. A `<details>Debug</details>`
+  panel at the bottom shows the mecab tokens and lemma candidates the
+  background chose — useful as a "why did the popup show the wrong
+  lemma" diagnostic without needing to open the service-worker DevTools
+  console. The lookup box reuses the same cache that hover lookups
+  populate, so a word looked up here is instantly available on hover
+  later (and vice versa).
 
-`popup.js` itself never imports `parsers.js` or anything
-Korean-related — it's a settings/status shell. Per-site UI lives in the
-site's own `*-popup.js`.
+`popup.js` dynamic-imports `./parsers.js` only on the lookup-result
+render path. The rest of popup.js stays as a settings/status shell.
 
 ### 7.12.1 `youtube-popup.js`
 
@@ -2504,6 +2514,7 @@ workaround.
 | Add a new POS-to-English mapping            | `parsers.js` `KOREAN_POS_TO_ENGLISH` + test                                                 |
 | Add a morpheme gloss for a new particle     | `grammar-glosses.js` `FORM_GLOSSES` + test                                                  |
 | Fix a wrong lemma for a specific surface    | `lemmatizer.js` candidate ordering + test                                                   |
+| Debug a "wrong lemma" hover result          | Type the word into the popup's "Look up a word" box → expand the Debug `<details>` panel to see the mecab tokens + lemma candidates the background chose. No service-worker DevTools needed. |
 | Add a new site-specific sentence selector   | `site-configs.js` entry (see §14.1)                                                         |
 | Auto-pause a page's video on popup open     | `findVideo` in the `site-configs.js` entry (see §14.2)                                      |
 | Fix hovers being eaten by a player control overlay | `stylesheet` field on the `site-configs.js` entry — z-index promo for the caption layer (see §14.2 "Per-site visual fixes") |
