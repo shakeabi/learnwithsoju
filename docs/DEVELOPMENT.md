@@ -554,10 +554,12 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
        prefers `audioTracks[defaultAudioTrackIndex].defaultCaptionTrackIndex`
        (authoritative on multi-audio videos) and falls back to the first
        ASR track's language (YouTube generates ASR in the audio's
-       language). If the resolved lang isn't `ko*`, OR if no signal is
-       available at all, we bail. This stops dual subs from engaging
-       on English-audio videos that happen to have Korean machine-
-       translated subs.
+       language). The gate is **fail-open** — we only bail when audio
+       is *positively* detected as non-Korean (e.g. an English ASR
+       exists, so a KO sub track is clearly a translation). Unknown
+       audio engages dual subs if a Korean caption track exists, since
+       many real Korean videos have no ASR (the uploader supplied
+       manual KO captions, so YouTube didn't generate ASR).
     4. `resolveSecondaryLang(videoId)` — per-video override (from
        `local.dualSubsOverrides`) wins over `sync.secondaryLang`, which
        defaults to `'en'`.

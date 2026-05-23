@@ -24,6 +24,12 @@
 
 * { box-sizing: border-box; }
 
+/* Author rules like `.row { display: flex }` would otherwise tie with
+ * the UA's `[hidden] { display: none }` (both 0,0,1,0 specificity) and
+ * win on source order — making any `<div class="row" hidden>` render
+ * visibly. Force the attribute to win. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   width: 260px;

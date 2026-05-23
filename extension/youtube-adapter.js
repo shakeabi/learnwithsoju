@@ -236,21 +236,22 @@ async function initForCurrentVideo() {
   lastTracklist = tracklist;
   lastVideoId = currentVideoId();
 
-  // Only engage on videos whose spoken audio is Korean. A video might
-  // have a Korean caption track via machine translation (English audio
-  // with KO subs added by the uploader, or auto-translated by YouTube)
-  // — we don't want dual subs on those because the learner would be
-  // listening to non-Korean speech with KO text below it. Detection is
-  // best-effort; if it returns null, we fail closed.
+  // Skip dual subs when we're *confident* the audio is non-Korean
+  // (e.g. an English-ASR video with a translated KO subtitle track —
+  // the learner would be listening to English with Korean text below).
+  // Detection is best-effort: many Korean videos have no ASR at all
+  // because the uploader supplied manual captions, so we fail OPEN —
+  // unknown audio engages dual subs as long as a Korean caption track
+  // exists (pickPrimarySource gates on that downstream).
   const audioInfo = await getAudioInfo();
   log('audio info:', audioInfo);
-  if (!audioInfo.lang) {
-    log('could not determine audio language — skipping dual subs');
-    return null;
-  }
-  if (!isKoreanCode(audioInfo.lang)) {
-    log(`audio is ${audioInfo.lang} (not Korean) — skipping dual subs`);
-    return null;
+  if (audioInfo.lang) {
+    const lang = String(audioInfo.lang).toLowerCase();
+    const isKo = lang === 'ko' || lang.startsWith('ko-');
+    if (!isKo) {
+      log(`audio is ${audioInfo.lang} (not Korean) — skipping dual subs`);
+      return null;
+    }
   }
 
   // Resolve the secondary language preference: per-video override (set via
