@@ -81,7 +81,7 @@ function renderTrackSelect(container, videoId, info) {
 
   const label = document.createElement('label');
   label.className = 'row-label';
-  label.textContent = 'Secondary';
+  label.textContent = 'Secondary Subs';
   label.htmlFor = 'yt-secondary-select';
   row.appendChild(label);
 

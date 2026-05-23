@@ -1,14 +1,10 @@
-const KEYS = {
-  KRDICT_KEY: 'krdictApiKey',
-  ENABLED: 'enabled',
-};
+const KRDICT_KEY = 'krdictApiKey';
 // Per-site disable lives in chrome.storage.local — sync is throttled
 // (write-quota, eventual-consistency w/ the cloud) and was dropping
 // per-site writes. Local is per-device, which matches the semantics:
 // "for this browser, on this site, leave me alone."
 const DISABLED_HOSTS_KEY = 'disabledHosts';
 
-const enabledToggle = document.getElementById('enabled-toggle');
 const siteRow = document.getElementById('site-row');
 const siteToggle = document.getElementById('site-toggle');
 const siteHostEl = document.getElementById('site-host');
@@ -20,25 +16,15 @@ const adapterSection = document.getElementById('site-adapter-section');
 let currentHost = '';
 
 async function load() {
-  const data = await chrome.storage.sync.get([KEYS.KRDICT_KEY, KEYS.ENABLED]);
-  enabledToggle.checked = data[KEYS.ENABLED] !== false;
-
-  if (!data[KEYS.KRDICT_KEY]) {
+  const data = await chrome.storage.sync.get(KRDICT_KEY);
+  if (!data[KRDICT_KEY]) {
     statusDot.className = 'dot warn';
     statusText.textContent = 'API key not set';
-  } else if (data[KEYS.ENABLED] === false) {
-    statusDot.className = 'dot';
-    statusText.textContent = 'Disabled';
   } else {
     statusDot.className = 'dot ok';
     statusText.textContent = 'Active';
   }
 }
-
-enabledToggle.addEventListener('change', async () => {
-  await chrome.storage.sync.set({ [KEYS.ENABLED]: enabledToggle.checked });
-  load();
-});
 
 function applyToggleFromList(list) {
   const arr = Array.isArray(list) ? list : [];

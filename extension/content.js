@@ -12,10 +12,18 @@
     'P', 'LI', 'TD', 'TH', 'BLOCKQUOTE', 'FIGCAPTION', 'ARTICLE', 'SECTION',
     'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'DT', 'DD', 'CAPTION', 'SUMMARY',
   ]);
-  const STORAGE_KEYS = { ENABLED: 'enabled', DEF_LANG: 'defLang', SECONDARY_LANG: 'secondaryLang' };
+  const STORAGE_KEYS = {
+    DEF_LANG: 'defLang',
+    SECONDARY_LANG: 'secondaryLang',
+    ASK_AI_PROMPT: 'askAiPrompt',
+  };
   // Per-site disable list lives in chrome.storage.local (see popup.js for
   // rationale — sync was dropping per-site writes).
   const DISABLED_HOSTS_KEY = 'disabledHosts';
+  // Default Ask-AI prompt template. Kept in sync with options.js
+  // (DEFAULT_ASK_AI_PROMPT) — if you change one, change the other.
+  // Placeholders: {sentence}, {word}, {language}.
+  const DEFAULT_ASK_AI_PROMPT = `You're a Korean language expert and i'm a {language} student learning korean. I want you to help me analyse the following sentence and help me with followup queries if any. As part of the analysis, there's a focus on a particular word marked with backticks, I want you to explain the word, explain the sentence and explain individual word break down in the sentence, all grammar and grammar patterns involved etc., Here's the sentence "{sentence}"`;
   const DEF_LANG_DEFAULT = 'en';
   const SECONDARY_LANG_DEFAULT = 'en';
   // Code → human-readable name for the prompt sent to ChatGPT. Mirrors
@@ -84,7 +92,6 @@
     return undefined;
   });
 
-  let globalEnabled = true;
   let hostDisabled = false;
   let enabled = true;
   let defLang = DEF_LANG_DEFAULT;
@@ -92,6 +99,7 @@
   // "Ask AI" pill on every sentence render — fetching from storage each
   // time would force buildSentenceNode to become async.
   let secondaryLang = SECONDARY_LANG_DEFAULT;
+  let askAiPromptTemplate = DEFAULT_ASK_AI_PROMPT;
   let popupHost = null;
   let popupRoot = null;
   let popupEl = null;
@@ -473,7 +481,12 @@
   function buildAskAiUrl(sentence) {
     const langName = secondaryLangName(secondaryLang);
     const sentenceWithMark = `${sentence.before}\`${sentence.word}\`${sentence.after}`;
-    const prompt = `You're a Korean language expert and i'm a ${langName} student learning korean. I want you to help me analyse the following sentence and help me with followup queries if any. As part of the analysis, there's a focus on a particular word marked with \`\`, I want you to explain the word, explain the sentence and explain individual word break down in the sentence, all grammar and grammar patterns involved etc., Here's the sentence "${sentenceWithMark}"`;
+    // Use split/join (not replace) so user templates containing literal
+    // $1/$&/$' aren't mangled by replacement-pattern interpolation.
+    const prompt = (askAiPromptTemplate || DEFAULT_ASK_AI_PROMPT)
+      .split('{sentence}').join(sentenceWithMark)
+      .split('{word}').join(sentence.word)
+      .split('{language}').join(langName);
     return `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
   }
 
@@ -1604,15 +1617,18 @@
 
   async function init() {
     const [syncData, localData] = await Promise.all([
-      chrome.storage.sync.get([STORAGE_KEYS.ENABLED, STORAGE_KEYS.DEF_LANG]),
+      chrome.storage.sync.get([STORAGE_KEYS.DEF_LANG, STORAGE_KEYS.ASK_AI_PROMPT]),
       chrome.storage.local.get(DISABLED_HOSTS_KEY),
     ]);
-    globalEnabled = syncData[STORAGE_KEYS.ENABLED] !== false;
     const disabledList = Array.isArray(localData[DISABLED_HOSTS_KEY]) ? localData[DISABLED_HOSTS_KEY] : [];
     hostDisabled = !!currentHost && disabledList.includes(currentHost);
-    enabled = globalEnabled && !hostDisabled;
+    enabled = !hostDisabled;
     defLang = syncData[STORAGE_KEYS.DEF_LANG] === 'ko' ? 'ko' : DEF_LANG_DEFAULT;
-    console.log('[lws] content init', { host: currentHost, globalEnabled, hostDisabled, enabled, disabledList });
+    askAiPromptTemplate = (typeof syncData[STORAGE_KEYS.ASK_AI_PROMPT] === 'string'
+      && syncData[STORAGE_KEYS.ASK_AI_PROMPT])
+      ? syncData[STORAGE_KEYS.ASK_AI_PROMPT]
+      : DEFAULT_ASK_AI_PROMPT;
+    console.log('[lws] content init', { host: currentHost, hostDisabled, enabled, disabledList });
     await loadSecondaryLang();
     if (!document.body) {
       document.addEventListener('DOMContentLoaded', init, { once: true });
@@ -1631,10 +1647,6 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     let recompute = false;
-    if (area === 'sync' && STORAGE_KEYS.ENABLED in changes) {
-      globalEnabled = changes[STORAGE_KEYS.ENABLED].newValue !== false;
-      recompute = true;
-    }
     if (area === 'local' && DISABLED_HOSTS_KEY in changes) {
       const nextList = Array.isArray(changes[DISABLED_HOSTS_KEY].newValue)
         ? changes[DISABLED_HOSTS_KEY].newValue : [];
@@ -1642,8 +1654,8 @@
       recompute = true;
     }
     if (recompute) {
-      const next = globalEnabled && !hostDisabled;
-      console.log('[lws] content onChanged', { area, globalEnabled, hostDisabled, was: enabled, now: next });
+      const next = !hostDisabled;
+      console.log('[lws] content onChanged', { area, hostDisabled, was: enabled, now: next });
       if (next && !enabled) {
         enabled = true;
         scanRoot(document.body);
@@ -1665,6 +1677,11 @@
       secondaryLang = (typeof next === 'string' && next) ? next : SECONDARY_LANG_DEFAULT;
       // No rerender required — the pill's href is rebuilt on the next
       // buildSentenceNode call, and the dictionary UI is unaffected.
+    }
+    if (STORAGE_KEYS.ASK_AI_PROMPT in changes) {
+      const next = changes[STORAGE_KEYS.ASK_AI_PROMPT].newValue;
+      askAiPromptTemplate = (typeof next === 'string' && next) ? next : DEFAULT_ASK_AI_PROMPT;
+      // No rerender — the pill's href is built fresh each render.
     }
   });
 

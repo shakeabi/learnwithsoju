@@ -1,16 +1,22 @@
 const KEYS = {
   KRDICT_KEY: 'krdictApiKey',
   OPENDICT_KEY: 'opendictApiKey',
-  ENABLED: 'enabled',
   DUAL_SUBS_YT: 'dualSubsYouTube',
   SECONDARY_LANG: 'secondaryLang',
+  ASK_AI_PROMPT: 'askAiPrompt',
 };
+
+// Default Ask-AI prompt. Kept in sync with the fallback in content.js
+// (DEFAULT_ASK_AI_PROMPT) — if you change one, change the other.
+const DEFAULT_ASK_AI_PROMPT = `You're a Korean language expert and i'm a {language} student learning korean. I want you to help me analyse the following sentence and help me with followup queries if any. As part of the analysis, there's a focus on a particular word marked with backticks, I want you to explain the word, explain the sentence and explain individual word break down in the sentence, all grammar and grammar patterns involved etc., Here's the sentence "{sentence}"`;
 
 const krInput = document.getElementById('krdict-key');
 const odInput = document.getElementById('opendict-key');
-const enabledToggle = document.getElementById('enabled-toggle');
 const dualSubsToggle = document.getElementById('dualsubs-toggle');
 const secondaryLangSelect = document.getElementById('secondary-lang');
+const askAiPromptInput = document.getElementById('ask-ai-prompt');
+const resetAskAiPromptBtn = document.getElementById('reset-ask-ai-prompt');
+const askAiPromptStatus = document.getElementById('ask-ai-prompt-status');
 const saveBtn = document.getElementById('save-btn');
 const testBtn = document.getElementById('test-btn');
 const statusEl = document.getElementById('status');
@@ -29,19 +35,37 @@ function setStatus(text, kind) {
   }
 }
 
+function setAskAiPromptStatus(text, kind) {
+  if (!askAiPromptStatus) return;
+  askAiPromptStatus.textContent = text;
+  askAiPromptStatus.className = kind || '';
+  if (text && kind) {
+    setTimeout(() => {
+      if (askAiPromptStatus.textContent === text) {
+        askAiPromptStatus.textContent = '';
+        askAiPromptStatus.className = '';
+      }
+    }, 2500);
+  }
+}
+
 async function load() {
   const data = await chrome.storage.sync.get([
     KEYS.KRDICT_KEY,
     KEYS.OPENDICT_KEY,
-    KEYS.ENABLED,
     KEYS.DUAL_SUBS_YT,
     KEYS.SECONDARY_LANG,
+    KEYS.ASK_AI_PROMPT,
   ]);
   krInput.value = data[KEYS.KRDICT_KEY] || '';
   odInput.value = data[KEYS.OPENDICT_KEY] || '';
-  enabledToggle.checked = data[KEYS.ENABLED] !== false;
   if (dualSubsToggle) dualSubsToggle.checked = data[KEYS.DUAL_SUBS_YT] !== false;
   if (secondaryLangSelect) secondaryLangSelect.value = data[KEYS.SECONDARY_LANG] || 'en';
+  if (askAiPromptInput) {
+    askAiPromptInput.value = typeof data[KEYS.ASK_AI_PROMPT] === 'string' && data[KEYS.ASK_AI_PROMPT]
+      ? data[KEYS.ASK_AI_PROMPT]
+      : DEFAULT_ASK_AI_PROMPT;
+  }
   const v = chrome.runtime.getManifest().version;
   versionLine.textContent = `v${v}`;
 }
@@ -50,7 +74,6 @@ async function save() {
   const payload = {
     [KEYS.KRDICT_KEY]: krInput.value.trim(),
     [KEYS.OPENDICT_KEY]: odInput.value.trim(),
-    [KEYS.ENABLED]: enabledToggle.checked,
   };
   await chrome.storage.sync.set(payload);
   setStatus('Saved.', 'ok');
@@ -92,9 +115,6 @@ async function testKrdict() {
 
 saveBtn.addEventListener('click', save);
 testBtn.addEventListener('click', testKrdict);
-enabledToggle.addEventListener('change', () => {
-  chrome.storage.sync.set({ [KEYS.ENABLED]: enabledToggle.checked });
-});
 if (dualSubsToggle) {
   dualSubsToggle.addEventListener('change', () => {
     chrome.storage.sync.set({ [KEYS.DUAL_SUBS_YT]: dualSubsToggle.checked });
@@ -103,6 +123,28 @@ if (dualSubsToggle) {
 if (secondaryLangSelect) {
   secondaryLangSelect.addEventListener('change', () => {
     chrome.storage.sync.set({ [KEYS.SECONDARY_LANG]: secondaryLangSelect.value });
+  });
+}
+if (askAiPromptInput) {
+  // Auto-save on blur. Empty value → remove the key so the default
+  // re-applies on next read (rather than persisting an empty string
+  // that would generate a useless ChatGPT prompt).
+  askAiPromptInput.addEventListener('change', async () => {
+    const v = askAiPromptInput.value.trim();
+    if (!v || v === DEFAULT_ASK_AI_PROMPT) {
+      await chrome.storage.sync.remove(KEYS.ASK_AI_PROMPT);
+      setAskAiPromptStatus('Reset to default.', 'ok');
+    } else {
+      await chrome.storage.sync.set({ [KEYS.ASK_AI_PROMPT]: v });
+      setAskAiPromptStatus('Saved.', 'ok');
+    }
+  });
+}
+if (resetAskAiPromptBtn) {
+  resetAskAiPromptBtn.addEventListener('click', async () => {
+    if (askAiPromptInput) askAiPromptInput.value = DEFAULT_ASK_AI_PROMPT;
+    await chrome.storage.sync.remove(KEYS.ASK_AI_PROMPT);
+    setAskAiPromptStatus('Reset to default.', 'ok');
   });
 }
 

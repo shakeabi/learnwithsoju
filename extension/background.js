@@ -6,7 +6,6 @@ import init, { Mecab } from './vendor/mecab-ko/mecab_ko_wasm.js';
 const STORAGE_KEYS = {
   KRDICT_KEY: 'krdictApiKey',
   OPENDICT_KEY: 'opendictApiKey',
-  ENABLED: 'enabled',
 };
 
 const MECAB_VENDOR = 'vendor/mecab-ko/';
@@ -266,9 +265,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
-chrome.runtime.onInstalled.addListener(async (details) => {
+chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
-    await chrome.storage.sync.set({ [STORAGE_KEYS.ENABLED]: true });
     chrome.runtime.openOptionsPage();
   }
 });

@@ -130,7 +130,8 @@ header h1 {
 
 .field input[type=password],
 .field input[type=text],
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   padding: 9px 11px;
   font: inherit;
@@ -142,10 +143,50 @@ header h1 {
   outline: none;
 }
 
+.field textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 120px;
+}
+
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(125, 140, 255, 0.18);
+}
+
+.advanced {
+  /* `details.card` — keep card chrome but reset the disclosure widget
+   * so the summary feels like a section header instead of a list item. */
+}
+.advanced > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.advanced > summary::-webkit-details-marker { display: none; }
+.advanced > summary > h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.advanced > summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 12px;
+  transition: transform 0.15s ease;
+}
+.advanced[open] > summary::before {
+  transform: rotate(90deg);
+}
+.advanced[open] > summary {
+  margin-bottom: 14px;
 }
 
 .field-link {

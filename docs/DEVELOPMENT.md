@@ -229,18 +229,30 @@ can grow past the 5 MB default.
 |--------------------|-----------|----------|----------------------------------|------------------------------------------|
 | `krdictApiKey`     | string    | `""`     | `options.js`                     | `background.js` (every lookup)           |
 | `opendictApiKey`   | string    | `""`     | `options.js`                     | `background.js` (only when KRDict empty) |
-| `enabled`          | boolean   | `true`   | `options.js`, `popup.js`         | `content.js` init + onChanged listener   |
 | `defLang`          | `'en' \| 'ko'` | `'en'` | `content.js` (popup toggle) | `content.js` (popup render)              |
 | `dualSubsYouTube`  | boolean   | `true`*  | `options.js`                     | `youtube-adapter.js` (onChanged + isEnabled) |
 | `secondaryLang`    | string    | `'en'`   | `options.js`                     | `youtube-adapter.js`, `popup.js` (default) |
+| `askAiPrompt`      | string    | unset → built-in default | `options.js` (Advanced section) | `content.js` (init + onChanged → `buildAskAiUrl`) |
 
 *`dualSubsYouTube` defaults to `true` in the adapter's `isEnabled()` —
 the setting is treated as "off only if explicitly set to `false`". The
 adapter's `isEnabled()` ALSO checks `disabledHosts` (local) and bails
 when the current hostname is in the list, so per-site disable tears
 down dual subs in addition to the dictionary. On fresh install,
-`background.js` writes `enabled: true` and opens the options page;
-nothing else is initialized.
+`background.js` just opens the options page so the user can paste
+their KRDict key — there is no longer a global on/off switch (the
+old `enabled` key was removed; the only soft-disable is per-site via
+`disabledHosts`, and the only hard-disable is `chrome://extensions`).
+
+The `askAiPrompt` template uses three placeholders: `{sentence}` (the
+sentence with the focus word surrounded by backticks), `{word}` (the
+focus word on its own), and `{language}` (the user's
+secondary-language name, e.g. `"English"`). Substitution uses
+`split().join()` rather than `String.replace()` so user templates
+containing `$1`/`$&`/`$'` aren't mangled by replacement-pattern
+interpolation. Storing the value equal to the default removes the
+key (the options page's textarea handler does this), so the live
+default in code is what's used.
 
 ### `chrome.storage.local`
 
@@ -339,8 +351,7 @@ broadcast bus for settings:
 
 | Key                  | Listener                                | What the listener does                                  |
 |----------------------|-----------------------------------------|---------------------------------------------------------|
-| `enabled`            | `content.js`                            | Toggle scanning + popup activity for this tab           |
-| `disabledHosts` (local) | `content.js`                         | Same effect as `enabled`, plus `unwrapAllWords()` to strip the `.lws-word` spans (dashed underline + cursor: help) when going to disabled — re-enabling re-scans. |
+| `disabledHosts` (local) | `content.js`                         | Toggle scanning + popup activity for this tab. On the disabled transition: hide the popup AND `unwrapAllWords()` to strip the `.lws-word` spans (dashed underline + cursor: help). Re-enabling re-scans. |
 | `disabledHosts` (local) | `youtube-adapter.js`                  | Calls `deactivate()` and then `activate()` (which re-checks `isEnabled()`) — so the dual-subs overlay actually unmounts when the user disables on a YouTube page, not just the dictionary popup. |
 | `defLang`            | `content.js`                            | `rerenderActivePopup()` if popup is showing             |
 | `dualSubsYouTube`    | `youtube-adapter.js`                    | Re-activate / deactivate dual subs on the current page  |
@@ -362,14 +373,14 @@ in order.
 Files: `content.js`.
 
 1. `init()` runs at `document_idle` (manifest setting).
-2. Read `enabled`, `disabledHosts`, and `defLang` from
-   `chrome.storage.sync`. The effective gate is
-   `globalEnabled && !hostDisabled` where `hostDisabled` is
-   `disabledHosts.includes(location.hostname.toLowerCase())`. Handlers
-   and the mutation observer are attached even when disabled (they
-   self-gate on `enabled`) so a popup toggle can re-activate the page
-   without a reload. Only the expensive scan and the site adapter are
-   skipped when disabled.
+2. Read `defLang` + `askAiPrompt` from `chrome.storage.sync` and
+   `disabledHosts` from `chrome.storage.local` in parallel. The
+   effective gate is just `enabled = !hostDisabled` where
+   `hostDisabled = disabledHosts.includes(location.hostname.toLowerCase())`.
+   Handlers and the mutation observer are attached even when disabled
+   (they self-gate on `enabled`) so a popup toggle can re-activate the
+   page without a reload. Only the expensive scan and the site adapter
+   are skipped when disabled.
 3. Resolve `siteConfig = findSiteConfig(location.hostname)` once for the
    lifetime of this content script.
 4. `scanRoot(document.body)` →
@@ -687,7 +698,8 @@ All `let` bindings inside the top-level async IIFE:
 
 | Binding                  | Purpose                                                  |
 |--------------------------|----------------------------------------------------------|
-| `enabled`, `defLang`     | Read from sync storage; updated by onChanged             |
+| `enabled`, `hostDisabled` | `enabled = !hostDisabled`; flips on `disabledHosts` onChanged |
+| `defLang`, `secondaryLang`, `askAiPromptTemplate` | Read at init; updated by onChanged       |
 | `popupHost`, `popupRoot`, `popupEl` | Shadow-DOM popup parts; created lazily         |
 | `activeWordEl`           | The `.lws-word` currently being hovered                  |
 | `lastPayload`            | Last `LookupResponse` for re-rendering after toggles     |
@@ -821,12 +833,18 @@ helper expects KRDict's POS vocabulary, not mecab's tagset.
 
 #### onMessage / onChanged listeners
 
-`chrome.storage.onChanged` listens for `enabled` (rescan on re-enable,
-hide popup on disable) and `defLang` (rerenderActivePopup).
+`chrome.storage.onChanged` listens for `disabledHosts` (`local` area —
+on enable: rescan + load adapter; on disable: hide popup + unwrap
+spans), `defLang` (rerenderActivePopup), `secondaryLang` (cache new
+value, used by the next Ask-AI pill render), and `askAiPrompt`
+(swap the cached template; pill href is rebuilt on next render).
 
-The content script does NOT register a `chrome.runtime.onMessage`
-listener (`youtube-adapter.js` does, separately) — `lookup` requests
-flow content → background, not the other way.
+The content script also registers a `chrome.runtime.onMessage`
+listener for `lws-site-info` (used by `popup.js` to discover the
+hostname when `chrome.tabs.query` returns `tab.url === undefined`).
+`youtube-adapter.js` registers its own listener for
+`lws-yt-popup-info`. `lookup` requests still flow content →
+background, not the other way.
 
 ### 7.3 `background.js`
 
@@ -882,9 +900,11 @@ entry per character.
 table. Returning `true` from the listener keeps `sendResponse` open
 across the async boundary.
 
-`chrome.runtime.onInstalled` on `reason === 'install'` writes
-`enabled: true` and opens the options page so the user lands on the
-"paste your API key" form.
+`chrome.runtime.onInstalled` on `reason === 'install'` opens the
+options page so the user lands on the "paste your API key" form.
+There is no longer any default-state write — the extension is "on"
+unconditionally; the only soft-disable is per-host (`disabledHosts`
+in `chrome.storage.local`) toggled from the popup.
 
 ### 7.4 `lemmatizer.js`
 
@@ -1119,16 +1139,18 @@ The hook is idempotent via `window.__lwsYtHookInstalled`.
 ### 7.12 `popup.html` / `popup.js` / `popup.css`
 
 The toolbar action UI — what opens when the user clicks the extension's
-icon. Four sections:
+icon. Three sections:
 
-- Hover-dictionary toggle (writes `enabled` to sync).
 - Per-site toggle — shown only on `http(s):` pages. Reads the active
-  tab's hostname via `chrome.tabs.query({active, currentWindow})`, then
-  toggles membership in `disabledHosts` (sync array). When the user
+  tab's hostname via `resolveActiveSite()` (tabs API first, content
+  script fallback if `tab.url` is undefined), then toggles membership
+  in `disabledHosts` (`chrome.storage.local` array). When the user
   flips it, the content script's `onChanged` listener for
   `disabledHosts` activates / deactivates immediately. The list is
-  sorted on every write so storage diffs stay small.
-- Status row (API key status / disabled / active).
+  sorted on every write so storage diffs stay small. There is no
+  global hover-dictionary toggle here anymore — for "off everywhere",
+  use `chrome://extensions`.
+- Status row (API key status / active).
 - Adapter section — generic shell. `loadAdapterSection()` resolves the
   active tab's hostname against `findSiteConfig(...)` from
   `site-configs.js`, and if the matched config declares a
@@ -1170,8 +1192,11 @@ The settings page. Linked from the popup ("Open settings →") and from
 - API keys: KRDict (required) + OpenDict (optional, experimental).
   Both inputs are `type="password"`. A "Test KRDict key" button hits
   the real API with `q=사람` and surfaces the error code or success.
-- Behaviour: hover toggle, dual-subs toggle, default secondary language
-  dropdown.
+- Behaviour: dual-subs toggle, default secondary language dropdown.
+- Advanced (collapsible `<details>`, closed by default): "Ask AI"
+  prompt template textarea + "Reset to default" button. Auto-saves
+  to `askAiPrompt` (sync) on blur. Saving an empty value or the
+  default text removes the key so the live default re-applies.
 - Cache: a "Clear cache" button that sends `{type: 'clearCache'}` to
   the SW.
 
