@@ -56,7 +56,9 @@
         "site-configs.js",
         "ai-providers.js",
         "youtube-adapter.js",
-        "youtube-page-hook.js"
+        "youtube-page-hook.js",
+        "netflix-adapter.js",
+        "netflix-page-hook.js"
       ],
       "matches": ["<all_urls>"]
     }

@@ -147,15 +147,15 @@ export const SITE_CONFIGS = [
         z-index: 2147483647;
       }
     `,
-    // No adapter / popupModule yet. Phase 2 is a netflix-adapter.js
-    // mirroring youtube-adapter.js (capture TTML/IMSC1 fetches, hide
-    // native captions, mount a dual-lang overlay, time-sync to
-    // <video>.currentTime). Until that ships, Netflix gets:
-    //  - hover dictionary on the existing native captions
-    //  - per-site disable (toolbar popup)
-    //  - auto-pause on popup open (findVideo above)
-    //  - z-index fix above so hovers actually reach our spans
-    // but NOT dual subs (no secondary-language overlay).
+    // Phase 2.1: adapter installed. The hook captures Netflix's
+    // subtitle fetches (TTML / DFXP / WebVTT) and the adapter logs
+    // them; overlay mount + dual-line rendering land in 2.2+. While
+    // Phase 2.x is in progress the .lws-word z-index fix above is
+    // still useful — until our own overlay is mounted, hovers still
+    // target Netflix's native captions and need the lift.
+    adapter: 'netflix-adapter.js',
+    // No popupModule yet — will land alongside the overlay in 2.4
+    // for the per-video secondary-language picker.
   },
 ];
 
