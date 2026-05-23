@@ -613,26 +613,18 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
        SPA-nav — see "stale ytInitialPlayerResponse" gotcha below).
        Dedupes by `(languageCode, kind)` — player entries win on
        overlap. Polls every 250 ms for up to 10 s.
-    3. **Audio-language gate**: `detectAudioLangFromTracklist(tracklist)`
-       in the adapter — no hook round-trip. Looks at the first ASR
-       track in the just-fetched tracklist; YouTube generates ASR in
-       whatever language was actually spoken, so the ASR track's
-       `languageCode` IS the audio language. The tracklist itself
-       came from `player.getOption('captions','tracklist')` which is
-       always fresh for the currently-loaded video.
-       The gate skips dual subs only when **both**: (a) audio is
-       positively detected as non-Korean, AND (b) no *manual* Korean
-       track exists. A manual KO track (kind !== 'asr') means the
-       uploader explicitly added it — strong signal that Korean is
-       intentional content even on a non-Korean-audio video (K-drama
-       with English dub, K-pop content with creator-provided KO subs,
-       multi-audio shows). Auto-translated KO that YouTube generates
-       on demand from `tlang=ko` does NOT appear in the tracklist, so
-       this escape hatch doesn't accidentally engage on plain English
-       videos. Unknown audio (no ASR at all) engages dual subs
-       directly, since many real Korean videos lack ASR.
-       Multi-audio detection (audioTracks[]) isn't possible from the
-       tracklist alone — see the §15.11 gotcha for why we accept that.
+    3. **No separate audio-language gate.** Whether to engage dual subs
+       is decided entirely by `pickPrimarySource` below: if the
+       tracklist contains any Korean track (manual or ASR), engage;
+       otherwise skip. There's no need to also inspect "audio language"
+       because the tracklist only contains base tracks — manual
+       (uploader-provided) and ASR (YouTube auto-generated, always in
+       the actual spoken language). Auto-translated tracks via
+       `tlang=…` aren't enumerated; they're derived on demand. So a
+       KO entry in the tracklist always means either "uploader added
+       it" or "the audio is Korean" — both legitimate reasons. See
+       §15.11 for the design history (we tried two more complex
+       gates first and they were both either redundant or broken).
     4. `resolveSecondaryLang(videoId)` — per-video override (from
        `local.dualSubsOverrides`) wins over `sync.secondaryLang`, which
        defaults to `'en'`.
@@ -2401,51 +2393,64 @@ popup grows; it never shrinks. The cursor stays inside the popup
 boundary across the entire interaction. If the user moves to a new word
 and triggers a fresh lookup, the memos reset and we start over.
 
-### 15.11 `ytInitialPlayerResponse` is stale after SPA nav
+### 15.11 Why there's no audio-language detection
 
-`window.ytInitialPlayerResponse` is set once when the page first loads
-and YouTube does NOT update it on SPA navigation (next video in
-playlist, autoplay, in-page click on a related video). Any code that
-reads it on a SPA-navigated video sees the FIRST video's data — wrong
-tracklist, wrong audio language.
+There used to be an "audio-language gate" that tried to inspect the
+spoken language and skip dual subs when it wasn't Korean. It went
+through three iterations and we eventually deleted it entirely. The
+postmortem is worth keeping so nobody reinvents it.
 
-`player.getPlayerResponse()` SOUNDS like the right alternative — it's
-the IFrame Player API's standard method — but on YouTube's inline
-player element (the `<div class="html5-video-player">`) it doesn't
-reliably exist. Calling it just returns `undefined`, the
-`getCurrentPlayerResponse()` helper falls through to
-`ytInitialPlayerResponse`, and you're back to the stale value.
+**Attempt 1: page-hook reads `window.ytInitialPlayerResponse`** —
+the global has rich data including `audioTracks[]` and ASR language.
+**Problem**: that global is set ONCE at page load and YouTube does
+NOT refresh it on SPA navigation (next video in playlist, autoplay,
+in-page click on a related video). After any in-page nav, the
+detection returned the FIRST video's audio language for every
+subsequent video. Symptom: "audio is en, skipping" on Korean videos
+auto-played from a Korean drama list, when the page had originally
+loaded on an English video.
 
-What DOES work: `player.getOption('captions', 'tracklist')`. This
-returns the current video's tracklist, with `kind: 'asr'` flagged on
-ASR tracks. Use it as the source for both:
+**Attempt 2: page-hook reads `player.getPlayerResponse()`** — the
+IFrame Player API has this method, so we tried calling it on the
+inline player element. **Problem**: it doesn't reliably exist on the
+inline player (the `<div class="html5-video-player">` element). The
+hook's `getCurrentPlayerResponse()` helper fell through to
+`ytInitialPlayerResponse` and you were back to attempt 1's staleness.
 
-- **Tracklist** (`waitForTracklist`): the getOption result is the
-  primary source; the `getCurrentPlayerResponse()` fallback is only
-  used when getOption returns empty (rare — happens on ASR-only
-  videos before CC is enabled).
-- **Audio-language detection**: `detectAudioLangFromTracklist` finds
-  the first ASR track in the already-fetched tracklist. YouTube
-  generates ASR in whatever language was spoken, so that's the audio
-  language.
+**Attempt 3: adapter reads tracklist's ASR track language** — the
+tracklist from `player.getOption('captions','tracklist')` is always
+fresh for the current video, and ASR tracks carry the audio language.
+**Problem**: redundant. YouTube only generates ONE ASR per video (in
+the audio language), so "tracklist's ASR is non-Korean" implies
+"tracklist has no KO ASR" — and `pickPrimarySource` already skips
+when no KO track exists (manual or ASR). The gate's "skip when audio
+non-Korean and no manual KO" condition is logically equivalent to
+"skip when no KO track at all," which is what `pickPrimarySource`
+returning null already does. Dead policy.
 
-This means we **cannot** detect multi-audio cases (videos with
-audioTracks[].length > 1, e.g. a K-drama with an English-dub option)
-from the tracklist alone — that data only lives in the full
-PlayerResponse, which is stale post-SPA-nav and unreachable per-video
-from the inline player. Acceptable limitation; if the user is on a
-multi-audio Korean video that has the English audio active, dual subs
-will engage anyway. Per-site disable is the workaround.
+**Current behaviour**: no gate. `pickPrimarySource(tracklist)`
+returns null iff the tracklist has no Korean entry; in that case we
+skip. Auto-translated KO via `tlang=…` is NOT in the tracklist (it's
+derived on demand), so an English-only video with no creator-provided
+KO simply has no KO entry and skips correctly. Anything else engages.
 
-This bug was masked for a long time by another bug — the dual-overlay
-race fixed in `fcee30e`. The orphaned previous-video overlay was
-visible alongside whatever the user was watching, so audio-detection
-misreads didn't matter (something was always visible). Once the race
-was fixed, audio detection started running cleanly on the new video
-and the stale-global misread surfaced as "audio detected as `en` on
-a Korean video, dual subs skipped." The tracklist-based detection
-above is the durable fix — it can't go stale because the tracklist
-itself is always fresh.
+The masked-bug story is also worth keeping: the multi-iteration audio
+gate hid for a long time behind the dual-overlay race (fixed in
+`fcee30e`), where the orphaned previous-video overlay stayed visible
+alongside the new video and nobody noticed detection was returning
+stale data. Once the race was fixed, every misread surfaced. The two
+bugs together — a race plus a stale global — looked like one bug
+("dual subs sometimes don't work on the new video") until we
+disentangled them.
+
+Multi-audio detection (audioTracks[] in PlayerResponse, e.g. K-dramas
+with a Korean-original and English-dub track) was never reachable
+from the tracklist alone. Since attempt 3's failure made it clear the
+PlayerResponse approach can't be reached per-video on SPA-navigated
+videos, we accept this. If the user is on a multi-audio video and
+currently listening to the English audio, dual subs will engage
+because a KO track is in the tracklist. Per-site disable is the
+workaround.
 
 ---
 

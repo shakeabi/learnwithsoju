@@ -310,38 +310,14 @@ async function initForCurrentVideo() {
   lastTracklist = tracklist;
   lastVideoId = currentVideoId();
 
-  // Audio-language gate. The goal is to skip dual subs only when the
-  // user would be listening to non-Korean speech with Korean text below
-  // — pointless and distracting. Detection signals:
-  //
-  //   - tracklist ASR language (from player.getOption tracklist; always
-  //     fresh; ASR is in the actual spoken language)
-  //   - presence of a *manual* Korean track (kind !== 'asr'). Manual
-  //     tracks only exist when the uploader explicitly added them, so
-  //     they're a strong signal that Korean is intentional content —
-  //     even on a video YouTube marked English-audio (K-drama with EN
-  //     dub, K-pop with creator-provided KO subs, multi-audio shows).
-  //     Auto-translated KO that YouTube generates on demand from
-  //     tlang=ko does NOT appear in the tracklist, so this doesn't
-  //     accidentally engage on English videos with no real KO content.
-  //
-  // Gate: only skip when (a) audio is positively detected as non-Korean
-  // AND (b) there's no manual Korean track. Either signal alone is
-  // enough to keep dual subs on.
-  const audioInfo = detectAudioLangFromTracklist(tracklist);
-  log('audio info:', audioInfo);
-  if (audioInfo.lang) {
-    const lang = String(audioInfo.lang).toLowerCase();
-    const isKo = lang === 'ko' || lang.startsWith('ko-');
-    if (!isKo) {
-      const hasManualKo = tracklist.some((t) => isLang(t, 'ko') && !isAsr(t));
-      if (!hasManualKo) {
-        log(`audio is ${audioInfo.lang} (not Korean) and no manual KO track — skipping dual subs`);
-        return null;
-      }
-      log(`audio is ${audioInfo.lang} (not Korean) but manual KO track present — engaging anyway`);
-    }
-  }
+  // No separate audio-language gate. The tracklist only contains
+  // base tracks — manual (uploader-provided) and ASR (YouTube
+  // auto-generated in the actual spoken language). Auto-translated
+  // tracks via tlang= aren't enumerated here, they're derived on
+  // demand. So "KO is in the tracklist" already means "manual KO or
+  // KO audio" — both legitimate reasons to engage. pickPrimarySource
+  // below returns null if there's no KO at all, which is the only
+  // case we need to skip.
 
   // Resolve the secondary language preference: per-video override (set via
   // toolbar popup) wins over the default in the options page.
@@ -624,38 +600,6 @@ function triggerLoadTrack(lang, kind) {
   const payload = kind ? { lang, kind } : { lang };
   const reqId = sendHookCmd('load-track', payload);
   awaitHookReply('load-track', reqId, 1500).catch(() => {/* fire-and-forget */});
-}
-
-/**
- * Best-effort detection of the video's spoken audio language, reading
- * from the just-fetched tracklist. Returns
- * `{ lang: 'ko'|'en'|..., source: 'asr' } | { lang: null }`.
- *
- * Signal: the language of the first ASR track. YouTube generates ASR
- * in whatever language was actually spoken — even on videos with manual
- * captions in other languages, ASR (when present) is the audio.
- *
- * The tracklist parameter comes from `waitForTracklist`, which uses
- * `player.getOption('captions','tracklist')` — always live for the
- * currently-loaded video. We used to ask the page-world hook for
- * this, but that handler had to read `window.ytInitialPlayerResponse`
- * (stale after any SPA navigation — YouTube doesn't update it
- * in-page) or `player.getPlayerResponse()` (which doesn't reliably
- * exist on the inline player element). Either way the data was wrong
- * after the first auto-played video, so detection bailed with
- * "audio is en" on a Korean video.
- *
- * Multi-audio detection (audioTracks[] in the PlayerResponse) isn't
- * available from the tracklist alone, so multi-audio videos with the
- * user currently on a non-Korean audio track will incorrectly engage
- * dual subs. Acceptable limitation — multi-audio is rare, the user
- * can disable per-site if it's a real problem.
- */
-function detectAudioLangFromTracklist(tracklist) {
-  if (!Array.isArray(tracklist)) return { lang: null, source: null };
-  const asr = tracklist.find((t) => isAsr(t) && t.languageCode);
-  if (asr) return { lang: asr.languageCode, source: 'asr' };
-  return { lang: null, source: null };
 }
 
 function parseTimedText(body) {
