@@ -157,7 +157,7 @@ learnwithsoju/
 │   ├── grammar-glosses.js              ← morpheme form/POS → short English gloss for the breakdown chips (pure)
 │   ├── site-configs.js                 ← per-site sentence-container selectors + findVideo + adapter + popupModule paths
 │   ├── youtube-adapter.js              ← content-script-side YouTube adapter; dual subs lifecycle
-│   ├── youtube-popup.js                ← popup-side YouTube section (track-list picker); dynamic-imported by popup.js
+│   ├── youtube-popup.js                ← popup-side YouTube section (secondary-language dropdown); dynamic-imported by popup.js
 │   ├── youtube-page-hook.js            ← page-main-world script; XHR/fetch hooks + tracklist/load-track command channel
 │   ├── cache.js                        ← two-tier (in-mem LRU + storage adapter) cache factory; namespaced (pure)
 │   ├── popup.html                      ← toolbar-action popup markup
@@ -618,11 +618,12 @@ Files: `popup.js`, `popup.html`, `site-configs.js`, `youtube-popup.js`, `youtube
        section stays hidden).
     2. `chrome.tabs.sendMessage(tab.id, { type: 'lws-yt-popup-info' })`.
     3. Adapter responds with `{ active, videoId, tracks, secondaryLang }`.
-4. `renderTrackList` builds a radio group of every non-Korean language
-   in the tracklist, plus the user's currently-selected secondary if it
-   isn't in the tracklist (as "auto-translate"), plus an explicit
-   "Off (Korean only)" row.
-5. User picks a radio. `setOverride(videoId, lang)` reads
+4. `renderTrackSelect` builds a single `<select>` row labelled
+   "Secondary". Options are every distinct non-Korean language in the
+   tracklist (ASR tracks get an `(auto)` suffix), plus the user's
+   currently-selected secondary as `(translated)` if not in the
+   tracklist, plus a final `Off` option.
+5. User picks an option. `setOverride(videoId, lang)` reads
    `chrome.storage.local.dualSubsOverrides`, merges in
    `{[videoId]: lang}`, writes it back.
 6. The adapter's `onChanged` listener for `local.dualSubsOverrides`
@@ -1134,7 +1135,7 @@ icon. Four sections:
   `popupModule`, dynamic-imports that module and calls
   `renderSection({ tab, container })`. The module owns the DOM under
   `<section id="site-adapter-section">`. For YouTube this is
-  `youtube-popup.js` (track-list picker). Adding Netflix / Viki is a
+  `youtube-popup.js` (secondary-language dropdown). Adding Netflix / Viki is a
   new SITE_CONFIGS entry + its own `*-popup.js` — no edits to
   `popup.js` or `popup.html`.
 
@@ -1148,13 +1149,15 @@ Popup-side counterpart to `youtube-adapter.js`. Exports
 `renderSection({ tab, container })` which:
 
 1. Returns silently if the tab isn't on `/watch`.
-2. Builds a `Subtitles for this video` title + status line, unhides
-   the container.
+2. Renders an italic "Asking the page…" status line and unhides the
+   container so the user sees something while we wait.
 3. Sends `lws-yt-popup-info` to the active tab; the content-script
    adapter responds with `{ tracks, secondaryLang, ... }`.
-4. Renders a radio group of distinct non-Korean languages from the
-   tracklist (preserving auto-translate fallback for languages not in
-   the list) plus an "Off (Korean only)" option.
+4. Replaces the status line with a single `<select>` (label
+   "Secondary") containing every distinct non-Korean language in the
+   tracklist. ASR-only tracks get an `(auto)` suffix; if the user's
+   currently-selected secondary isn't natively in the tracklist, it's
+   surfaced as `(translated)`. Final option is `Off`.
 5. Writes the per-video selection to
    `chrome.storage.local.dualSubsOverrides`; the adapter's onChanged
    listener picks it up and re-activates without a direct message.

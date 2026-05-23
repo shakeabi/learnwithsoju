@@ -28,18 +28,10 @@ export async function renderSection({ tab, href, container }) {
   if (parsed.pathname !== '/watch') return;
   const videoId = parsed.searchParams.get('v');
 
-  const title = document.createElement('h2');
-  title.className = 'yt-section-title';
-  title.textContent = 'Subtitles for this video';
-  container.appendChild(title);
-
-  const body = document.createElement('div');
-  container.appendChild(body);
-
   const status = document.createElement('p');
   status.className = 'yt-empty';
   status.textContent = 'Asking the page…';
-  body.appendChild(status);
+  container.appendChild(status);
 
   container.hidden = false;
 
@@ -58,22 +50,17 @@ export async function renderSection({ tab, href, container }) {
     status.textContent = 'This video has no caption tracks.';
     return;
   }
-  renderTrackList(body, videoId, info);
+  container.removeChild(status);
+  renderTrackSelect(container, videoId, info);
 }
 
-function renderTrackList(body, videoId, info) {
-  body.innerHTML = '';
+function renderTrackSelect(container, videoId, info) {
   const current = info.secondaryLang || 'en';
 
-  const desc = document.createElement('p');
-  desc.className = 'yt-hint';
-  desc.textContent = 'Korean is always the primary line. Choose the secondary:';
-  body.appendChild(desc);
-
-  const list = document.createElement('div');
-  list.className = 'yt-track-list';
-
-  // Distinct non-Korean language codes from the tracklist, plus "Off".
+  // Distinct non-Korean language codes from the tracklist; ASR tracks
+  // get an (auto) suffix so the user knows what they're picking. The
+  // user's currently-selected secondary is surfaced as (translated) if
+  // the tracklist doesn't carry it natively.
   const seenLangs = new Set();
   const choices = [];
   for (const t of info.tracks) {
@@ -81,51 +68,37 @@ function renderTrackList(body, videoId, info) {
     if (!code || code.startsWith('ko')) continue;
     if (seenLangs.has(code)) continue;
     seenLangs.add(code);
-    choices.push({ code, label: t.languageName || code, kind: t.kind || '' });
+    const base = t.languageName || code;
+    choices.push({ code, label: t.kind === 'asr' ? `${base} (auto)` : base });
   }
-  // If the user's currently-selected secondary isn't in the tracklist,
-  // still surface it as an auto-translate option so they can keep their
-  // selection without scrolling to "Off".
   if (current !== 'off' && !seenLangs.has(current.toLowerCase())) {
-    choices.unshift({ code: current, label: `${current} (auto-translate)`, kind: 'translated' });
+    choices.unshift({ code: current, label: `${current} (translated)` });
   }
-  choices.push({ code: 'off', label: 'Off (Korean only)', kind: '' });
+  choices.push({ code: 'off', label: 'Off' });
 
+  const row = document.createElement('div');
+  row.className = 'row';
+
+  const label = document.createElement('label');
+  label.className = 'row-label';
+  label.textContent = 'Secondary';
+  label.htmlFor = 'yt-secondary-select';
+  row.appendChild(label);
+
+  const select = document.createElement('select');
+  select.id = 'yt-secondary-select';
+  select.className = 'yt-sub-select';
   for (const c of choices) {
-    const row = document.createElement('label');
-    row.className = 'yt-track-row';
-    const input = document.createElement('input');
-    input.type = 'radio';
-    input.name = 'yt-secondary';
-    input.value = c.code;
-    if (c.code === current) input.checked = true;
-    input.addEventListener('change', () => {
-      if (input.checked) setOverride(videoId, c.code);
-    });
-    row.appendChild(input);
-    const text = document.createElement('span');
-    text.className = 'yt-track-label';
-    text.textContent = c.label;
-    if (c.kind === 'asr') {
-      const tag = document.createElement('em');
-      tag.className = 'yt-track-tag';
-      tag.textContent = 'auto-generated';
-      text.appendChild(tag);
-    } else if (c.kind === 'translated') {
-      const tag = document.createElement('em');
-      tag.className = 'yt-track-tag';
-      tag.textContent = 'auto-translated';
-      text.appendChild(tag);
-    }
-    row.appendChild(text);
-    list.appendChild(row);
+    const opt = document.createElement('option');
+    opt.value = c.code;
+    opt.textContent = c.label;
+    if (c.code === current) opt.selected = true;
+    select.appendChild(opt);
   }
-  body.appendChild(list);
+  select.addEventListener('change', () => setOverride(videoId, select.value));
+  row.appendChild(select);
 
-  const note = document.createElement('p');
-  note.className = 'yt-hint';
-  note.textContent = 'Saved for this video. Change the default in settings.';
-  body.appendChild(note);
+  container.appendChild(row);
 }
 
 async function setOverride(videoId, lang) {
