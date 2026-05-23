@@ -527,10 +527,20 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
        (always present, complete, but thinner shape). Dedupes by
        `(languageCode, kind)` — player entries win on overlap. Polls
        every 250 ms for up to 10 s.
-    3. `resolveSecondaryLang(videoId)` — per-video override (from
+    3. **Audio-language gate**: `getAudioInfo()` posts
+       `{__lwsYtCmd:'audio-info'}` and reads
+       `ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer`:
+       prefers `audioTracks[defaultAudioTrackIndex].defaultCaptionTrackIndex`
+       (authoritative on multi-audio videos) and falls back to the first
+       ASR track's language (YouTube generates ASR in the audio's
+       language). If the resolved lang isn't `ko*`, OR if no signal is
+       available at all, we bail. This stops dual subs from engaging
+       on English-audio videos that happen to have Korean machine-
+       translated subs.
+    4. `resolveSecondaryLang(videoId)` — per-video override (from
        `local.dualSubsOverrides`) wins over `sync.secondaryLang`, which
        defaults to `'en'`.
-    4. `pickPrimarySource(tracklist)` and `pickSecondarySource` —
+    5. `pickPrimarySource(tracklist)` and `pickSecondarySource` —
        see §10 for the fallback chains.
     5. For each unique base track involved, `captureBaseTrack(lang)`:
        posts `{__lwsYtCmd:'load-track', lang}`, then waits for a

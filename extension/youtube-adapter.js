@@ -236,6 +236,23 @@ async function initForCurrentVideo() {
   lastTracklist = tracklist;
   lastVideoId = currentVideoId();
 
+  // Only engage on videos whose spoken audio is Korean. A video might
+  // have a Korean caption track via machine translation (English audio
+  // with KO subs added by the uploader, or auto-translated by YouTube)
+  // — we don't want dual subs on those because the learner would be
+  // listening to non-Korean speech with KO text below it. Detection is
+  // best-effort; if it returns null, we fail closed.
+  const audioInfo = await getAudioInfo();
+  log('audio info:', audioInfo);
+  if (!audioInfo.lang) {
+    log('could not determine audio language — skipping dual subs');
+    return null;
+  }
+  if (!isKoreanCode(audioInfo.lang)) {
+    log(`audio is ${audioInfo.lang} (not Korean) — skipping dual subs`);
+    return null;
+  }
+
   // Resolve the secondary language preference: per-video override (set via
   // toolbar popup) wins over the default in the options page.
   const secondaryLang = await resolveSecondaryLang(lastVideoId);
@@ -517,6 +534,22 @@ function triggerLoadTrack(lang, kind) {
   const payload = kind ? { lang, kind } : { lang };
   const reqId = sendHookCmd('load-track', payload);
   awaitHookReply('load-track', reqId, 1500).catch(() => {/* fire-and-forget */});
+}
+
+/**
+ * Best-effort detection of the video's spoken audio language.
+ * Returns `{ lang: 'ko'|'en'|..., source: 'multiAudio'|'asr' } | { lang: null }`.
+ * Detection logic lives in the page-world hook (needs access to
+ * ytInitialPlayerResponse); see youtube-page-hook.js's 'audio-info' handler.
+ */
+async function getAudioInfo() {
+  const reqId = sendHookCmd('audio-info');
+  try {
+    const reply = await awaitHookReply('audio-info', reqId, 1500);
+    return (reply && reply.info) || { lang: null, source: null };
+  } catch {
+    return { lang: null, source: null };
+  }
 }
 
 function parseTimedText(body) {

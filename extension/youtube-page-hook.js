@@ -106,6 +106,43 @@
         }
       } catch {}
       window.postMessage({ __lwsYtReply: 'player-response-tracks', reqId, tracks }, '*');
+    } else if (d.__lwsYtCmd === 'audio-info') {
+      // Returns the language code of the video's primary spoken audio
+      // (best-effort). Two signals tried in order:
+      //   1. Multi-audio videos expose audioTracks[] with a
+      //      defaultCaptionTrackIndex pointing to a caption in the
+      //      audio's language. Most authoritative when present.
+      //   2. Single-audio fallback: the first ASR track's language —
+      //      YouTube generates ASR in whatever language was spoken.
+      let info = { lang: null, source: null };
+      try {
+        const pr = window.ytInitialPlayerResponse;
+        const renderer = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer;
+        if (renderer) {
+          const captionTracks = Array.isArray(renderer.captionTracks) ? renderer.captionTracks : [];
+          const audioTracks = Array.isArray(renderer.audioTracks) ? renderer.audioTracks : [];
+          if (audioTracks.length > 0) {
+            const idx = Number.isInteger(renderer.defaultAudioTrackIndex)
+              ? renderer.defaultAudioTrackIndex : 0;
+            const audio = audioTracks[idx];
+            if (audio && Number.isInteger(audio.defaultCaptionTrackIndex)) {
+              const cap = captionTracks[audio.defaultCaptionTrackIndex];
+              if (cap && cap.languageCode) {
+                info.lang = cap.languageCode;
+                info.source = 'multiAudio';
+              }
+            }
+          }
+          if (!info.lang) {
+            const asr = captionTracks.find((t) => t.kind === 'asr' && t.languageCode);
+            if (asr) {
+              info.lang = asr.languageCode;
+              info.source = 'asr';
+            }
+          }
+        }
+      } catch {}
+      window.postMessage({ __lwsYtReply: 'audio-info', reqId, info }, '*');
     } else if (d.__lwsYtCmd === 'load-track' && typeof d.lang === 'string') {
       const player = getPlayer();
       if (!player) {
