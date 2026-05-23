@@ -633,9 +633,14 @@ module-level state, and the non-obvious invariants.
 
 MV3 manifest. Notable bits:
 
-- `permissions: ["storage", "unlimitedStorage"]` — no host permissions
-  on `<all_urls>` because the dictionary fetches happen from the
-  background service worker, which is bound by `host_permissions`.
+- `permissions: ["storage", "unlimitedStorage", "activeTab"]` — no
+  host permissions on `<all_urls>` because the dictionary fetches
+  happen from the background service worker, which is bound by
+  `host_permissions`. `activeTab` is needed so the toolbar popup can
+  read `tab.url` for the active tab (used by the per-site disable
+  toggle and the per-site adapter section). Without it, both
+  `chrome.tabs.query` calls return a tab whose `url` is undefined and
+  the popup silently bails before unhiding anything.
 - `host_permissions`: `krdict.korean.go.kr`, `opendict.korean.go.kr`,
   `hangulhanja.com`. That's the entire network surface.
 - `content_security_policy.extension_pages: "script-src 'self' 'wasm-unsafe-eval'; ..."` — the WASM analyzer needs `wasm-unsafe-eval` to instantiate inside the MV3 service worker.

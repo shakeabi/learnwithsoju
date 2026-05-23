@@ -142,14 +142,14 @@ function log(...args) {
 
 async function activate() {
   if (teardownFn) { log('activate skipped: already active'); return; }
-  if (!isWatchPage()) { log('activate skipped: not /watch'); return; }
+  if (!isWatchPage()) { log('activate skipped: not /watch (pathname:', window.location.pathname, ')'); return; }
   try {
     const enabled = await isEnabled();
-    if (!enabled) { log('activate skipped: setting disabled'); return; }
+    if (!enabled) { log('activate skipped: dualSubsYouTube setting is false — enable it in the extension options page'); return; }
     log('activating for', window.location.href);
     teardownFn = await initForCurrentVideo();
     if (teardownFn) log('dual subs mounted');
-    else log('initForCurrentVideo returned null');
+    else log('initForCurrentVideo returned null (check the log lines above for which guard rejected — tracklist, audio gate, primary source, or 0 KO lines)');
   } catch (err) {
     console.warn('[learnwithsoju/youtube] activate failed:', err);
   }

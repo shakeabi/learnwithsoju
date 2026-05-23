@@ -49,14 +49,27 @@ async function loadSiteSection() {
   let tab;
   try {
     [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  } catch {
+  } catch (err) {
+    console.log('[lws] popup loadSiteSection: tabs.query failed', err);
     return;
   }
-  if (!tab || !tab.url) return;
+  if (!tab) {
+    console.log('[lws] popup loadSiteSection: no active tab');
+    return;
+  }
+  if (!tab.url) {
+    // Requires "activeTab" or matching host_permissions in manifest. If
+    // you see this, the per-site toggle won't show up.
+    console.log('[lws] popup loadSiteSection: tab.url undefined — missing activeTab permission?');
+    return;
+  }
   let parsed;
   try { parsed = new URL(tab.url); } catch { return; }
   // Only http(s) — content scripts don't run on chrome://, about:, file:, etc.
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    console.log('[lws] popup loadSiteSection: non-http(s) protocol', parsed.protocol);
+    return;
+  }
   currentHost = parsed.hostname.toLowerCase();
   if (!currentHost) return;
   siteHostEl.textContent = currentHost;

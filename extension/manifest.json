@@ -3,7 +3,7 @@
   "name": "learnwithsoju — Korean Hover Dictionary",
   "version": "0.1.0",
   "description": "Hover any Korean word on any webpage to see its KRDict dictionary entry. 100% client-side, you provide your own free KRDict API key.",
-  "permissions": ["storage", "unlimitedStorage"],
+  "permissions": ["storage", "unlimitedStorage", "activeTab"],
   "host_permissions": [
     "https://krdict.korean.go.kr/*",
     "https://opendict.korean.go.kr/*",
