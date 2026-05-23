@@ -310,27 +310,36 @@ async function initForCurrentVideo() {
   lastTracklist = tracklist;
   lastVideoId = currentVideoId();
 
-  // Skip dual subs when we're *confident* the audio is non-Korean
-  // (e.g. an English-ASR video with a translated KO subtitle track —
-  // the learner would be listening to English with Korean text below).
-  // Detection uses the just-fetched tracklist's ASR track language as
-  // the signal — YouTube generates ASR in whatever language was
-  // actually spoken, and `tracklist` came from
-  // `player.getOption('captions','tracklist')` which is always live
-  // for the currently-loaded video (unlike `window.ytInitialPlayerResponse`,
-  // which is set once on page load and never refreshed on SPA nav).
+  // Audio-language gate. The goal is to skip dual subs only when the
+  // user would be listening to non-Korean speech with Korean text below
+  // — pointless and distracting. Detection signals:
   //
-  // Fail OPEN: many Korean videos have no ASR (uploader supplied
-  // manual captions), so unknown audio engages dual subs as long as
-  // pickPrimarySource finds a Korean track downstream.
+  //   - tracklist ASR language (from player.getOption tracklist; always
+  //     fresh; ASR is in the actual spoken language)
+  //   - presence of a *manual* Korean track (kind !== 'asr'). Manual
+  //     tracks only exist when the uploader explicitly added them, so
+  //     they're a strong signal that Korean is intentional content —
+  //     even on a video YouTube marked English-audio (K-drama with EN
+  //     dub, K-pop with creator-provided KO subs, multi-audio shows).
+  //     Auto-translated KO that YouTube generates on demand from
+  //     tlang=ko does NOT appear in the tracklist, so this doesn't
+  //     accidentally engage on English videos with no real KO content.
+  //
+  // Gate: only skip when (a) audio is positively detected as non-Korean
+  // AND (b) there's no manual Korean track. Either signal alone is
+  // enough to keep dual subs on.
   const audioInfo = detectAudioLangFromTracklist(tracklist);
   log('audio info:', audioInfo);
   if (audioInfo.lang) {
     const lang = String(audioInfo.lang).toLowerCase();
     const isKo = lang === 'ko' || lang.startsWith('ko-');
     if (!isKo) {
-      log(`audio is ${audioInfo.lang} (not Korean) — skipping dual subs`);
-      return null;
+      const hasManualKo = tracklist.some((t) => isLang(t, 'ko') && !isAsr(t));
+      if (!hasManualKo) {
+        log(`audio is ${audioInfo.lang} (not Korean) and no manual KO track — skipping dual subs`);
+        return null;
+      }
+      log(`audio is ${audioInfo.lang} (not Korean) but manual KO track present — engaging anyway`);
     }
   }
 

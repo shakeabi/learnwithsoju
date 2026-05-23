@@ -620,10 +620,17 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
        `languageCode` IS the audio language. The tracklist itself
        came from `player.getOption('captions','tracklist')` which is
        always fresh for the currently-loaded video.
-       The gate is **fail-open** — we only bail when audio is
-       *positively* detected as non-Korean. Unknown audio (no ASR)
-       engages dual subs if a Korean caption track exists, since many
-       real Korean videos have no ASR (uploader provided manual KO).
+       The gate skips dual subs only when **both**: (a) audio is
+       positively detected as non-Korean, AND (b) no *manual* Korean
+       track exists. A manual KO track (kind !== 'asr') means the
+       uploader explicitly added it — strong signal that Korean is
+       intentional content even on a non-Korean-audio video (K-drama
+       with English dub, K-pop content with creator-provided KO subs,
+       multi-audio shows). Auto-translated KO that YouTube generates
+       on demand from `tlang=ko` does NOT appear in the tracklist, so
+       this escape hatch doesn't accidentally engage on plain English
+       videos. Unknown audio (no ASR at all) engages dual subs
+       directly, since many real Korean videos lack ASR.
        Multi-audio detection (audioTracks[]) isn't possible from the
        tracklist alone — see the §15.11 gotcha for why we accept that.
     4. `resolveSecondaryLang(videoId)` — per-video override (from
