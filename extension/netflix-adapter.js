@@ -208,7 +208,16 @@ function onCaptureBody(url, body) {
     return;
   }
   if (!parsed || !parsed.lang || !parsed.lines.length) {
-    log('skipped capture (no lang or zero lines):', url);
+    // Diagnostic dump — we got a body but couldn't extract a track.
+    // The next iteration of the parser depends on knowing exactly
+    // what shape this body has. Dumps:
+    //   - The root tag name + namespace URI
+    //   - xml:lang if present at any element
+    //   - Counts of candidate caption-line elements
+    //   - First 400 chars of the body (raw)
+    //   - For the first <p>/<div>/etc. element seen: its attributes
+    //     and a snippet of its text content
+    diagnoseUnparseableBody(url, body, parsed);
     return;
   }
   const lang = normalizeLang(parsed.lang);
@@ -522,4 +531,75 @@ async function resolveSecondaryLang() {
   } catch {
     return 'en';
   }
+}
+
+/**
+ * Dump everything we know about a captured body whose parser path
+ * came up empty. Goal: produce enough information in the console
+ * for the next code iteration to know whether the issue is:
+ *   - A different root tag we don't recognise (dfxp, vtt, …)
+ *   - A different paragraph tag (some TTML flavours use <div>, <span>)
+ *   - A namespace we strip incorrectly
+ *   - A time format we don't parse
+ *   - A text-extraction pattern that drops the actual subtitle text
+ *
+ * Logs are intentionally verbose — this only fires when we couldn't
+ * extract anything from the body, which should be rare.
+ */
+function diagnoseUnparseableBody(url, body, parsed) {
+  let doc = null;
+  try {
+    doc = new DOMParser().parseFromString(body, 'application/xml');
+  } catch {}
+  const root = doc && doc.documentElement;
+  const rootName = root ? root.nodeName : '(no root)';
+  const rootNs = root ? root.namespaceURI : '(no root)';
+
+  // Walk and collect a few interesting things without depending on
+  // querySelectorAll (which respects XML namespaces and may need
+  // namespace-aware selectors on Netflix's TTML).
+  const tagCounts = {};
+  let firstP = null;
+  let firstAnyTimedEl = null;
+  let firstXmlLangBearer = null;
+  if (root) {
+    const stack = [root];
+    while (stack.length && Object.keys(tagCounts).length < 50) {
+      const el = stack.shift();
+      if (!el || el.nodeType !== 1) continue;
+      const tag = String(el.nodeName || '').toLowerCase().split(':').pop();
+      tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+      if (!firstP && tag === 'p') firstP = el;
+      if (!firstAnyTimedEl && (el.getAttribute('begin') || el.getAttribute('end'))) {
+        firstAnyTimedEl = el;
+      }
+      if (!firstXmlLangBearer) {
+        const lang = el.getAttribute('xml:lang')
+          || el.getAttributeNS('http://www.w3.org/XML/1998/namespace', 'lang');
+        if (lang) firstXmlLangBearer = { tag, lang };
+      }
+      for (let c = el.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 1) stack.push(c);
+      }
+    }
+  }
+
+  const headSnippet = body.slice(0, 400).replace(/\s+/g, ' ');
+  log('skipped capture — DIAGNOSTICS for', url);
+  log('  root tag:', rootName, 'namespace:', rootNs);
+  log('  xml:lang anywhere:', firstXmlLangBearer || '(none)');
+  log('  element counts (sample):', tagCounts);
+  log('  first <p>:', firstP ? {
+    begin: firstP.getAttribute('begin'),
+    end: firstP.getAttribute('end'),
+    text: (firstP.textContent || '').slice(0, 80),
+  } : '(none)');
+  log('  first element with begin/end:', firstAnyTimedEl ? {
+    tag: firstAnyTimedEl.nodeName,
+    begin: firstAnyTimedEl.getAttribute('begin'),
+    end: firstAnyTimedEl.getAttribute('end'),
+    text: (firstAnyTimedEl.textContent || '').slice(0, 80),
+  } : '(none)');
+  log('  body head (400 chars):', headSnippet);
+  log('  parser saw:', parsed ? { lang: parsed.lang, lineCount: parsed.lines.length } : '(parser returned null)');
 }
