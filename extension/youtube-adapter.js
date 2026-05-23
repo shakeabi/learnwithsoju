@@ -378,6 +378,11 @@ async function initForCurrentVideo() {
   let lastEnIdx = -1;
   const koEl = overlay.querySelector('.lws-ytsubs-ko');
   const enEl = overlay.querySelector('.lws-ytsubs-en');
+  // Mark the KO line when the source is YT's ASR so the CSS in
+  // hideNativeCaptions() can paint a small "(auto)" badge before each
+  // line — gives the learner a heads-up that they're reading machine
+  // transcription, not creator-provided text.
+  if (isAsr(primary.baseTrack)) koEl.classList.add('is-asr');
 
   function update() {
     const t = video.currentTime;
@@ -730,7 +735,27 @@ function hideNativeCaptions() {
   if (existing) return existing;
   const style = document.createElement('style');
   style.id = STYLE_ID;
-  style.textContent = `.ytp-caption-window-container { display: none !important; }`;
+  // Two rules in one stylesheet — both adapter-owned, both injected
+  // only when activate() mounts an overlay:
+  //   1. Hide YouTube's own caption window so we don't double-render.
+  //   2. (auto) badge on the KO line when the primary source is YT's
+  //      auto-generated ASR (transcription, not uploader-provided).
+  //      Pseudo-element instead of a real DOM child so textContent of
+  //      .lws-ytsubs-ko (used for sentence extraction + Ask AI) only
+  //      contains the actual caption text, not the badge.
+  style.textContent = `
+    .ytp-caption-window-container { display: none !important; }
+    .lws-ytsubs-ko.is-asr::before {
+      content: '(auto) ';
+      font-size: 0.55em;
+      vertical-align: middle;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      opacity: 0.75;
+      font-weight: 400;
+      margin-right: 4px;
+    }
+  `;
   document.head.appendChild(style);
   return style;
 }

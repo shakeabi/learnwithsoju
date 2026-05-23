@@ -1861,7 +1861,17 @@ binary-searches both `koLines` and `enLines` for the line containing
 
 Native YouTube captions are hidden via an injected `<style>` tag that
 sets `.ytp-caption-window-container { display: none !important; }`.
-Removing it on teardown restores the natives.
+The same stylesheet carries a second rule —
+`.lws-ytsubs-ko.is-asr::before { content: '(auto) '; … }` — that the
+adapter activates by adding the `is-asr` class to the KO line when
+the primary source is YouTube's ASR (i.e. `isAsr(primary.baseTrack)`
+is true). The badge tells the learner they're reading machine
+transcription rather than creator-provided text. It's intentionally
+a pseudo-element rather than a real DOM child: `textContent` of
+`.lws-ytsubs-ko` is what `extractSentence` uses for sentence context
+and what the Ask AI pill bakes into its prompt, and pseudo-element
+content doesn't show up in `textContent`. Removing the injected
+stylesheet on teardown restores the natives and also drops the badge.
 
 ### 10.10 The toolbar popup's per-video override
 
