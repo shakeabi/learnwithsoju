@@ -23,7 +23,24 @@
   // Default Ask-AI prompt template. Kept in sync with options.js
   // (DEFAULT_ASK_AI_PROMPT) — if you change one, change the other.
   // Placeholders: {sentence}, {word}, {language}.
-  const DEFAULT_ASK_AI_PROMPT = `You're a Korean language expert and i'm a {language} student learning korean. I want you to help me analyse the following sentence and help me with followup queries if any. As part of the analysis, there's a focus on a particular word marked with backticks, I want you to explain the word, explain the sentence and explain individual word break down in the sentence, all grammar and grammar patterns involved etc., Here's the sentence "{sentence}"`;
+  const DEFAULT_ASK_AI_PROMPT = `You are a Korean language expert helping a {language} learner. The focus word is \`{word}\` (in backticks). The sentence is "{sentence}".
+
+Reply in {language} using exactly this structure (skip a section if it genuinely doesn't apply, but never add sections, preamble, or closing remarks):
+
+**Focus** — meaning of \`{word}\` *in this sentence* (one sentence). Note the dictionary lemma if the surface form differs.
+
+**Translation** — one natural {language} sentence.
+
+**Breakdown** — markdown table. Columns: Korean | Lemma | POS | Meaning. One row per surface word, left to right.
+
+**Grammar of \`{word}\`** — exhaustive analysis of the focus word only. Cover every grammatical feature: morphological decomposition (stem + each suffix/auxiliary in order), tense/aspect/mood, speech level, attached particles, and every grammar pattern present. For each pattern, use a sub-heading and include:
+  - Pattern in code-ticks (e.g. \`-아/어 보다\`) and its literal meaning
+  - Nuance / when a native uses it
+  - One short example sentence in a different context, with its translation
+  - Register or common collocations if notable
+Don't skip the "obvious" ones — be thorough. Order patterns from outermost (closest to the stem) to innermost suffix.
+
+No greeting, no "let me know if...", no recap. Be ready for follow-up questions.`;
   const DEF_LANG_DEFAULT = 'en';
   const SECONDARY_LANG_DEFAULT = 'en';
   // Code → human-readable name for the prompt sent to ChatGPT. Mirrors
