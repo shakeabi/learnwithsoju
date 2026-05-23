@@ -38,6 +38,17 @@
  *    Use this for the per-site UI in the toolbar popup (e.g. YouTube's
  *    secondary-language picker for the current video).
  *
+ * 5. `stylesheet` — optional CSS string injected as a `<style>` tag
+ *    by `content.js` on init. Lives here (not in `content.css`) so
+ *    each site's visual fixes stay scoped to that site. Typical use:
+ *    z-index promotions to get our `.lws-word` spans above a
+ *    transparent player-controls overlay that's intercepting hover
+ *    events. Selectors in the stylesheet are not auto-scoped — they
+ *    apply globally — but `content.js` only injects this stylesheet
+ *    when the current host matches the entry, so site-specific
+ *    selectors (e.g. Netflix's `.player-timedtext`) only take effect
+ *    on that site.
+ *
  * Adding a site (e.g. Netflix):
  *
  *   {
@@ -112,6 +123,19 @@ export const SITE_CONFIGS = [
     // use a plain top-level <video>.
     findVideo: () => document.querySelector('.watch-video video')
       || document.querySelector('video') || null,
+    // Z-index fix: when the mouse moves on the player, Netflix fades
+    // in its control overlay (`.PlayerControls--control-element`,
+    // `.watch-video--player-view`, etc.) which sits above the caption
+    // layer and intercepts pointer events — so even though our
+    // `.lws-word` spans are visually under the cursor, mouseenter
+    // fires on the control overlay, not the span. Promoting the
+    // caption layer above any conceivable control z-index gets hover
+    // back to working. Captions only occupy the bottom strip, so the
+    // controls' transport bar / progress slider stays interactable
+    // (the captions don't extend over them).
+    stylesheet: `
+      .player-timedtext { z-index: 2147483647 !important; }
+    `,
     // No adapter / popupModule yet. Phase 2 is a netflix-adapter.js
     // mirroring youtube-adapter.js (capture TTML/IMSC1 fetches, hide
     // native captions, mount a dual-lang overlay, time-sync to
@@ -119,6 +143,7 @@ export const SITE_CONFIGS = [
     //  - hover dictionary on the existing native captions
     //  - per-site disable (toolbar popup)
     //  - auto-pause on popup open (findVideo above)
+    //  - z-index fix above so hovers actually reach our spans
     // but NOT dual subs (no secondary-language overlay).
   },
 ];

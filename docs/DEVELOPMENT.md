@@ -1134,21 +1134,29 @@ gets dynamic-imported and whose `setup()` is invoked. The adapter
 owns its lifecycle including teardown on SPA navigation. For YouTube
 this is the dual-subs overlay + page-hook injection.
 - `popupModule` — relative path to a popup-side module. `popup.js`
-dynamic-imports it when the active tab matches this config and calls
-`renderSection({ tab, href, container })` (`href` is the page URL,
-resolved by popup.js from `tab.url` or the content-script fallback).
-The module owns all DOM inside
-the container (a hidden `<section id="site-adapter-section">` in
-`popup.html`) and is responsible for `container.hidden = false`. Use
-this for per-site UI in the toolbar popup — e.g. YouTube's
-per-video secondary-language picker.
+  dynamic-imports it when the active tab matches this config and calls
+  `renderSection({ tab, href, container })` (`href` is the page URL,
+  resolved by popup.js from `tab.url` or the content-script fallback).
+  The module owns all DOM inside
+  the container (a hidden `<section id="site-adapter-section">` in
+  `popup.html`) and is responsible for `container.hidden = false`. Use
+  this for per-site UI in the toolbar popup — e.g. YouTube's
+  per-video secondary-language picker.
+- `stylesheet` — optional CSS string. `content.js` injects it as a
+  `<style id="lws-site-style">` tag at init, only when the host
+  matches this entry. The injection is idempotent (the `id` guard
+  prevents double-add on re-injection). Use for per-site visual
+  fixes that don't belong in the generic `content.css` — e.g. the
+  Netflix entry uses this to promote `.player-timedtext` above the
+  player-controls overlay so the controls don't intercept hovers
+  meant for our `.lws-word` spans.
 
 Exports:
 
-- `SITE_CONFIGS` — currently a single YouTube entry.
+- `SITE_CONFIGS` — array of site entries (YouTube + Netflix today).
 - `findSiteConfig(hostname)` — exact host match or regex (`cfg.match`).
-Returns `null` for unknown hosts (which is the most common case;
-default `content.js` behavior applies).
+  Returns `null` for unknown hosts (which is the most common case;
+  default `content.js` behavior applies).
 
 ### 7.10 `youtube-adapter.js`
 
@@ -1981,6 +1989,37 @@ Add a `findVideo` function:
 `content.js` will auto-pause that video on popup open, resuming when the
 popup closes (unless the user paused it themselves in the meantime).
 
+#### Per-site visual fixes (z-index, pointer-events, hidden chrome)
+
+Some video players layer a transparent control overlay above the
+captions whenever the cursor moves — Netflix is the canonical
+example. Pointer events go to the overlay first, so our `.lws-word`
+spans never see hover. Z-index alone on `.lws-word` doesn't help
+when the caption container is inside its own stacking context.
+
+Solution: a `stylesheet` field on the SITE_CONFIGS entry. `content.js`
+injects it as a `<style id="lws-site-style">` tag at init, scoped by
+host (the script only runs when the entry matched). Idempotent — the
+`id` guard prevents double-add.
+
+```js
+{
+  name: 'Example Player',
+  hostnames: ['example.com'],
+  sentenceContainer: '.subtitle-text',
+  findVideo: () => document.querySelector('video') || null,
+  stylesheet: `
+    /* Promote captions above the (transparent) control overlay so
+     * hovering still reaches our .lws-word spans. */
+    .player-caption-layer { z-index: 2147483647 !important; }
+  `,
+},
+```
+
+Use sparingly. If you find yourself adding more than a couple of
+rules, the site probably needs a real adapter (§14.3) that owns
+mounting / styling its own overlay rather than fighting the host's.
+
 ### 14.3 If you need active page manipulation (caption replacement, etc.)
 
 This is what `youtube-adapter.js` is. Create a new file in `extension/`
@@ -2467,6 +2506,7 @@ workaround.
 | Fix a wrong lemma for a specific surface    | `lemmatizer.js` candidate ordering + test                                                   |
 | Add a new site-specific sentence selector   | `site-configs.js` entry (see §14.1)                                                         |
 | Auto-pause a page's video on popup open     | `findVideo` in the `site-configs.js` entry (see §14.2)                                      |
+| Fix hovers being eaten by a player control overlay | `stylesheet` field on the `site-configs.js` entry — z-index promo for the caption layer (see §14.2 "Per-site visual fixes") |
 | Replace a site's captions with dual subs    | New `*-adapter.js` + SITE_CONFIGS entry + manifest WAR (see §14.3)                          |
 | Add a toolbar-popup section for a site      | New `*-popup.js` + `popupModule` on the SITE_CONFIGS entry (see §14.5)                      |
 | Add a new "Ask AI" provider (ChatGPT-style) | One entry in `ai-providers.js` `AI_PROVIDERS` (see §14.6)                                   |

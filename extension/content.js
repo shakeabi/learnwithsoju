@@ -96,6 +96,22 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   const currentHost = (window.location && window.location.hostname || '').toLowerCase();
   const siteConfig = findSiteConfig(currentHost);
 
+  // Inject per-site CSS as early as we can — before the first paint
+  // ideally, so any z-index / pointer-events fixes are in effect by
+  // the time the user's mouse first touches a hoverable caption.
+  // Idempotence guard via the data attribute so a content-script
+  // reinjection doesn't double-add.
+  if (siteConfig && typeof siteConfig.stylesheet === 'string' && siteConfig.stylesheet.trim()) {
+    const TAG_ID = 'lws-site-style';
+    if (!document.getElementById(TAG_ID)) {
+      const style = document.createElement('style');
+      style.id = TAG_ID;
+      style.dataset.lwsSite = siteConfig.name || currentHost;
+      style.textContent = siteConfig.stylesheet;
+      (document.head || document.documentElement).appendChild(style);
+    }
+  }
+
   // Popup → content fallback for hostname lookup. Some Chrome states
   // return tab.url === undefined from chrome.tabs.query even with the
   // activeTab permission; the popup then has no way to identify the
