@@ -145,171 +145,30 @@ openOptionsBtn.addEventListener('click', () => {
   window.close();
 });
 
-// Lookup box. Lets the user paste a Korean word and see what the
-// dictionary returns — useful when there's no hoverable context (notes
-// app, a word a friend texted) and as a debug tool for diagnosing
-// "wrong lemma" issues (renders the mecab tokens + lemma candidates
-// the background chose, so we can see what mecab and the lemmatizer
-// did without needing service-worker DevTools).
+// Lookup box. The popup is too small to render the full dictionary
+// popup (and re-implementing that renderer here would duplicate
+// content.js's whole pipeline), so when the user submits a word we
+// open the settings page with `#lookup=<word>` and let the in-page
+// hover machinery run there. The settings page hosts a tiny div that
+// content.js wraps as a `.lws-word`; clicking the word triggers the
+// same dictionary popup the user sees on any webpage.
 const lookupForm = document.getElementById('lookup-form');
 const lookupInput = document.getElementById('lookup-input');
-const lookupResult = document.getElementById('lookup-result');
 
 if (lookupForm) {
   lookupForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const word = lookupInput.value.trim();
     if (!word) return;
-    await runLookup(word);
+    const url = chrome.runtime.getURL('options.html') + '#lookup=' + encodeURIComponent(word);
+    try {
+      await chrome.tabs.create({ url });
+    } catch (err) {
+      console.warn('[lws] popup: failed to open settings tab for lookup', err);
+      return;
+    }
+    window.close();
   });
-}
-
-async function runLookup(word) {
-  lookupResult.hidden = false;
-  lookupResult.textContent = 'Looking up…';
-  let res;
-  try {
-    res = await chrome.runtime.sendMessage({ type: 'lookup', surface: word });
-  } catch (err) {
-    lookupResult.textContent = `Error: ${err && err.message || err}`;
-    return;
-  }
-  await renderLookupResult(word, res);
-}
-
-async function renderLookupResult(word, res) {
-  lookupResult.innerHTML = '';
-  if (!res) {
-    lookupResult.textContent = 'No response from the background script.';
-    return;
-  }
-  if (res.error === 'NO_API_KEY') {
-    lookupResult.textContent = 'No KRDict API key set. Open settings to add one.';
-    return;
-  }
-  if (res.error) {
-    lookupResult.textContent = `Error: ${res.error}${res.message ? ' — ' + res.message : ''}`;
-    return;
-  }
-
-  // Parse the KRDict XML for the first/headline entry. We do this in
-  // the popup directly (rather than asking the background for parsed
-  // entries) so we stay decoupled from the in-page popup's rendering
-  // pipeline — that one needs full sense/tab/Hanja machinery we don't
-  // want to drag in here. A single headword + first translation is
-  // enough for "what does this word mean".
-  let parsers;
-  try {
-    parsers = await import('./parsers.js');
-  } catch (err) {
-    lookupResult.textContent = `Parser load failed: ${err && err.message || err}`;
-    return;
-  }
-  const entries = (res.krXml && parsers.parseKrdictXml(res.krXml, window.DOMParser)) || [];
-  const headEntry = entries.find((e) => e.word === res.queryUsed) || entries[0] || null;
-
-  // Headline: queryUsed (the lemma the dictionary actually resolved) +
-  // the surface the user typed, so they can see how mecab → lemma went.
-  const headline = document.createElement('div');
-  headline.className = 'lookup-headline';
-  const lemma = document.createElement('span');
-  lemma.className = 'lookup-lemma';
-  lemma.textContent = res.queryUsed || res.lemma || word;
-  headline.appendChild(lemma);
-  if (res.queryUsed && res.queryUsed !== word) {
-    const arrow = document.createElement('span');
-    arrow.className = 'lookup-from';
-    arrow.textContent = `from ${word}`;
-    headline.appendChild(arrow);
-  }
-  lookupResult.appendChild(headline);
-
-  if (headEntry) {
-    if (headEntry.pos) {
-      const pos = document.createElement('div');
-      pos.className = 'lookup-pos';
-      pos.textContent = headEntry.pos;
-      lookupResult.appendChild(pos);
-    }
-    const firstSense = headEntry.senses && headEntry.senses[0];
-    if (firstSense) {
-      const tr = firstSense.translations && firstSense.translations[0];
-      if (tr && (tr.trans_word || tr.trans_dfn)) {
-        const meaning = document.createElement('div');
-        meaning.className = 'lookup-meaning';
-        if (tr.trans_word) {
-          const tw = document.createElement('div');
-          tw.className = 'lookup-trans-word';
-          tw.textContent = tr.trans_word;
-          meaning.appendChild(tw);
-        }
-        if (tr.trans_dfn) {
-          const td = document.createElement('div');
-          td.className = 'lookup-trans-dfn';
-          td.textContent = tr.trans_dfn;
-          meaning.appendChild(td);
-        }
-        lookupResult.appendChild(meaning);
-      } else if (firstSense.definition) {
-        const def = document.createElement('div');
-        def.className = 'lookup-trans-dfn';
-        def.textContent = firstSense.definition;
-        lookupResult.appendChild(def);
-      }
-    }
-  } else {
-    const empty = document.createElement('div');
-    empty.className = 'lookup-trans-dfn';
-    empty.textContent = 'No dictionary entry found.';
-    lookupResult.appendChild(empty);
-  }
-
-  // Debug section: mecab tokens + candidates the lemmatizer produced.
-  // The whole reason for adding this lookup feature was to be able to
-  // see exactly what mecab and the lemmatizer did when a hover returns
-  // a surprising result. Hidden behind a <details> so it doesn't add
-  // noise for the lookup-as-translation use case.
-  const debug = document.createElement('details');
-  debug.className = 'lookup-debug';
-  const summary = document.createElement('summary');
-  summary.textContent = 'Debug';
-  debug.appendChild(summary);
-  const tokensLine = document.createElement('div');
-  tokensLine.className = 'lookup-debug-line';
-  tokensLine.innerHTML = '<b>tokens:</b> ' + (
-    Array.isArray(res.tokens) && res.tokens.length
-      ? res.tokens.map((t) => `${escapeHtml(t.surface)}/${escapeHtml(t.pos || '?')}`).join(' + ')
-      : '(none)'
-  );
-  debug.appendChild(tokensLine);
-  // Full lemmatizer output (every candidate, in priority order).
-  // `queriesUsed` is the subset that returned non-empty KRDict results,
-  // which is what actually drove the displayed lemma. Showing both
-  // tells you (a) what we tried and (b) which ones the dictionary had.
-  const candsLine = document.createElement('div');
-  candsLine.className = 'lookup-debug-line';
-  candsLine.innerHTML = '<b>candidates:</b> ' + (
-    Array.isArray(res.candidates) && res.candidates.length
-      ? res.candidates.map(escapeHtml).join(', ')
-      : '(none)'
-  );
-  debug.appendChild(candsLine);
-  const hitsLine = document.createElement('div');
-  hitsLine.className = 'lookup-debug-line';
-  hitsLine.innerHTML = '<b>got hits for:</b> ' + (
-    Array.isArray(res.queriesUsed) && res.queriesUsed.length
-      ? res.queriesUsed.map(escapeHtml).join(', ')
-      : '(none)'
-  );
-  debug.appendChild(hitsLine);
-  lookupResult.appendChild(debug);
-}
-
-function escapeHtml(s) {
-  return String(s == null ? '' : s)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
 }
 
 load();

@@ -198,65 +198,10 @@ header .brand {
   box-shadow: 0 0 0 2px rgba(125, 140, 255, 0.18);
 }
 
-.lookup-result {
-  margin-top: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12.5px;
-  line-height: 1.4;
-}
-
-.lookup-headline {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.lookup-lemma {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.lookup-from {
+.lookup-hint {
+  margin: 0;
   font-size: 11px;
   color: var(--muted);
-}
-
-.lookup-pos {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.lookup-trans-word {
-  font-weight: 500;
-}
-
-.lookup-trans-dfn {
-  color: var(--muted);
-}
-
-.lookup-debug {
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.lookup-debug summary {
-  cursor: pointer;
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
-  user-select: none;
-}
-
-.lookup-debug-line {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10.5px;
-  word-break: break-all;
-  margin-top: 4px;
 }
 
 .actions {

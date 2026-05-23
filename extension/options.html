@@ -4,6 +4,11 @@
   <meta charset="utf-8" />
   <title>learnwithsoju — Settings</title>
   <link rel="stylesheet" href="options.css" />
+  <!-- content.css supplies the `.lws-word` underline + cursor for the
+       Word lookup section below; content.js's mutation observer wraps
+       the typed word in that class so we can reuse the exact in-page
+       hover popup machinery instead of rebuilding it. -->
+  <link rel="stylesheet" href="content.css" />
 </head>
 <body>
   <main>
@@ -88,6 +93,33 @@
       </label>
     </section>
 
+    <section class="card" id="lookup-card">
+      <h2>Word lookup</h2>
+      <p class="hint">
+        Paste a Korean word to see the same dictionary popup you get from hovering.
+        Useful for words from notes, chats, or anywhere you can't hover directly.
+        Submitting from the toolbar popup also lands here.
+      </p>
+      <form id="lookup-form" class="lookup-form">
+        <input
+          type="text"
+          id="lookup-input"
+          class="lookup-input"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="가다, 먹었어요, 한국말…"
+        />
+        <button type="submit" class="primary">Look up</button>
+      </form>
+      <!-- The typed word lands here as plain text. content.js's
+           mutation observer wraps it as a `.lws-word` span; options.js
+           then dispatches a click on the span to open the dictionary
+           popup right there. The popup itself mounts as a Shadow DOM
+           on document.body, so it appears anchored to the wrapped
+           word — same behaviour as on any webpage. -->
+      <div id="lookup-target" class="lookup-target" aria-live="polite"></div>
+    </section>
+
     <details class="card advanced">
       <summary><h2>Advanced</h2></summary>
       <p class="hint">
@@ -139,5 +171,13 @@
     </footer>
   </main>
   <script src="options.js"></script>
+  <!-- content.js runs as a chrome content_script on every webpage; we
+       also load it here so the Word lookup section can reuse its
+       full hover-popup pipeline (mecab tokenization, KRDict fetch,
+       Shadow-DOM popup with tabs / morpheme breakdown / Hanja / Ask
+       AI). It self-initialises, scans `document.body` for Korean,
+       wraps `.lws-word` spans, and listens for clicks — the same as
+       on any other page. -->
+  <script src="content.js"></script>
 </body>
 </html>
