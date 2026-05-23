@@ -51,6 +51,13 @@ header .brand {
   font-size: 13px;
 }
 
+.site-host {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
 .switch {
   position: relative;
   display: inline-block;

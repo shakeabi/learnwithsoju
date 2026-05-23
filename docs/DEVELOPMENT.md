@@ -229,6 +229,7 @@ can grow past the 5 MB default.
 | `krdictApiKey`     | string    | `""`     | `options.js`                     | `background.js` (every lookup)           |
 | `opendictApiKey`   | string    | `""`     | `options.js`                     | `background.js` (only when KRDict empty) |
 | `enabled`          | boolean   | `true`   | `options.js`, `popup.js`         | `content.js` init + onChanged listener   |
+| `disabledHosts`    | `string[]` | `[]`    | `popup.js` (per-site toggle)     | `content.js` init + onChanged listener   |
 | `defLang`          | `'en' \| 'ko'` | `'en'` | `content.js` (popup toggle) | `content.js` (popup render)              |
 | `dualSubsYouTube`  | boolean   | `true`*  | `options.js`                     | `youtube-adapter.js` (onChanged + isEnabled) |
 | `secondaryLang`    | string    | `'en'`   | `options.js`                     | `youtube-adapter.js`, `popup.js` (default) |
@@ -318,6 +319,7 @@ broadcast bus for settings:
 | Key                  | Listener                                | What the listener does                                  |
 |----------------------|-----------------------------------------|---------------------------------------------------------|
 | `enabled`            | `content.js`                            | Toggle scanning + popup activity for this tab           |
+| `disabledHosts`      | `content.js`                            | Same effect as `enabled`, but only when this hostname's membership changes (compares against `window.location.hostname`) |
 | `defLang`            | `content.js`                            | `rerenderActivePopup()` if popup is showing             |
 | `dualSubsYouTube`    | `youtube-adapter.js`                    | Re-activate / deactivate dual subs on the current page  |
 | `secondaryLang`      | `youtube-adapter.js`                    | Re-activate so the new default applies                  |
@@ -338,8 +340,14 @@ in order.
 Files: `content.js`.
 
 1. `init()` runs at `document_idle` (manifest setting).
-2. Read `enabled` and `defLang` from `chrome.storage.sync`. If
-   `enabled === false`, bail.
+2. Read `enabled`, `disabledHosts`, and `defLang` from
+   `chrome.storage.sync`. The effective gate is
+   `globalEnabled && !hostDisabled` where `hostDisabled` is
+   `disabledHosts.includes(location.hostname.toLowerCase())`. Handlers
+   and the mutation observer are attached even when disabled (they
+   self-gate on `enabled`) so a popup toggle can re-activate the page
+   without a reload. Only the expensive scan and the site adapter are
+   skipped when disabled.
 3. Resolve `siteConfig = findSiteConfig(location.hostname)` once for the
    lifetime of this content script.
 4. `scanRoot(document.body)` →
@@ -1046,9 +1054,15 @@ The hook is idempotent via `window.__lwsYtHookInstalled`.
 ### 7.12 `popup.html` / `popup.js` / `popup.css`
 
 The toolbar action UI — what opens when the user clicks the extension's
-icon. Three sections:
+icon. Four sections:
 
 - Hover-dictionary toggle (writes `enabled` to sync).
+- Per-site toggle — shown only on `http(s):` pages. Reads the active
+  tab's hostname via `chrome.tabs.query({active, currentWindow})`, then
+  toggles membership in `disabledHosts` (sync array). When the user
+  flips it, the content script's `onChanged` listener for
+  `disabledHosts` activates / deactivates immediately. The list is
+  sorted on every write so storage diffs stay small.
 - Status row (API key status / disabled / active).
 - YouTube section — visible only on `youtube.com/watch?...`. Asks the
   active tab for its tracklist via `chrome.tabs.sendMessage`, renders

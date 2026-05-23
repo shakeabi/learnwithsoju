@@ -2,16 +2,22 @@ const KEYS = {
   KRDICT_KEY: 'krdictApiKey',
   ENABLED: 'enabled',
   SECONDARY_LANG: 'secondaryLang',
+  DISABLED_HOSTS: 'disabledHosts',
 };
 const OVERRIDE_KEY = 'dualSubsOverrides';
 
 const enabledToggle = document.getElementById('enabled-toggle');
+const siteRow = document.getElementById('site-row');
+const siteToggle = document.getElementById('site-toggle');
+const siteHostEl = document.getElementById('site-host');
 const statusDot = document.getElementById('status-dot');
 const statusText = document.getElementById('status-text');
 const openOptionsBtn = document.getElementById('open-options');
 const ytSection = document.getElementById('yt-section');
 const ytBody = document.getElementById('yt-section-body');
 const ytStatus = document.getElementById('yt-status');
+
+let currentHost = '';
 
 async function load() {
   const data = await chrome.storage.sync.get([KEYS.KRDICT_KEY, KEYS.ENABLED]);
@@ -158,10 +164,42 @@ enabledToggle.addEventListener('change', async () => {
   load();
 });
 
+async function loadSiteSection() {
+  let tab;
+  try {
+    [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  } catch {
+    return;
+  }
+  if (!tab || !tab.url) return;
+  let parsed;
+  try { parsed = new URL(tab.url); } catch { return; }
+  // Only http(s) — content scripts don't run on chrome://, about:, file:, etc.
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+  currentHost = parsed.hostname.toLowerCase();
+  if (!currentHost) return;
+  siteHostEl.textContent = currentHost;
+  const data = await chrome.storage.sync.get(KEYS.DISABLED_HOSTS);
+  const list = Array.isArray(data[KEYS.DISABLED_HOSTS]) ? data[KEYS.DISABLED_HOSTS] : [];
+  siteToggle.checked = !list.includes(currentHost);
+  siteRow.hidden = false;
+}
+
+siteToggle.addEventListener('change', async () => {
+  if (!currentHost) return;
+  const data = await chrome.storage.sync.get(KEYS.DISABLED_HOSTS);
+  const list = Array.isArray(data[KEYS.DISABLED_HOSTS]) ? data[KEYS.DISABLED_HOSTS] : [];
+  const set = new Set(list);
+  if (siteToggle.checked) set.delete(currentHost);
+  else set.add(currentHost);
+  await chrome.storage.sync.set({ [KEYS.DISABLED_HOSTS]: Array.from(set).sort() });
+});
+
 openOptionsBtn.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
   window.close();
 });
 
 load();
+loadSiteSection();
 loadYouTubeSection();

@@ -12,7 +12,7 @@
     'P', 'LI', 'TD', 'TH', 'BLOCKQUOTE', 'FIGCAPTION', 'ARTICLE', 'SECTION',
     'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'DT', 'DD', 'CAPTION', 'SUMMARY',
   ]);
-  const STORAGE_KEYS = { ENABLED: 'enabled', DEF_LANG: 'defLang', SECONDARY_LANG: 'secondaryLang' };
+  const STORAGE_KEYS = { ENABLED: 'enabled', DEF_LANG: 'defLang', SECONDARY_LANG: 'secondaryLang', DISABLED_HOSTS: 'disabledHosts' };
   const DEF_LANG_DEFAULT = 'en';
   const SECONDARY_LANG_DEFAULT = 'en';
   // Code → human-readable name for the prompt sent to ChatGPT. Mirrors
@@ -61,8 +61,11 @@
   const { findSiteConfig } = sites;
   // Resolved once per content-script lifetime — frames don't navigate between
   // sites without a reload, which re-injects content.js.
-  const siteConfig = findSiteConfig(window.location && window.location.hostname || '');
+  const currentHost = (window.location && window.location.hostname || '').toLowerCase();
+  const siteConfig = findSiteConfig(currentHost);
 
+  let globalEnabled = true;
+  let hostDisabled = false;
   let enabled = true;
   let defLang = DEF_LANG_DEFAULT;
   // Cached at init + kept current via storage.onChanged. Read by the
@@ -1537,38 +1540,63 @@
     } catch { /* keep default */ }
   }
 
+  let adapterLoaded = false;
+  function loadAdapter() {
+    if (adapterLoaded) return;
+    if (!siteConfig || !siteConfig.adapter) return;
+    adapterLoaded = true;
+    // Site-specific adapter: e.g. YouTube replaces native captions with
+    // a dual-language overlay. Fire-and-forget — adapter manages its own
+    // teardown on navigation / setting-toggle.
+    import(chrome.runtime.getURL(siteConfig.adapter))
+      .then((mod) => {
+        if (mod && typeof mod.setup === 'function') return mod.setup();
+      })
+      .catch((err) => console.warn('[learnwithsoju] adapter load failed:', err));
+  }
+
   async function init() {
-    const stored = await chrome.storage.sync.get([STORAGE_KEYS.ENABLED, STORAGE_KEYS.DEF_LANG]);
-    enabled = stored[STORAGE_KEYS.ENABLED] !== false;
+    const stored = await chrome.storage.sync.get([STORAGE_KEYS.ENABLED, STORAGE_KEYS.DEF_LANG, STORAGE_KEYS.DISABLED_HOSTS]);
+    globalEnabled = stored[STORAGE_KEYS.ENABLED] !== false;
+    const disabledList = Array.isArray(stored[STORAGE_KEYS.DISABLED_HOSTS]) ? stored[STORAGE_KEYS.DISABLED_HOSTS] : [];
+    hostDisabled = !!currentHost && disabledList.includes(currentHost);
+    enabled = globalEnabled && !hostDisabled;
     defLang = stored[STORAGE_KEYS.DEF_LANG] === 'ko' ? 'ko' : DEF_LANG_DEFAULT;
     await loadSecondaryLang();
-    if (!enabled) return;
     if (!document.body) {
       document.addEventListener('DOMContentLoaded', init, { once: true });
       return;
     }
-    scanRoot(document.body);
+    // Handlers and observer always attach — they self-gate on `enabled`
+    // and are cheap. This lets a popup toggle re-activate the extension
+    // on this page without a reload, even if it loaded disabled.
     attachWordHandlers(document.body);
     setupMutationObserver();
-    // Site-specific adapter: e.g. YouTube replaces native captions with
-    // a dual-language overlay. Fire-and-forget — adapter manages its own
-    // teardown on navigation / setting-toggle.
-    if (siteConfig && siteConfig.adapter) {
-      import(chrome.runtime.getURL(siteConfig.adapter))
-        .then((mod) => {
-          if (mod && typeof mod.setup === 'function') return mod.setup();
-        })
-        .catch((err) => console.warn('[learnwithsoju] adapter load failed:', err));
+    if (enabled) {
+      scanRoot(document.body);
+      loadAdapter();
     }
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'sync') return;
+    let recompute = false;
     if (STORAGE_KEYS.ENABLED in changes) {
-      const next = changes[STORAGE_KEYS.ENABLED].newValue !== false;
+      globalEnabled = changes[STORAGE_KEYS.ENABLED].newValue !== false;
+      recompute = true;
+    }
+    if (STORAGE_KEYS.DISABLED_HOSTS in changes) {
+      const nextList = Array.isArray(changes[STORAGE_KEYS.DISABLED_HOSTS].newValue)
+        ? changes[STORAGE_KEYS.DISABLED_HOSTS].newValue : [];
+      hostDisabled = !!currentHost && nextList.includes(currentHost);
+      recompute = true;
+    }
+    if (recompute) {
+      const next = globalEnabled && !hostDisabled;
       if (next && !enabled) {
         enabled = true;
         scanRoot(document.body);
+        loadAdapter();
       } else if (!next && enabled) {
         enabled = false;
         hidePopup();
