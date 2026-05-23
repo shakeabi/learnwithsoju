@@ -585,14 +585,15 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
     2. `waitForTracklist` merges two sources every iteration:
        `player.getOption('captions','tracklist')` (rich metadata but
        unreliable for ASR-only videos — the player sometimes returns []
-       until the user enables CC manually) AND
-       `window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer.captionTracks`
-       (always present, complete, but thinner shape). Dedupes by
-       `(languageCode, kind)` — player entries win on overlap. Polls
-       every 250 ms for up to 10 s.
+       until the user enables CC manually) AND a fresh
+       `player.getPlayerResponse().captions.playerCaptionsTracklistRenderer.captionTracks`
+       (always present, complete, but thinner shape, AND updated per
+       SPA-nav — see "stale ytInitialPlayerResponse" gotcha below).
+       Dedupes by `(languageCode, kind)` — player entries win on
+       overlap. Polls every 250 ms for up to 10 s.
     3. **Audio-language gate**: `getAudioInfo()` posts
        `{__lwsYtCmd:'audio-info'}` and reads
-       `ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer`.
+       `player.getPlayerResponse().captions.playerCaptionsTracklistRenderer`.
        Signals tried in order:
         - First ASR track's `languageCode` (YouTube generates ASR in
           whatever language was actually spoken — most reliable).
@@ -2361,6 +2362,27 @@ only. This means: as the user clicks tabs and expands sections, the
 popup grows; it never shrinks. The cursor stays inside the popup
 boundary across the entire interaction. If the user moves to a new word
 and triggers a fresh lookup, the memos reset and we start over.
+
+### 15.11 `ytInitialPlayerResponse` is stale after SPA nav
+
+`window.ytInitialPlayerResponse` is set once when the page first loads
+and YouTube does NOT update it on SPA navigation (next video in
+playlist, autoplay, in-page click on a related video). Any code that
+reads it on a SPA-navigated video sees the FIRST video's data — wrong
+tracklist, wrong audio language.
+
+Cure: read `player.getPlayerResponse()` instead (the YouTube player
+element's own method, always reflects the currently-loaded video).
+Fall back to `ytInitialPlayerResponse` only when the player isn't
+ready yet (very early first load). `youtube-page-hook.js`'s
+`getCurrentPlayerResponse()` helper centralises this.
+
+This bug was masked for a long time by another bug — the dual-overlay
+race — because the orphaned previous-video overlay was visible
+alongside whatever the user was watching. Once the race was fixed,
+audio detection started running cleanly on the new video and the
+stale-global misread surfaced as "audio detected as `en` on a Korean
+video, dual subs skipped."
 
 ---
 

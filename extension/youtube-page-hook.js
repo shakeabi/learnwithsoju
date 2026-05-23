@@ -69,6 +69,30 @@
     return (p && typeof p.getOption === 'function' && typeof p.setOption === 'function') ? p : null;
   }
 
+  // Current video's PlayerResponse. `window.ytInitialPlayerResponse`
+  // is only set on full page load — YouTube does NOT update it on
+  // SPA navigation (next video in playlist, autoplay, etc.), so
+  // reading it for SPA-nav videos gives the FIRST video's data and
+  // mis-identifies the audio language / tracklist. The player's
+  // `getPlayerResponse()` returns the currently-loaded video's data
+  // and updates per-nav; use that as primary, fall back to the
+  // initial global only when the player isn't ready (very early
+  // first load).
+  function getCurrentPlayerResponse() {
+    const player = getPlayer();
+    if (player) {
+      for (const method of ['getPlayerResponse', 'getRawPlayerResponse']) {
+        if (typeof player[method] === 'function') {
+          try {
+            const pr = player[method]();
+            if (pr && typeof pr === 'object') return pr;
+          } catch {}
+        }
+      }
+    }
+    return window.ytInitialPlayerResponse || null;
+  }
+
   window.addEventListener('message', (e) => {
     if (e.source !== window) return;
     const d = e.data;
@@ -85,11 +109,13 @@
       // Fallback / supplement: the player's getOption('tracklist') is
       // unreliable on videos that only have ASR captions — sometimes
       // returns empty until the user explicitly enables CC. The
-      // server-set ytInitialPlayerResponse always lists every available
-      // track, so we merge both sources upstream.
+      // PlayerResponse always lists every available track, so we
+      // merge both sources upstream. Use getCurrentPlayerResponse()
+      // (not the cached global ytInitialPlayerResponse) so SPA-nav
+      // videos return their own tracklist, not the first video's.
       let tracks = [];
       try {
-        const pr = window.ytInitialPlayerResponse;
+        const pr = getCurrentPlayerResponse();
         const list = pr && pr.captions
           && pr.captions.playerCaptionsTracklistRenderer
           && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
@@ -125,7 +151,10 @@
       //      mis-identify the audio language.
       let info = { lang: null, source: null };
       try {
-        const pr = window.ytInitialPlayerResponse;
+        // getCurrentPlayerResponse() — not ytInitialPlayerResponse —
+        // so SPA-nav reflects the new video's audio, not the first
+        // video's. The global global is stale after any in-page nav.
+        const pr = getCurrentPlayerResponse();
         const renderer = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer;
         if (renderer) {
           const captionTracks = Array.isArray(renderer.captionTracks) ? renderer.captionTracks : [];
