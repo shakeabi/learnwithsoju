@@ -124,17 +124,28 @@ export const SITE_CONFIGS = [
     findVideo: () => document.querySelector('.watch-video video')
       || document.querySelector('video') || null,
     // Z-index fix: when the mouse moves on the player, Netflix fades
-    // in its control overlay (`.PlayerControls--control-element`,
-    // `.watch-video--player-view`, etc.) which sits above the caption
-    // layer and intercepts pointer events — so even though our
-    // `.lws-word` spans are visually under the cursor, mouseenter
-    // fires on the control overlay, not the span. Promoting the
-    // caption layer above any conceivable control z-index gets hover
-    // back to working. Captions only occupy the bottom strip, so the
-    // controls' transport bar / progress slider stays interactable
-    // (the captions don't extend over them).
+    // in its control overlay which sits above the caption layer and
+    // intercepts pointer events — so even though our `.lws-word`
+    // spans are visually under the cursor, mouseenter fires on the
+    // control overlay, not the span. Earlier attempt promoted
+    // `.player-timedtext`; that didn't work for two reasons:
+    //   1. z-index requires a positioned ancestor — without
+    //      `position: relative`, the property is silently ignored.
+    //   2. Netflix uses different caption container class names
+    //      depending on the title / DRM profile / region, so any
+    //      Netflix-specific selector is fragile.
+    // Solution: promote our own `.lws-word` directly. position+z-index
+    // together actually take effect, and the selector targets a class
+    // we own — Netflix can rename their containers freely without
+    // breaking us. Scoping is enforced by content.js only injecting
+    // this stylesheet when the host matches this entry, so the rule
+    // doesn't touch `.lws-word` on other sites (which need their
+    // normal default styling from content.css).
     stylesheet: `
-      .player-timedtext { z-index: 2147483647 !important; }
+      .lws-word {
+        position: relative;
+        z-index: 2147483647;
+      }
     `,
     // No adapter / popupModule yet. Phase 2 is a netflix-adapter.js
     // mirroring youtube-adapter.js (capture TTML/IMSC1 fetches, hide

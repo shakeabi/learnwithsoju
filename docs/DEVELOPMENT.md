@@ -2048,8 +2048,21 @@ popup closes (unless the user paused it themselves in the meantime).
 Some video players layer a transparent control overlay above the
 captions whenever the cursor moves — Netflix is the canonical
 example. Pointer events go to the overlay first, so our `.lws-word`
-spans never see hover. Z-index alone on `.lws-word` doesn't help
-when the caption container is inside its own stacking context.
+spans never see hover.
+
+The clean fix is to promote `.lws-word` itself so it paints above
+the overlay. Two reasons it's the right target rather than the host's
+caption container:
+
+1. **Stability** — `.lws-word` is our class; we control it. Hosts
+   rename caption containers across redesigns / titles / DRM profiles
+   (Netflix has had `.player-timedtext`, `.player-timedtext-text-container`,
+   and others), so any host-side selector is fragile.
+2. **z-index needs `position`** — z-index only takes effect on
+   positioned elements (relative/absolute/fixed/sticky). A rule that
+   sets `z-index` without setting `position` is silently ignored. Our
+   default `.lws-word` styling in `content.css` doesn't position the
+   span, so this stylesheet has to add both.
 
 Solution: a `stylesheet` field on the SITE_CONFIGS entry. `content.js`
 injects it as a `<style id="lws-site-style">` tag at init, scoped by
@@ -2063,16 +2076,28 @@ host (the script only runs when the entry matched). Idempotent — the
   sentenceContainer: '.subtitle-text',
   findVideo: () => document.querySelector('video') || null,
   stylesheet: `
-    /* Promote captions above the (transparent) control overlay so
-     * hovering still reaches our .lws-word spans. */
-    .player-caption-layer { z-index: 2147483647 !important; }
+    /* Lift our hoverable word spans above the player's
+     * transparent control overlay so mouseenter actually
+     * fires on them. position+z-index are both required. */
+    .lws-word {
+      position: relative;
+      z-index: 2147483647;
+    }
   `,
 },
 ```
 
+This works as long as no ancestor of `.lws-word` creates its own
+stacking context BELOW the control overlay's z-index — in which case
+the span is constrained within the ancestor's context and never
+escapes. If that happens, the symptom is "z-index higher but still
+not on top." Mitigation is to also promote the offending ancestor
+(name it in the selector), or write a real adapter (§14.3) that
+mounts an overlay of its own outside the host's stacking contexts.
+
 Use sparingly. If you find yourself adding more than a couple of
-rules, the site probably needs a real adapter (§14.3) that owns
-mounting / styling its own overlay rather than fighting the host's.
+rules, the site probably needs a real adapter rather than fighting
+the host's CSS.
 
 ### 14.3 If you need active page manipulation (caption replacement, etc.)
 
