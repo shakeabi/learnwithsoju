@@ -17,10 +17,13 @@
 
 const OVERRIDE_KEY = 'dualSubsOverrides';
 
-export async function renderSection({ tab, container }) {
-  if (!tab || !tab.url) return;
+export async function renderSection({ tab, href, container }) {
+  // `href` is resolved by popup.js — prefers tab.url, falls back to the
+  // content script's window.location.href. Either way it's the page URL.
+  const url = href || (tab && tab.url) || '';
+  if (!url) return;
   let parsed;
-  try { parsed = new URL(tab.url); } catch { return; }
+  try { parsed = new URL(url); } catch { return; }
   // Only on watch pages — channel / home / search have no caption tracks.
   if (parsed.pathname !== '/watch') return;
   const videoId = parsed.searchParams.get('v');

@@ -107,13 +107,22 @@
       } catch {}
       window.postMessage({ __lwsYtReply: 'player-response-tracks', reqId, tracks }, '*');
     } else if (d.__lwsYtCmd === 'audio-info') {
-      // Returns the language code of the video's primary spoken audio
-      // (best-effort). Two signals tried in order:
-      //   1. Multi-audio videos expose audioTracks[] with a
-      //      defaultCaptionTrackIndex pointing to a caption in the
-      //      audio's language. Most authoritative when present.
-      //   2. Single-audio fallback: the first ASR track's language —
-      //      YouTube generates ASR in whatever language was spoken.
+      // Best-effort detection of the video's primary spoken-audio
+      // language. Two signals, in order of reliability:
+      //
+      //   1. First ASR track's languageCode. YouTube generates ASR in
+      //      whatever language was actually spoken, so this is the most
+      //      reliable signal even on videos that also have manual
+      //      translated subs in another language.
+      //
+      //   2. Multi-audio path (audioTracks.length > 1): the
+      //      defaultAudioTrackIndex's defaultCaptionTrackIndex points
+      //      at a caption track whose language matches that audio.
+      //      Only safe when there are GENUINELY multiple audio tracks
+      //      — on single-audio videos, defaultCaptionTrackIndex is
+      //      the default *display* caption (e.g. EN manual subs on a
+      //      Korean video where the uploader provided them) and would
+      //      mis-identify the audio language.
       let info = { lang: null, source: null };
       try {
         const pr = window.ytInitialPlayerResponse;
@@ -121,7 +130,11 @@
         if (renderer) {
           const captionTracks = Array.isArray(renderer.captionTracks) ? renderer.captionTracks : [];
           const audioTracks = Array.isArray(renderer.audioTracks) ? renderer.audioTracks : [];
-          if (audioTracks.length > 0) {
+          const asr = captionTracks.find((t) => t.kind === 'asr' && t.languageCode);
+          if (asr) {
+            info.lang = asr.languageCode;
+            info.source = 'asr';
+          } else if (audioTracks.length > 1) {
             const idx = Number.isInteger(renderer.defaultAudioTrackIndex)
               ? renderer.defaultAudioTrackIndex : 0;
             const audio = audioTracks[idx];
@@ -131,13 +144,6 @@
                 info.lang = cap.languageCode;
                 info.source = 'multiAudio';
               }
-            }
-          }
-          if (!info.lang) {
-            const asr = captionTracks.find((t) => t.kind === 'asr' && t.languageCode);
-            if (asr) {
-              info.lang = asr.languageCode;
-              info.source = 'asr';
             }
           }
         }

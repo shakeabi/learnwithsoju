@@ -45,32 +45,54 @@ function applyToggleFromList(list) {
   siteToggle.checked = !arr.includes(currentHost);
 }
 
-async function loadSiteSection() {
+// Resolve the active tab's hostname. Tries tab.url first (works when
+// activeTab grant is in effect); falls back to messaging the content
+// script (which always knows its own location.hostname). Returns
+// { host, protocol } or null if both sources fail (e.g. chrome:// page
+// with no content script).
+async function resolveActiveSite() {
   let tab;
   try {
     [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   } catch (err) {
-    console.log('[lws] popup loadSiteSection: tabs.query failed', err);
-    return;
+    console.log('[lws] popup resolveActiveSite: tabs.query failed', err);
+    return null;
   }
   if (!tab) {
-    console.log('[lws] popup loadSiteSection: no active tab');
+    console.log('[lws] popup resolveActiveSite: no active tab');
+    return null;
+  }
+  if (tab.url) {
+    try {
+      const u = new URL(tab.url);
+      return { tab, host: u.hostname.toLowerCase(), protocol: u.protocol, href: tab.url };
+    } catch { /* fall through */ }
+  }
+  // Fallback: ask the content script directly.
+  try {
+    const reply = await chrome.tabs.sendMessage(tab.id, { type: 'lws-site-info' });
+    if (reply && reply.host) {
+      return {
+        tab,
+        host: String(reply.host).toLowerCase(),
+        protocol: reply.protocol || 'https:',
+        href: reply.href || '',
+      };
+    }
+  } catch (err) {
+    console.log('[lws] popup resolveActiveSite: content-script fallback failed', err);
+  }
+  return null;
+}
+
+async function loadSiteSection() {
+  const site = await resolveActiveSite();
+  if (!site) return;
+  if (site.protocol !== 'http:' && site.protocol !== 'https:') {
+    console.log('[lws] popup loadSiteSection: non-http(s) protocol', site.protocol);
     return;
   }
-  if (!tab.url) {
-    // Requires "activeTab" or matching host_permissions in manifest. If
-    // you see this, the per-site toggle won't show up.
-    console.log('[lws] popup loadSiteSection: tab.url undefined — missing activeTab permission?');
-    return;
-  }
-  let parsed;
-  try { parsed = new URL(tab.url); } catch { return; }
-  // Only http(s) — content scripts don't run on chrome://, about:, file:, etc.
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    console.log('[lws] popup loadSiteSection: non-http(s) protocol', parsed.protocol);
-    return;
-  }
-  currentHost = parsed.hostname.toLowerCase();
+  currentHost = site.host;
   if (!currentHost) return;
   siteHostEl.textContent = currentHost;
   const data = await chrome.storage.local.get(DISABLED_HOSTS_KEY);
@@ -107,23 +129,16 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // inside the container and toggles its visibility. Adding Netflix / Viki
 // is a new SITE_CONFIGS entry + its own *-popup.js — no edits here.
 async function loadAdapterSection() {
-  let tab;
-  try {
-    [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  } catch {
-    return;
-  }
-  if (!tab || !tab.url) return;
-  let parsed;
-  try { parsed = new URL(tab.url); } catch { return; }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+  const site = await resolveActiveSite();
+  if (!site) return;
+  if (site.protocol !== 'http:' && site.protocol !== 'https:') return;
   let findSiteConfig;
   try {
     ({ findSiteConfig } = await import('./site-configs.js'));
   } catch {
     return;
   }
-  const cfg = findSiteConfig(parsed.hostname);
+  const cfg = findSiteConfig(site.host);
   if (!cfg || !cfg.popupModule) return;
   let mod;
   try {
@@ -133,7 +148,7 @@ async function loadAdapterSection() {
   }
   if (!mod || typeof mod.renderSection !== 'function') return;
   try {
-    await mod.renderSection({ tab, container: adapterSection });
+    await mod.renderSection({ tab: site.tab, href: site.href, container: adapterSection });
   } catch (err) {
     console.warn('[learnwithsoju] popupModule failed:', err);
   }

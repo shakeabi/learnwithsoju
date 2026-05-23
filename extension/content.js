@@ -67,6 +67,23 @@
   const currentHost = (window.location && window.location.hostname || '').toLowerCase();
   const siteConfig = findSiteConfig(currentHost);
 
+  // Popup → content fallback for hostname lookup. Some Chrome states
+  // return tab.url === undefined from chrome.tabs.query even with the
+  // activeTab permission; the popup then has no way to identify the
+  // current site. The content script always knows its own location, so
+  // this handler bypasses that whole class of failures.
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg && msg.type === 'lws-site-info') {
+      sendResponse({
+        host: currentHost,
+        protocol: window.location.protocol,
+        href: window.location.href,
+      });
+      return false;
+    }
+    return undefined;
+  });
+
   let globalEnabled = true;
   let hostDisabled = false;
   let enabled = true;

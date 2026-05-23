@@ -300,12 +300,17 @@ content-script-side adapter using a site-specific message type. The
 generic `popup.js` shell doesn't send these — only the dynamic-imported
 module does.
 
-| `msg.type`            | From               | To                  | Response (sent by `youtube-adapter.js`)                                    |
+| `msg.type`            | From               | To                  | Response                                                                   |
 |-----------------------|--------------------|---------------------|----------------------------------------------------------------------------|
-| `lws-yt-popup-info`   | `youtube-popup.js` | content script tab  | `{ active, videoId, tracks: [{languageCode, languageName, kind, vssId}], secondaryLang }` |
+| `lws-yt-popup-info`   | `youtube-popup.js` | content script tab  | `youtube-adapter.js`: `{ active, videoId, tracks: [{languageCode, languageName, kind, vssId}], secondaryLang }` |
+| `lws-site-info`       | `popup.js`         | content script tab  | `content.js`: `{ host, protocol, href }` — fallback for when `chrome.tabs.query` returns an undefined `tab.url` |
 
-The adapter's `onMessage` listener intercepts this before any of
-`content.js`'s normal lookup paths see it.
+The YT-adapter `onMessage` listener and the content-script `lws-site-info`
+listener both intercept before `content.js`'s normal lookup paths see
+them. `lws-site-info` lets the popup avoid relying on the tabs API for
+the hostname (some Chrome states return `tab.url === undefined` even
+with `activeTab` granted; the content script always knows its own
+`window.location.hostname`).
 
 ### `window.postMessage` — isolated content world ↔ page main world
 
@@ -550,16 +555,21 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
        every 250 ms for up to 10 s.
     3. **Audio-language gate**: `getAudioInfo()` posts
        `{__lwsYtCmd:'audio-info'}` and reads
-       `ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer`:
-       prefers `audioTracks[defaultAudioTrackIndex].defaultCaptionTrackIndex`
-       (authoritative on multi-audio videos) and falls back to the first
-       ASR track's language (YouTube generates ASR in the audio's
-       language). The gate is **fail-open** — we only bail when audio
-       is *positively* detected as non-Korean (e.g. an English ASR
-       exists, so a KO sub track is clearly a translation). Unknown
-       audio engages dual subs if a Korean caption track exists, since
-       many real Korean videos have no ASR (the uploader supplied
-       manual KO captions, so YouTube didn't generate ASR).
+       `ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer`.
+       Signals tried in order:
+        - First ASR track's `languageCode` (YouTube generates ASR in
+          whatever language was actually spoken — most reliable).
+        - `audioTracks[defaultAudioTrackIndex].defaultCaptionTrackIndex`
+          **only when** `audioTracks.length > 1`. On genuine multi-audio
+          videos that pointer correctly maps to the selected audio's
+          language; on single-audio videos the same field is the default
+          *display* caption (e.g. English manual subs added by the
+          uploader on a Korean video) and would mis-identify the audio.
+       The gate is **fail-open** — we only bail when audio is
+       *positively* detected as non-Korean. Unknown audio engages dual
+       subs if a Korean caption track exists, since many real Korean
+       videos have no ASR (the uploader supplied manual KO captions, so
+       YouTube didn't generate ASR).
     4. `resolveSecondaryLang(videoId)` — per-video override (from
        `local.dualSubsOverrides`) wins over `sync.secondaryLang`, which
        defaults to `'en'`.
@@ -590,12 +600,15 @@ Files: `popup.js`, `popup.html`, `site-configs.js`, `youtube-popup.js`, `youtube
 
 1. User clicks the extension's toolbar icon → `popup.html` opens.
 2. `popup.js` `loadAdapterSection()`:
-    1. `chrome.tabs.query({active: true, currentWindow: true})` → tab.
-    2. Resolves `findSiteConfig(tab hostname)` from `site-configs.js`;
+    1. `resolveActiveSite()` → `{ tab, host, protocol, href }`. Tries
+       `tab.url` first (works under `activeTab`); falls back to a
+       `lws-site-info` message to the content script (which always
+       knows `window.location`).
+    2. Resolves `findSiteConfig(site.host)` from `site-configs.js`;
        on YouTube this matches the entry whose `popupModule` is
        `'youtube-popup.js'`.
     3. Dynamic-imports `./youtube-popup.js` and calls
-       `renderSection({ tab, container })`.
+       `renderSection({ tab, href, container })`.
 3. `youtube-popup.js` `renderSection`:
     1. Bails if the URL isn't `youtube.com/watch?...` (the adapter
        section stays hidden).
@@ -1023,7 +1036,9 @@ behavior modular. Adding Netflix / Viki is "append a SITE_CONFIGS entry
   this is the dual-subs overlay + page-hook injection.
 - `popupModule` — relative path to a popup-side module. `popup.js`
   dynamic-imports it when the active tab matches this config and calls
-  `renderSection({ tab, container })`. The module owns all DOM inside
+  `renderSection({ tab, href, container })` (`href` is the page URL,
+  resolved by popup.js from `tab.url` or the content-script fallback).
+  The module owns all DOM inside
   the container (a hidden `<section id="site-adapter-section">` in
   `popup.html`) and is responsible for `container.hidden = false`. Use
   this for per-site UI in the toolbar popup — e.g. YouTube's
