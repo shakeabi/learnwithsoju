@@ -230,7 +230,6 @@ can grow past the 5 MB default.
 | `krdictApiKey`     | string    | `""`     | `options.js`                     | `background.js` (every lookup)           |
 | `opendictApiKey`   | string    | `""`     | `options.js`                     | `background.js` (only when KRDict empty) |
 | `enabled`          | boolean   | `true`   | `options.js`, `popup.js`         | `content.js` init + onChanged listener   |
-| `disabledHosts`    | `string[]` | `[]`    | `popup.js` (per-site toggle)     | `content.js` init + onChanged listener   |
 | `defLang`          | `'en' \| 'ko'` | `'en'` | `content.js` (popup toggle) | `content.js` (popup render)              |
 | `dualSubsYouTube`  | boolean   | `true`*  | `options.js`                     | `youtube-adapter.js` (onChanged + isEnabled) |
 | `secondaryLang`    | string    | `'en'`   | `options.js`                     | `youtube-adapter.js`, `popup.js` (default) |
@@ -247,6 +246,7 @@ options page; nothing else is initialized.
 | `lookup:<surface>`        | `LookupResponse`  | `background.js` (`cache.set`)                 | `background.js` (`cache.get`) |
 | `hanja:<chars>`           | Hanja gloss array | `background.js` (`hanjaCache.set`)            | `background.js`               |
 | `dualSubsOverrides`       | `{ [videoId]: lang }` | `popup.js` (per-video radio selection)    | `youtube-adapter.js` (onChanged + resolveSecondaryLang) |
+| `disabledHosts`           | `string[]`        | `popup.js` (per-site toggle)                  | `content.js` init + onChanged listener |
 
 `lookup:` and `hanja:` are namespaces enforced by `cache.js` (see §11) —
 the actual storage entries are keyed `lookup:먹다`, `hanja:豫約`, etc.
@@ -260,6 +260,16 @@ word cache does not blow away the Hanja cache and vice versa.
 MV3 — content scripts (where `youtube-adapter.js` runs) get a silent
 permission denial. `chrome.storage.local` is unrestricted and has the
 nice side-effect that per-video preferences survive a browser restart.
+
+### Why `chrome.storage.local` (not `sync`) for `disabledHosts`
+
+`chrome.storage.sync` is rate-limited (`MAX_WRITE_OPERATIONS_PER_MINUTE`,
+`QUOTA_BYTES_PER_ITEM`) and is eventually-consistent with the cloud.
+Per-site toggle writes were getting dropped — the user would toggle ON,
+refresh, and the page would still see the host in the disabled list.
+`local` is per-device with no quota concerns and writes through
+immediately. "On this device, leave me alone on this site" is the
+natural semantics anyway; no need to roam it.
 
 ---
 
@@ -322,7 +332,7 @@ broadcast bus for settings:
 | Key                  | Listener                                | What the listener does                                  |
 |----------------------|-----------------------------------------|---------------------------------------------------------|
 | `enabled`            | `content.js`                            | Toggle scanning + popup activity for this tab           |
-| `disabledHosts`      | `content.js`                            | Same effect as `enabled`, but only when this hostname's membership changes (compares against `window.location.hostname`) |
+| `disabledHosts` (local) | `content.js`                         | Same effect as `enabled`, but only when this hostname's membership changes (compares against `window.location.hostname`) |
 | `defLang`            | `content.js`                            | `rerenderActivePopup()` if popup is showing             |
 | `dualSubsYouTube`    | `youtube-adapter.js`                    | Re-activate / deactivate dual subs on the current page  |
 | `secondaryLang`      | `youtube-adapter.js`                    | Re-activate so the new default applies                  |

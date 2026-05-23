@@ -12,7 +12,10 @@
     'P', 'LI', 'TD', 'TH', 'BLOCKQUOTE', 'FIGCAPTION', 'ARTICLE', 'SECTION',
     'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'DT', 'DD', 'CAPTION', 'SUMMARY',
   ]);
-  const STORAGE_KEYS = { ENABLED: 'enabled', DEF_LANG: 'defLang', SECONDARY_LANG: 'secondaryLang', DISABLED_HOSTS: 'disabledHosts' };
+  const STORAGE_KEYS = { ENABLED: 'enabled', DEF_LANG: 'defLang', SECONDARY_LANG: 'secondaryLang' };
+  // Per-site disable list lives in chrome.storage.local (see popup.js for
+  // rationale — sync was dropping per-site writes).
+  const DISABLED_HOSTS_KEY = 'disabledHosts';
   const DEF_LANG_DEFAULT = 'en';
   const SECONDARY_LANG_DEFAULT = 'en';
   // Code → human-readable name for the prompt sent to ChatGPT. Mirrors
@@ -1567,12 +1570,16 @@
   }
 
   async function init() {
-    const stored = await chrome.storage.sync.get([STORAGE_KEYS.ENABLED, STORAGE_KEYS.DEF_LANG, STORAGE_KEYS.DISABLED_HOSTS]);
-    globalEnabled = stored[STORAGE_KEYS.ENABLED] !== false;
-    const disabledList = Array.isArray(stored[STORAGE_KEYS.DISABLED_HOSTS]) ? stored[STORAGE_KEYS.DISABLED_HOSTS] : [];
+    const [syncData, localData] = await Promise.all([
+      chrome.storage.sync.get([STORAGE_KEYS.ENABLED, STORAGE_KEYS.DEF_LANG]),
+      chrome.storage.local.get(DISABLED_HOSTS_KEY),
+    ]);
+    globalEnabled = syncData[STORAGE_KEYS.ENABLED] !== false;
+    const disabledList = Array.isArray(localData[DISABLED_HOSTS_KEY]) ? localData[DISABLED_HOSTS_KEY] : [];
     hostDisabled = !!currentHost && disabledList.includes(currentHost);
     enabled = globalEnabled && !hostDisabled;
-    defLang = stored[STORAGE_KEYS.DEF_LANG] === 'ko' ? 'ko' : DEF_LANG_DEFAULT;
+    defLang = syncData[STORAGE_KEYS.DEF_LANG] === 'ko' ? 'ko' : DEF_LANG_DEFAULT;
+    console.log('[lws] content init', { host: currentHost, globalEnabled, hostDisabled, enabled, disabledList });
     await loadSecondaryLang();
     if (!document.body) {
       document.addEventListener('DOMContentLoaded', init, { once: true });
@@ -1590,20 +1597,20 @@
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'sync') return;
     let recompute = false;
-    if (STORAGE_KEYS.ENABLED in changes) {
+    if (area === 'sync' && STORAGE_KEYS.ENABLED in changes) {
       globalEnabled = changes[STORAGE_KEYS.ENABLED].newValue !== false;
       recompute = true;
     }
-    if (STORAGE_KEYS.DISABLED_HOSTS in changes) {
-      const nextList = Array.isArray(changes[STORAGE_KEYS.DISABLED_HOSTS].newValue)
-        ? changes[STORAGE_KEYS.DISABLED_HOSTS].newValue : [];
+    if (area === 'local' && DISABLED_HOSTS_KEY in changes) {
+      const nextList = Array.isArray(changes[DISABLED_HOSTS_KEY].newValue)
+        ? changes[DISABLED_HOSTS_KEY].newValue : [];
       hostDisabled = !!currentHost && nextList.includes(currentHost);
       recompute = true;
     }
     if (recompute) {
       const next = globalEnabled && !hostDisabled;
+      console.log('[lws] content onChanged', { area, globalEnabled, hostDisabled, was: enabled, now: next });
       if (next && !enabled) {
         enabled = true;
         scanRoot(document.body);
@@ -1613,6 +1620,7 @@
         hidePopup();
       }
     }
+    if (area !== 'sync') return;
     if (STORAGE_KEYS.DEF_LANG in changes) {
       const next = changes[STORAGE_KEYS.DEF_LANG].newValue;
       defLang = next === 'ko' ? 'ko' : DEF_LANG_DEFAULT;
