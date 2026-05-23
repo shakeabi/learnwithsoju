@@ -45,15 +45,28 @@ secondary language has a default in settings and a per-video override
 from the toolbar popup.
 
 Netflix is partway through Phase 2 (dual-subs overlay). Today the
-extension provides hover support on Netflix's native captions (via
-the per-site `.lws-word` z-index lift in `site-configs.js`) and the
-Phase 2.1 adapter — which instruments the page-world subtitle
-fetches and logs them, but doesn't yet mount our own overlay. Phase
-2.2+ will parse the captured TTML / DFXP / WebVTT, prefer `[cc]`
-variants over plain when both forms exist for a given language,
-hide Netflix's native rendering, and mount a dual-language overlay
-(same shape as YouTube's). Phase 2.4 adds a `netflix-popup.js` for
-per-video secondary-language override.
+extension:
+
+  - hooks Netflix's subtitle fetches in the page world
+    (`netflix-page-hook.js`),
+  - parses captured TTML in the isolated world
+    (`netflix-adapter.js`'s `parseTtml`),
+  - caches per language (`tracksByLang` Map, keyed by normalized
+    `xml:lang`), preferring CC variants when both plain and CC of the
+    same language arrive,
+  - mounts a dual-language overlay on the player as soon as a Korean
+    track is captured. The overlay shows KO alone if only Korean has
+    been captured so far; once a secondary track arrives (e.g. the
+    user toggles between KO and EN in Netflix's CC menu during the
+    session), the overlay re-renders with both lines.
+
+Netflix only fetches the user's currently-selected subtitle track,
+not all of them, so dual-line display requires the user to have
+loaded both languages at some point in the session. Phase 2.3+ will
+look at programmatically priming a secondary fetch (likely via
+Netflix's internal player API once we identify a stable entry point)
+and Phase 2.4 will add `netflix-popup.js` for per-video
+secondary-language override.
 
 Per-site behaviour: the toolbar popup has a per-host disable toggle that
 takes effect immediately — dictionary popups stop firing, the dashed
@@ -192,7 +205,7 @@ learnwithsoju/
 │   ├── youtube-adapter.js              ← content-script-side YouTube adapter; dual subs lifecycle
 │   ├── youtube-popup.js                ← popup-side YouTube section (secondary-language dropdown); dynamic-imported by popup.js
 │   ├── youtube-page-hook.js            ← page-main-world script; XHR/fetch hooks + tracklist/load-track command channel
-│   ├── netflix-adapter.js              ← content-script-side Netflix adapter (Phase 2.1: caption-capture instrumentation; overlay rendering pending)
+│   ├── netflix-adapter.js              ← content-script-side Netflix adapter (TTML parse, per-lang cache, dual-line overlay; secondary-track priming pending)
 │   ├── netflix-page-hook.js            ← page-main-world script; XHR/fetch hooks for Netflix subtitle URLs (TTML/DFXP/WebVTT)
 │   ├── cache.js                        ← two-tier (in-mem LRU + storage adapter) cache factory; namespaced (pure)
 │   ├── popup.html                      ← toolbar-action popup markup
