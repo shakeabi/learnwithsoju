@@ -4,6 +4,7 @@ const KEYS = {
   DUAL_SUBS_YT: 'dualSubsYouTube',
   SECONDARY_LANG: 'secondaryLang',
   ASK_AI_PROMPT: 'askAiPrompt',
+  ASK_AI_PROVIDER: 'askAiProvider',
 };
 
 // Default Ask-AI prompt. Kept in sync with the fallback in content.js
@@ -32,6 +33,7 @@ const odInput = document.getElementById('opendict-key');
 const dualSubsToggle = document.getElementById('dualsubs-toggle');
 const secondaryLangSelect = document.getElementById('secondary-lang');
 const askAiPromptInput = document.getElementById('ask-ai-prompt');
+const askAiProviderSelect = document.getElementById('ask-ai-provider');
 const resetAskAiPromptBtn = document.getElementById('reset-ask-ai-prompt');
 const askAiPromptStatus = document.getElementById('ask-ai-prompt-status');
 const saveBtn = document.getElementById('save-btn');
@@ -66,6 +68,25 @@ function setAskAiPromptStatus(text, kind) {
   }
 }
 
+async function populateAiProviderSelect(selectedValue) {
+  if (!askAiProviderSelect) return;
+  try {
+    const mod = await import('./ai-providers.js');
+    const providers = mod.AI_PROVIDERS || {};
+    const fallback = mod.DEFAULT_ASK_AI_PROVIDER || Object.keys(providers)[0];
+    askAiProviderSelect.innerHTML = '';
+    for (const [key, def] of Object.entries(providers)) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = def.name || key;
+      askAiProviderSelect.appendChild(opt);
+    }
+    askAiProviderSelect.value = providers[selectedValue] ? selectedValue : fallback;
+  } catch (err) {
+    console.warn('[lws] options: failed to load ai-providers.js', err);
+  }
+}
+
 async function load() {
   const data = await chrome.storage.sync.get([
     KEYS.KRDICT_KEY,
@@ -73,6 +94,7 @@ async function load() {
     KEYS.DUAL_SUBS_YT,
     KEYS.SECONDARY_LANG,
     KEYS.ASK_AI_PROMPT,
+    KEYS.ASK_AI_PROVIDER,
   ]);
   krInput.value = data[KEYS.KRDICT_KEY] || '';
   odInput.value = data[KEYS.OPENDICT_KEY] || '';
@@ -83,6 +105,7 @@ async function load() {
       ? data[KEYS.ASK_AI_PROMPT]
       : DEFAULT_ASK_AI_PROMPT;
   }
+  await populateAiProviderSelect(data[KEYS.ASK_AI_PROVIDER]);
   const v = chrome.runtime.getManifest().version;
   versionLine.textContent = `v${v}`;
 }
@@ -140,6 +163,11 @@ if (dualSubsToggle) {
 if (secondaryLangSelect) {
   secondaryLangSelect.addEventListener('change', () => {
     chrome.storage.sync.set({ [KEYS.SECONDARY_LANG]: secondaryLangSelect.value });
+  });
+}
+if (askAiProviderSelect) {
+  askAiProviderSelect.addEventListener('change', () => {
+    chrome.storage.sync.set({ [KEYS.ASK_AI_PROVIDER]: askAiProviderSelect.value });
   });
 }
 if (askAiPromptInput) {

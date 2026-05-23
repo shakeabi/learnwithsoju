@@ -54,6 +54,7 @@
         "parsers.js",
         "grammar-glosses.js",
         "site-configs.js",
+        "ai-providers.js",
         "youtube-adapter.js",
         "youtube-page-hook.js"
       ],

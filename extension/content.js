@@ -16,6 +16,7 @@
     DEF_LANG: 'defLang',
     SECONDARY_LANG: 'secondaryLang',
     ASK_AI_PROMPT: 'askAiPrompt',
+    ASK_AI_PROVIDER: 'askAiProvider',
   };
   // Per-site disable list lives in chrome.storage.local (see popup.js for
   // rationale — sync was dropping per-site writes).
@@ -87,6 +88,9 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
 
   const sites = await import(chrome.runtime.getURL('site-configs.js'));
   const { findSiteConfig } = sites;
+
+  const aiProvidersMod = await import(chrome.runtime.getURL('ai-providers.js'));
+  const { AI_PROVIDERS, DEFAULT_ASK_AI_PROVIDER } = aiProvidersMod;
   // Resolved once per content-script lifetime — frames don't navigate between
   // sites without a reload, which re-injects content.js.
   const currentHost = (window.location && window.location.hostname || '').toLowerCase();
@@ -117,6 +121,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   // time would force buildSentenceNode to become async.
   let secondaryLang = SECONDARY_LANG_DEFAULT;
   let askAiPromptTemplate = DEFAULT_ASK_AI_PROMPT;
+  let askAiProvider = DEFAULT_ASK_AI_PROVIDER;
   let popupHost = null;
   let popupRoot = null;
   let popupEl = null;
@@ -495,6 +500,13 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     return SECONDARY_LANG_NAMES[code] || code;
   }
 
+  function currentProvider() {
+    // Defend against the storage value not matching a registered
+    // provider (e.g. user-edited storage, or we removed a provider in
+    // a later release).
+    return AI_PROVIDERS[askAiProvider] || AI_PROVIDERS[DEFAULT_ASK_AI_PROVIDER];
+  }
+
   function buildAskAiUrl(sentence) {
     const langName = secondaryLangName(secondaryLang);
     const sentenceWithMark = `${sentence.before}\`${sentence.word}\`${sentence.after}`;
@@ -504,7 +516,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       .split('{sentence}').join(sentenceWithMark)
       .split('{word}').join(sentence.word)
       .split('{language}').join(langName);
-    return `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
+    return `${currentProvider().urlPrefix}${encodeURIComponent(prompt)}`;
   }
 
   function buildAiPill(sentence) {
@@ -513,7 +525,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     a.href = buildAskAiUrl(sentence);
     a.target = '_blank';
     a.rel = 'noreferrer noopener';
-    a.title = 'Ask ChatGPT to explain this sentence and the highlighted word';
+    a.title = `Ask ${currentProvider().name} to explain this sentence and the highlighted word`;
     const icon = document.createElement('span');
     icon.className = 'lws-ai-pill-icon';
     icon.textContent = '✨';
@@ -1634,7 +1646,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
 
   async function init() {
     const [syncData, localData] = await Promise.all([
-      chrome.storage.sync.get([STORAGE_KEYS.DEF_LANG, STORAGE_KEYS.ASK_AI_PROMPT]),
+      chrome.storage.sync.get([STORAGE_KEYS.DEF_LANG, STORAGE_KEYS.ASK_AI_PROMPT, STORAGE_KEYS.ASK_AI_PROVIDER]),
       chrome.storage.local.get(DISABLED_HOSTS_KEY),
     ]);
     const disabledList = Array.isArray(localData[DISABLED_HOSTS_KEY]) ? localData[DISABLED_HOSTS_KEY] : [];
@@ -1645,6 +1657,10 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       && syncData[STORAGE_KEYS.ASK_AI_PROMPT])
       ? syncData[STORAGE_KEYS.ASK_AI_PROMPT]
       : DEFAULT_ASK_AI_PROMPT;
+    askAiProvider = (typeof syncData[STORAGE_KEYS.ASK_AI_PROVIDER] === 'string'
+      && AI_PROVIDERS[syncData[STORAGE_KEYS.ASK_AI_PROVIDER]])
+      ? syncData[STORAGE_KEYS.ASK_AI_PROVIDER]
+      : DEFAULT_ASK_AI_PROVIDER;
     console.log('[lws] content init', { host: currentHost, hostDisabled, enabled, disabledList });
     await loadSecondaryLang();
     if (!document.body) {
@@ -1699,6 +1715,11 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       const next = changes[STORAGE_KEYS.ASK_AI_PROMPT].newValue;
       askAiPromptTemplate = (typeof next === 'string' && next) ? next : DEFAULT_ASK_AI_PROMPT;
       // No rerender — the pill's href is built fresh each render.
+    }
+    if (STORAGE_KEYS.ASK_AI_PROVIDER in changes) {
+      const next = changes[STORAGE_KEYS.ASK_AI_PROVIDER].newValue;
+      askAiProvider = (typeof next === 'string' && AI_PROVIDERS[next]) ? next : DEFAULT_ASK_AI_PROVIDER;
+      // No rerender — pill href + tooltip are rebuilt on next render.
     }
   });
 

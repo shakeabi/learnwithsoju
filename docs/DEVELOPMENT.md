@@ -137,7 +137,7 @@ External services touched at runtime:
 | `opendict.korean.go.kr`    | Only when KRDict returns nothing AND the user has provided a key     | User's OpenDict key   |
 | `hangulhanja.com`          | When the user clicks a Hanja origin chip in the popup (lazy, cached) | None (open API)       |
 | `koreanverb.app`           | Outbound `target=_blank` link only — no extension-initiated fetch    | n/a                   |
-| `chatgpt.com`              | Not currently used. (No code path opens chatgpt.com; mentioned in the project README only as a possible future direction.) | n/a |
+| `chatgpt.com` / `claude.ai` | "Ask AI" pill in the popup — opens the chosen AI service in a new tab with the rendered prompt as `?q=`. Providers are listed in `extension/ai-providers.js`; the user picks one in the options page's Advanced section. No extension-initiated fetch — just an `<a target="_blank">`. | n/a |
 
 ---
 
@@ -156,6 +156,7 @@ learnwithsoju/
 │   ├── parsers.js                      ← KRDict/OpenDict XML → entry objects; POS/Hanja/grade helpers; outbound link builders (pure)
 │   ├── grammar-glosses.js              ← morpheme form/POS → short English gloss for the breakdown chips (pure)
 │   ├── site-configs.js                 ← per-site sentence-container selectors + findVideo + adapter + popupModule paths
+│   ├── ai-providers.js                 ← registry of "Ask AI" pill targets (ChatGPT, Claude, …); add new providers here
 │   ├── youtube-adapter.js              ← content-script-side YouTube adapter; dual subs lifecycle
 │   ├── youtube-popup.js                ← popup-side YouTube section (secondary-language dropdown); dynamic-imported by popup.js
 │   ├── youtube-page-hook.js            ← page-main-world script; XHR/fetch hooks + tracklist/load-track command channel
@@ -233,6 +234,7 @@ can grow past the 5 MB default.
 | `dualSubsYouTube`  | boolean   | `true`*  | `options.js`                     | `youtube-adapter.js` (onChanged + isEnabled) |
 | `secondaryLang`    | string    | `'en'`   | `options.js`                     | `youtube-adapter.js`, `popup.js` (default) |
 | `askAiPrompt`      | string    | unset → built-in default | `options.js` (Advanced section) | `content.js` (init + onChanged → `buildAskAiUrl`) |
+| `askAiProvider`    | string    | `'chatgpt'`     | `options.js` (Advanced section) | `content.js` (init + onChanged → `buildAskAiUrl` picks the URL prefix from `ai-providers.js`) |
 
 *`dualSubsYouTube` defaults to `true` in the adapter's `isEnabled()` —
 the setting is treated as "off only if explicitly set to `false`". The
@@ -253,6 +255,15 @@ containing `$1`/`$&`/`$'` aren't mangled by replacement-pattern
 interpolation. Storing the value equal to the default removes the
 key (the options page's textarea handler does this), so the live
 default in code is what's used.
+
+`askAiProvider` is a key into the `AI_PROVIDERS` registry exported
+from `extension/ai-providers.js`. Each entry contributes `{ name,
+urlPrefix }`; the pill's href is `urlPrefix + encodeURIComponent(prompt)`
+and the tooltip says `Ask <name> to explain...`. Adding a provider is
+one entry in `ai-providers.js` — the options-page dropdown is
+populated from the same registry (no HTML edits) and `content.js`
+picks it up via `chrome.runtime.getURL` import (the file is listed in
+`web_accessible_resources`).
 
 ### `chrome.storage.local`
 
@@ -1196,7 +1207,9 @@ The settings page. Linked from the popup ("Open settings →") and from
 - Advanced (collapsible `<details>`, closed by default): "Ask AI"
   prompt template textarea + "Reset to default" button. Auto-saves
   to `askAiPrompt` (sync) on blur. Saving an empty value or the
-  default text removes the key so the live default re-applies.
+  default text removes the key so the live default re-applies. Also
+  an AI-service `<select>` populated dynamically from
+  `ai-providers.js` and bound to `askAiProvider` (sync).
 - Cache: a "Clear cache" button that sends `{type: 'clearCache'}` to
   the SW.
 

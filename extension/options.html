@@ -95,10 +95,18 @@
       </p>
 
       <label class="field">
+        <span class="label">AI service for "Ask AI" pill</span>
+        <select id="ask-ai-provider"><!-- populated from ai-providers.js --></select>
+        <p class="field-note">
+          The pill opens this service in a new tab with the prompt below pre-filled.
+        </p>
+      </label>
+
+      <label class="field">
         <span class="label">"Ask AI" prompt template</span>
         <textarea id="ask-ai-prompt" spellcheck="false" rows="8" placeholder="Click Reset to load the default template."></textarea>
         <p class="field-note">
-          Placeholders (replaced before opening ChatGPT):
+          Placeholders (substituted before opening the AI service):
           <code>{sentence}</code> the sentence with the focus word wrapped in backticks ·
           <code>{word}</code> just the focus word ·
           <code>{language}</code> your secondary-language name (e.g. "English").
