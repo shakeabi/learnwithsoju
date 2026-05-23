@@ -367,7 +367,10 @@ async function rebuildOverlay() {
   // Need Korean. Without KO there's nothing to render as a primary;
   // we don't try to learn-Korean from English subtitles.
   const ko = tracksByLang.get('ko');
-  if (!ko) return;
+  if (!ko) {
+    log(`rebuildOverlay: no KO yet; cached langs=[${Array.from(tracksByLang.keys()).join(',') || 'empty'}]`);
+    return;
+  }
 
   // Need a player video to anchor / time-sync to. Wait up to ~5s
   // after captures arrive (Netflix typically has the <video> ready
@@ -382,6 +385,15 @@ async function rebuildOverlay() {
   const secondary = secondaryLang && secondaryLang !== 'off'
     ? tracksByLang.get(secondaryLang)
     : null;
+  // Verbose: tells us at mount time what's actually cached. If the
+  // user sees "secondary=(missing)" but expects EN, either the EN
+  // capture never arrived (Netflix served from cache without a
+  // fresh fetch, or the page hook missed it) or normalizeLang
+  // produced a different key for it. The full list at the end is
+  // the source of truth — match against secondaryLang to find it.
+  log(`rebuildOverlay: ko=${ko.captionedness}/${ko.lines.length}lines, ` +
+    `secondaryLang='${secondaryLang}' → ${secondary ? secondary.captionedness + '/' + secondary.lines.length + 'lines' : '(missing)'}` +
+    `, all cached langs=[${Array.from(tracksByLang.keys()).join(',')}]`);
 
   // Tear down any prior mount before remounting — clean state.
   teardownOverlay();

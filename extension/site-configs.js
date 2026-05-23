@@ -114,10 +114,19 @@ export const SITE_CONFIGS = [
     //       <span> ... <span>                   ← styled fragments
     // closest() up from a hovered .lws-word lands on the line
     // container; we use its textContent as the sentence.
-    // (Some Netflix titles use canvas-rendered captions in low-bandwidth
-    // /low-DRM modes — those won't be hoverable. Most modern titles
-    // render to the DOM.)
-    sentenceContainer: '.player-timedtext-text-container, .player-timedtext',
+    //
+    // Once netflix-adapter.js mounts its own overlay (TTML parse +
+    // dual lines), it hides Netflix's native caption containers and
+    // its KO line lives in `.lws-nxsubs-ko`. That selector is FIRST
+    // so a hovered word in the overlay matches it before walking up
+    // any further; the pause-on-popup logic in content.js gates on
+    // this selector matching, so without it pause would skip when
+    // hovering our overlay's words.
+    //
+    // (Some Netflix titles use canvas-rendered captions in low-
+    // bandwidth / low-DRM modes — those won't be hoverable. Most
+    // modern titles render to the DOM and get our overlay treatment.)
+    sentenceContainer: '.lws-nxsubs-ko, .player-timedtext-text-container, .player-timedtext',
     // Netflix's main video element. The watch route mounts the player
     // under `.watch-video`; some embed paths and the post-play screen
     // use a plain top-level <video>.

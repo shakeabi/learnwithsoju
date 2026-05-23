@@ -1140,10 +1140,18 @@ SITE_CONFIGS entry, optionally drop in two files" — no edits to
 `content.js` or `popup.js`. Fields:
 
 - `sentenceContainer` — CSS selector used by `content.js`'s
-`extractSentence` instead of the default block-element walk, AND the
-caption-vs-prose signal that gates auto-pause. Tightest match wins
-(we use `closest()`). For YouTube, this points at our own overlay's
-KO line first, then YouTube's native caption containers as fallbacks.
+  `extractSentence` instead of the default block-element walk, AND the
+  caption-vs-prose signal that gates auto-pause. Tightest match wins
+  (we use `closest()`). For YouTube and Netflix, the selector lists
+  our own overlay's KO line class FIRST (`.lws-ytsubs-ko` /
+  `.lws-nxsubs-ko`), then the host's native caption containers as
+  fallbacks. **Important**: when an adapter mounts its own overlay
+  AND hides the host's native captions, its overlay's KO class MUST
+  be in this selector — otherwise `closest()` returns null when the
+  user hovers over the overlay (native containers are gone), so
+  pause-on-popup silently doesn't fire. Hidden-native + missing
+  overlay-class in `sentenceContainer` is a bug-shaped pattern; the
+  fix is one comma-separated entry.
 - `findVideo()` — returns the page's main video element (or null). Used
 by `content.js` to auto-pause when the popup opens, but only when the
 hover is inside `sentenceContainer` (so comments / titles don't pause
@@ -2232,9 +2240,19 @@ not. Pattern is in `youtube-adapter.js`'s `activate()`.
 current state" function, store it in `teardownFn`, call it from
 `deactivate()`, and null `teardownFn` afterward.
 - **Popup communication** (if needed): `chrome.runtime.onMessage`
-listener for a site-specific message type (e.g.
-`lws-myservice-info`). The adapter responds with whatever the
-toolbar popup's site module needs.
+  listener for a site-specific message type (e.g.
+  `lws-myservice-info`). The adapter responds with whatever the
+  toolbar popup's site module needs.
+- **`sentenceContainer` must include your overlay's KO class**: if
+  your adapter hides the host's native caption containers (so we
+  don't double-render) AND mounts its own overlay, the host's
+  `sentenceContainer` selector in `site-configs.js` MUST also list
+  your overlay's KO container class. Without it, `closest(selector)`
+  on a hovered `.lws-word` inside your overlay returns null,
+  `extractSentence` falls back to its default block walk, AND
+  `pauseVideoIfApplicable` silently doesn't fire. Both the YouTube
+  and Netflix entries list their overlay classes first
+  (`.lws-ytsubs-ko, …` and `.lws-nxsubs-ko, …` respectively).
 
 ### 14.4 If you need page-world access
 
