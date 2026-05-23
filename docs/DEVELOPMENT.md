@@ -1879,12 +1879,24 @@ CI lives in `.github/workflows/ci.yml`. Three jobs in one workflow:
 
 ---
 
-## 14. How to add a new site adapter
+## 14. Extending the extension
 
-Most sites work out of the box — the default sentence-extraction walks
-up the DOM until it hits a `<p>`, `<li>`, `<blockquote>`, `<article>`,
-etc. and uses that block's text. If your target site needs different
-behavior, here's the recipe.
+Three categories of extension surface, in roughly increasing scope:
+
+| Surface                                | Where it lives                            | Add by                                           |
+|----------------------------------------|-------------------------------------------|--------------------------------------------------|
+| Per-site behavior                      | `site-configs.js` + optional `*-adapter.js` / `*-popup.js` / `*-page-hook.js` | Append a SITE_CONFIGS entry, drop files in `extension/`, add to `web_accessible_resources` |
+| "Ask AI" pill providers                | `ai-providers.js`                         | Append one entry to `AI_PROVIDERS`               |
+| Persistent settings                    | `options.html` + `options.js` + the consumer | Add a field, wire `load()` / `change` handler, react in `chrome.storage.onChanged` |
+
+Subsections below walk each in detail. §14.8 collects design principles
+that apply to every extension surface.
+
+### Site adapter for a new website
+
+§14.1–14.5 cover the per-site path, in order of how much you're
+overriding. Start at the top — if the default behavior is fine for your
+site, you don't even need an entry.
 
 ### 14.1 If you only need a different sentence selector
 
@@ -1926,16 +1938,29 @@ popup closes (unless the user paused it themselves in the meantime).
 ### 14.3 If you need active page manipulation (caption replacement, etc.)
 
 This is what `youtube-adapter.js` is. Create a new file in `extension/`
-that exports `setup()`:
+that exports `setup(api)`:
 
 ```js
 // extension/myservice-adapter.js
-export async function setup() {
+
+// api is { unwrap, rescan } from content.js. unwrap strips all
+// .lws-word spans (call before the host site mutates DOM containers
+// that hold them); rescan re-wraps the page. Both are no-ops when
+// the extension is disabled on the current host, so always safe to
+// call. Default-arg so older callers (none yet, but allows safe
+// signature evolution) don't crash.
+let hostUnwrap = () => {};
+let hostRescan = () => {};
+
+export async function setup(api = {}) {
+  if (typeof api.unwrap === 'function') hostUnwrap = api.unwrap;
+  if (typeof api.rescan === 'function') hostRescan = api.rescan;
+
   // ... your setup logic
-  // - register listeners
+  // - register storage / runtime listeners
   // - mount DOM
-  // - watch for SPA navigation
-  // Return value not used by content.js; manage your own teardown.
+  // - wire SPA navigation (call hostUnwrap on nav-start, hostRescan after)
+  // Return value not used; manage your own teardown.
 }
 ```
 
@@ -1950,7 +1975,8 @@ Register it in `site-configs.js`:
 },
 ```
 
-Add it to `web_accessible_resources` in `manifest.json`:
+Add it to `web_accessible_resources` in `manifest.json` (every file the
+content script dynamic-imports needs to be listed there):
 
 ```json
 "web_accessible_resources": [{
@@ -1959,6 +1985,7 @@ Add it to `web_accessible_resources` in `manifest.json`:
     "parsers.js",
     "grammar-glosses.js",
     "site-configs.js",
+    "ai-providers.js",
     "youtube-adapter.js",
     "youtube-page-hook.js",
     "myservice-adapter.js"
@@ -1967,22 +1994,35 @@ Add it to `web_accessible_resources` in `manifest.json`:
 }]
 ```
 
-`content.js` dynamic-imports the adapter at the end of `init()`:
-
-```js
-if (siteConfig && siteConfig.adapter) {
-  import(chrome.runtime.getURL(siteConfig.adapter))
-    .then((mod) => mod && typeof mod.setup === 'function' && mod.setup())
-    .catch(...);
-}
-```
+`content.js`'s `loadAdapter()` dynamic-imports the adapter and calls
+`setup({unwrap, rescan})` automatically — no further wiring needed.
 
 The adapter is responsible for its own:
-- Storage listeners (settings + per-site overrides).
-- Navigation handling (SPA navigation events + URL polling fallback).
-- DOM teardown when navigating away or when the user disables a relevant
-  setting.
-- Communication with the popup (if needed) via `chrome.runtime.onMessage`.
+
+- **Storage listeners**: settings (sync) + per-site overrides (local)
+  + the `disabledHosts` key in `chrome.storage.local` (otherwise your
+  active manipulation won't tear down when the user toggles your site
+  off in the popup). See `youtube-adapter.js`'s `isEnabled()` for the
+  pattern.
+- **Navigation handling**: SPA navigation events + a `setInterval`
+  URL-poll fallback (some host-internal nav paths skip the events).
+  On nav-start call `hostUnwrap()` and your own `deactivate()`; on
+  nav-finish (after a short timeout for the new DOM to settle) call
+  your `activate()` and `hostRescan()`.
+- **Race-safe activate / deactivate**: `activate()` is almost always
+  async — captures, fetches, waiting for elements to appear. SPA navs
+  fire faster than that chain completes, so naive implementations
+  leave stacked overlays. Use a generation token: bump it in both
+  `activate()` and `deactivate()`; after every `await` in `activate`,
+  check `myGen === activeGeneration` and tear down your own work if
+  not. Pattern is in `youtube-adapter.js`'s `activate()`.
+- **DOM teardown**: return a teardown closure from your "init for
+  current state" function, store it in `teardownFn`, call it from
+  `deactivate()`, and null `teardownFn` afterward.
+- **Popup communication** (if needed): `chrome.runtime.onMessage`
+  listener for a site-specific message type (e.g.
+  `lws-myservice-info`). The adapter responds with whatever the
+  toolbar popup's site module needs.
 
 ### 14.4 If you need page-world access
 
@@ -2011,6 +2051,166 @@ needs to inject a page-world script — like
 
 See `youtube-adapter.js` (`sendHookCmd`, `awaitHookReply`,
 `captureCaption`) for a working example.
+
+### 14.5 If you want a section in the toolbar popup for your site
+
+The toolbar popup (the panel that opens when you click the extension
+icon) has a generic "adapter section" — `<section id="site-adapter-section">`.
+`popup.js`'s `loadAdapterSection()` resolves the active tab's hostname
+against `SITE_CONFIGS`, and if the matched entry declares a
+`popupModule`, dynamic-imports it and calls
+`renderSection({ tab, href, container })`.
+
+Create `extension/myservice-popup.js`:
+
+```js
+// extension/myservice-popup.js
+//
+// Loaded by popup.js when the active tab matches the My Service
+// SITE_CONFIGS entry. Owns all DOM under the container it's handed;
+// must set container.hidden = false when it has something to show.
+
+export async function renderSection({ tab, href, container }) {
+  // `href` is the page URL (resolved by popup.js from tab.url or, as a
+  // fallback, by messaging the content script). Don't read tab.url
+  // directly — it can be undefined in some Chrome states.
+  if (!href) return;
+  let parsed;
+  try { parsed = new URL(href); } catch { return; }
+  // Bail if you've nothing to show on this kind of page.
+  if (parsed.pathname !== '/relevant-route') return;
+
+  // ... build DOM under `container` ...
+  container.hidden = false;
+
+  // Talk to your content-script adapter via:
+  //   chrome.tabs.sendMessage(tab.id, { type: 'lws-myservice-info' })
+  // The adapter's onMessage handler should sendResponse synchronously
+  // (or return true if it needs to reply later).
+}
+```
+
+Register the popup module in `site-configs.js` (add `popupModule` to
+the existing entry):
+
+```js
+{
+  name: 'My Service',
+  hostnames: ['myservice.com'],
+  sentenceContainer: '.my-sentence',
+  adapter: 'myservice-adapter.js',
+  popupModule: 'myservice-popup.js',
+},
+```
+
+The popup module is **not** loaded into the page world (popup.js is
+extension-context), so it doesn't need to be in `web_accessible_resources`.
+The dynamic import resolves directly from the extension origin.
+
+### 14.6 Adding an AI provider for the "Ask AI" pill
+
+The pill at the top of the in-page popup opens an AI chat with a
+rendered prompt. Providers are listed in `extension/ai-providers.js`:
+
+```js
+export const AI_PROVIDERS = {
+  chatgpt: { name: 'ChatGPT', urlPrefix: 'https://chatgpt.com/?q=' },
+  claude:  { name: 'Claude',  urlPrefix: 'https://claude.ai/new?q=' },
+  // Add yours here:
+  perplexity: { name: 'Perplexity', urlPrefix: 'https://www.perplexity.ai/?q=' },
+};
+```
+
+That's the whole change. The options-page dropdown populates itself
+from this registry (no HTML edit) and `content.js` reads it via the
+same `chrome.runtime.getURL` import path as `site-configs.js`.
+
+Requirements for a new provider:
+
+- The service must accept a single URL query parameter that pre-fills
+  the chat prompt (most do — `?q=`, `?prompt=`, `?text=`, etc.).
+- Use `urlPrefix` ending with `=` so the URL-encoded prompt appends
+  directly. If the parameter name differs, just bake it into the prefix
+  (`'https://example.com/chat?prompt='`).
+- Don't list providers that require auth headers / POST bodies — the
+  pill is just an `<a target="_blank">`, no extension-initiated fetch.
+
+If you remove a provider whose key some users have already saved as
+their `askAiProvider`, `content.js` falls back to `DEFAULT_ASK_AI_PROVIDER`
+(`chatgpt`). No migration needed.
+
+### 14.7 Adding a new persistent setting
+
+Decide first: `sync` (~roams across browsers, has quota and is
+rate-limited) or `local` (per-device, unlimitedStorage, immediate)?
+
+- Single small value (boolean, language code, API key): `sync`.
+- Array / map written from the popup or frequently: `local` (the
+  `disabledHosts` key learned this the hard way — see the
+  "Why `chrome.storage.local` (not `sync`) for `disabledHosts`"
+  subsection in §4).
+
+Then:
+
+1. **Pick a stable key name**. Camel-case, no prefix needed
+   (the storage area is the namespace). Add it to the relevant `KEYS`
+   constants in whichever files use it.
+2. **Add UI** in `options.html` (or `popup.html` for per-session
+   things). Wire the load + change handler in `options.js`. The
+   pattern: read in `load()`, write in a `change` listener. Use
+   `chrome.storage.sync.remove(KEY)` when the value equals the
+   in-code default so the live default re-applies if you ever change
+   it.
+3. **Read it in the consumer** (`content.js`, `youtube-adapter.js`,
+   etc.). At init: `await chrome.storage.<area>.get(KEY)`, with a
+   default-arg fallback. Update via `chrome.storage.onChanged`:
+
+   ```js
+   chrome.storage.onChanged.addListener((changes, area) => {
+     if (area !== '<area>') return;
+     if (!(MY_KEY in changes)) return;
+     myCachedValue = changes[MY_KEY].newValue ?? DEFAULT;
+     // ... react: rerender popup, re-run scan, etc. ...
+   });
+   ```
+4. **Document it** in §4's storage tables in this file. If the consumer
+   reacts to changes, also add a row in the onChanged-bus table.
+
+If the setting needs sensible defaults across both the options page
+and the consumer, share the constant via a small module in
+`extension/` (see `ai-providers.js` for the pattern) rather than
+duplicating it in two files.
+
+### 14.8 Design principles for any extension surface
+
+- **Fail open, log a named reason**. When a guard rejects, log
+  `[lws] <context>: <why>` and proceed safely. Silent
+  `try {…} catch { return; }` blocks have repeatedly hidden real
+  bugs in this codebase — an undefined `isKoreanCode()` killed dual
+  subs for weeks because the only signal was a quiet `null` return.
+  Reserve fail-closed for security boundaries (e.g. invalid API key →
+  refuse the request); for behavior gates, prefer fail-open with a
+  downstream check (e.g. dual subs engages if audio language is
+  unknown, gated by "is there even a Korean track to show?").
+- **Async guards need generation tokens**. Anything that does
+  `deactivate(); await initThing(); mount(...)` needs to handle the
+  user / host re-triggering before `initThing()` resolves. Bump a
+  counter in every entry-and-exit, compare after each `await`, tear
+  down your own work on supersession.
+- **No global state hidden in closures**. Adapter and popup module
+  parameters (`setup({unwrap, rescan})`, `renderSection({tab, href,
+  container})`) are explicit so future maintainers can see the contract
+  without grepping for who-calls-who.
+- **Storage keys are durable**. Once shipped, you can't rename a key
+  without migration code. Pick names you can live with — the
+  `disabledHosts` array got moved from `sync` to `local` mid-flight
+  and we just orphaned the old `sync` value (users had no UI to set
+  it, so harmless).
+- **Tests cover pure modules** (`lemmatizer.js`, `parsers.js`,
+  `grammar-glosses.js`, `cache.js`). DOM-touching code (`content.js`,
+  `youtube-adapter.js`, popup files) has no harness — be extra careful
+  there. The `node --check` syntax pass is the cheapest correctness
+  check available; run it before committing.
 
 ---
 
@@ -2171,14 +2371,18 @@ and triggers a fresh lookup, the memos reset and we start over.
 | Add a new POS-to-English mapping            | `parsers.js` `KOREAN_POS_TO_ENGLISH` + test                   |
 | Add a morpheme gloss for a new particle     | `grammar-glosses.js` `FORM_GLOSSES` + test                    |
 | Fix a wrong lemma for a specific surface    | `lemmatizer.js` candidate ordering + test                     |
-| Add a new site-specific sentence selector   | `site-configs.js` entry                                       |
-| Replace a site's captions with dual subs    | New adapter in `extension/`, registered in `site-configs.js`  |
-| Add a new chrome.storage.sync setting       | `options.html` + `options.js`; `chrome.storage.onChanged` listener in the consumer |
+| Add a new site-specific sentence selector   | `site-configs.js` entry (see §14.1)                           |
+| Auto-pause a page's video on popup open     | `findVideo` in the `site-configs.js` entry (see §14.2)        |
+| Replace a site's captions with dual subs    | New `*-adapter.js` + SITE_CONFIGS entry + manifest WAR (see §14.3) |
+| Add a toolbar-popup section for a site      | New `*-popup.js` + `popupModule` on the SITE_CONFIGS entry (see §14.5) |
+| Add a new "Ask AI" provider (ChatGPT-style) | One entry in `ai-providers.js` `AI_PROVIDERS` (see §14.6)     |
+| Add a new persistent setting                | UI in `options.html` / `options.js`; storage onChanged listener in the consumer (see §14.7) |
 | Hook a new dictionary API                   | `api.js` URL builder + `parsers.js` XML parser + `background.js` `handleLookup` |
-| Change popup look                           | `popup-shadow.css` (the in-page popup), NOT `popup.css` (the toolbar popup) |
+| Change in-page hover-popup look             | `popup-shadow.css`, NOT `popup.css`                           |
 | Change toolbar popup look                   | `popup.css`                                                   |
 | Change settings page look                   | `options.css`                                                 |
 | Tweak word scanning (e.g. add a skip tag)   | `content.js` `SKIP_TAGS`                                      |
+| Change the default "Ask AI" prompt          | `DEFAULT_ASK_AI_PROMPT` in BOTH `content.js` and `options.js` (kept in sync) |
 
 When in doubt, search the codebase for the user-facing string you see in
 the popup — almost all rendering goes through `buildResultNode`,
