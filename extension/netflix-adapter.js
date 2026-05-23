@@ -260,12 +260,24 @@ function parseTtml(xmlText) {
   if (!root) return null;
   const lang = root.getAttribute('xml:lang') || root.getAttributeNS('http://www.w3.org/XML/1998/namespace', 'lang') || '';
 
+  // Time scale: Netflix's IMSC1 TTML exports use tick-based time
+  // (e.g. `begin="60060000t"`) with the rate declared on the root
+  // (`ttp:tickRate="10000000"` — 10M ticks/sec is common). Without
+  // dividing by tickRate, every begin/end comes out as millions of
+  // seconds and falls outside any reasonable playback window. We
+  // also pick up frameRate in case anything uses `<N>f` instead.
+  const TTP = 'http://www.w3.org/ns/ttml#parameter';
+  const tickRateAttr = root.getAttribute('ttp:tickRate') || root.getAttributeNS(TTP, 'tickRate');
+  const frameRateAttr = root.getAttribute('ttp:frameRate') || root.getAttributeNS(TTP, 'frameRate');
+  const tickRate = tickRateAttr ? Number(tickRateAttr) : 0;
+  const frameRate = frameRateAttr ? Number(frameRateAttr) : 0;
+
   const ps = doc.getElementsByTagName('p');
   const lines = [];
   for (let i = 0; i < ps.length; i++) {
     const p = ps[i];
-    const begin = parseTtmlTime(p.getAttribute('begin'));
-    const end = parseTtmlTime(p.getAttribute('end'));
+    const begin = parseTtmlTime(p.getAttribute('begin'), tickRate, frameRate);
+    const end = parseTtmlTime(p.getAttribute('end'), tickRate, frameRate);
     if (begin == null || end == null || end <= begin) continue;
     const text = extractTextFromTtmlP(p);
     if (!text) continue;
@@ -277,17 +289,26 @@ function parseTtml(xmlText) {
 
 /**
  * Parse a TTML time expression to seconds. Supports:
- *   HH:MM:SS(.fraction)?   e.g. "00:00:01.500"
- *   <N>ms                  e.g. "1500ms"
- *   <N>s                   e.g. "1.5s"
+ *   HH:MM:SS(.fraction)?   e.g. "00:00:01.500"  (clock-time)
+ *   <N>t                   e.g. "60060000t"      (ticks; needs rate)
+ *   <N>f                   e.g. "1500f"          (frames; needs rate)
+ *   <N>ms                  e.g. "1500ms"         (offset, ms)
+ *   <N>s                   e.g. "1.5s"           (offset, s)
+ *   <N>m / <N>h            (offset, minutes / hours)
  *   <N>(.fraction)?        bare seconds, e.g. "1.5"
- * Returns null on unparseable input.
+ * Returns null on unparseable input or when a rate-dependent unit
+ * was used without the corresponding rate (avoids silently producing
+ * nonsense seconds).
  */
-function parseTtmlTime(s) {
+function parseTtmlTime(s, tickRate, frameRate) {
   if (!s) return null;
   s = String(s).trim();
   const clock = /^(\d+):(\d{2}):(\d{2}(?:\.\d+)?)$/.exec(s);
   if (clock) return Number(clock[1]) * 3600 + Number(clock[2]) * 60 + Number(clock[3]);
+  const tick = /^(\d+(?:\.\d+)?)t$/.exec(s);
+  if (tick) return tickRate > 0 ? Number(tick[1]) / tickRate : null;
+  const frame = /^(\d+(?:\.\d+)?)f$/.exec(s);
+  if (frame) return frameRate > 0 ? Number(frame[1]) / frameRate : null;
   const unit = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/.exec(s);
   if (unit) {
     const n = Number(unit[1]);
