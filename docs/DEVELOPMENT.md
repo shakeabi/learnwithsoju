@@ -97,7 +97,7 @@ on-demand Hanja meanings service.
    │  (toolbar action; opens on   │    │ options.js        │
    │  toolbar-icon click)         │    │ (chrome://exts →  │
    │  - enable/disable toggle     │    │  Options)         │
-   │  - per-video YT subs picker  │    │  - API keys       │
+   │  - per-site adapter section  │    │  - API keys       │
    │                              │    │  - dual subs on/off│
    └──────────────────────────────┘    │  - secondary lang │
                                        │  - clear cache    │
@@ -155,12 +155,13 @@ learnwithsoju/
 │   ├── lemmatizer.js                   ← mecab tokens → ordered candidate dictionary forms (pure)
 │   ├── parsers.js                      ← KRDict/OpenDict XML → entry objects; POS/Hanja/grade helpers; outbound link builders (pure)
 │   ├── grammar-glosses.js              ← morpheme form/POS → short English gloss for the breakdown chips (pure)
-│   ├── site-configs.js                 ← per-site sentence-container selectors + findVideo + adapter path
-│   ├── youtube-adapter.js              ← site adapter for YouTube (isolated-world); dual subs lifecycle
+│   ├── site-configs.js                 ← per-site sentence-container selectors + findVideo + adapter + popupModule paths
+│   ├── youtube-adapter.js              ← content-script-side YouTube adapter; dual subs lifecycle
+│   ├── youtube-popup.js                ← popup-side YouTube section (track-list picker); dynamic-imported by popup.js
 │   ├── youtube-page-hook.js            ← page-main-world script; XHR/fetch hooks + tracklist/load-track command channel
 │   ├── cache.js                        ← two-tier (in-mem LRU + storage adapter) cache factory; namespaced (pure)
 │   ├── popup.html                      ← toolbar-action popup markup
-│   ├── popup.js                        ← toolbar popup logic (enable toggle, per-video YT subs picker)
+│   ├── popup.js                        ← toolbar popup logic (enable toggle, per-site disable, generic adapter-section loader)
 │   ├── popup.css                       ← styling for the toolbar popup (NOT the in-page hover popup)
 │   ├── options.html                    ← settings-page markup (API keys, behaviour, cache)
 │   ├── options.js                      ← settings-page logic (load/save, test key, clear cache)
@@ -282,14 +283,16 @@ All from `content.js` (or from inside the popup's button-handlers).
 | `ping`         | `{}`                          | `{ ok: true }`                                        | Sync; used to wake the SW. |
 | `clearCache`   | `{}`                          | `{ ok: true }` or `{ ok: false, error }`              | Async. Clears BOTH `lookup:` and `hanja:` namespaces. |
 
-### `chrome.tabs.sendMessage` — popup → content (then content → adapter)
+### `chrome.tabs.sendMessage` — popup module → content (then content → adapter)
 
-The toolbar popup, when open on a YouTube `/watch` URL, queries the
-active tab for the current tracklist:
+Each site's popup module (e.g. `youtube-popup.js`) talks to its
+content-script-side adapter using a site-specific message type. The
+generic `popup.js` shell doesn't send these — only the dynamic-imported
+module does.
 
-| `msg.type`            | From       | To                  | Response (sent by `youtube-adapter.js`)                                    |
-|-----------------------|------------|---------------------|----------------------------------------------------------------------------|
-| `lws-yt-popup-info`   | `popup.js` | content script tab  | `{ active, videoId, tracks: [{languageCode, languageName, kind, vssId}], secondaryLang }` |
+| `msg.type`            | From               | To                  | Response (sent by `youtube-adapter.js`)                                    |
+|-----------------------|--------------------|---------------------|----------------------------------------------------------------------------|
+| `lws-yt-popup-info`   | `youtube-popup.js` | content script tab  | `{ active, videoId, tracks: [{languageCode, languageName, kind, vssId}], secondaryLang }` |
 
 The adapter's `onMessage` listener intercepts this before any of
 `content.js`'s normal lookup paths see it.
@@ -571,23 +574,29 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
 
 ### 6.9 Toolbar popup → YouTube per-video override
 
-Files: `popup.js`, `popup.html`, `youtube-adapter.js`.
+Files: `popup.js`, `popup.html`, `site-configs.js`, `youtube-popup.js`, `youtube-adapter.js`.
 
 1. User clicks the extension's toolbar icon → `popup.html` opens.
-2. `popup.js` `loadYouTubeSection()`:
+2. `popup.js` `loadAdapterSection()`:
     1. `chrome.tabs.query({active: true, currentWindow: true})` → tab.
-    2. If the tab's URL isn't `youtube.com/watch?...`, bail — the YT
-       section stays hidden.
-    3. `chrome.tabs.sendMessage(tab.id, { type: 'lws-yt-popup-info' })`.
-    4. Adapter responds with `{ active, videoId, tracks, secondaryLang }`.
-3. `renderTrackList` builds a radio group of every non-Korean language
+    2. Resolves `findSiteConfig(tab hostname)` from `site-configs.js`;
+       on YouTube this matches the entry whose `popupModule` is
+       `'youtube-popup.js'`.
+    3. Dynamic-imports `./youtube-popup.js` and calls
+       `renderSection({ tab, container })`.
+3. `youtube-popup.js` `renderSection`:
+    1. Bails if the URL isn't `youtube.com/watch?...` (the adapter
+       section stays hidden).
+    2. `chrome.tabs.sendMessage(tab.id, { type: 'lws-yt-popup-info' })`.
+    3. Adapter responds with `{ active, videoId, tracks, secondaryLang }`.
+4. `renderTrackList` builds a radio group of every non-Korean language
    in the tracklist, plus the user's currently-selected secondary if it
    isn't in the tracklist (as "auto-translate"), plus an explicit
    "Off (Korean only)" row.
-4. User picks a radio. `setOverride(videoId, lang)` reads
+5. User picks a radio. `setOverride(videoId, lang)` reads
    `chrome.storage.local.dualSubsOverrides`, merges in
    `{[videoId]: lang}`, writes it back.
-5. The adapter's `onChanged` listener for `local.dualSubsOverrides`
+6. The adapter's `onChanged` listener for `local.dualSubsOverrides`
    fires, sees the entry for the current videoId changed, calls
    `deactivate()` + `activate()`. The overlay tears down and remounts
    with the new secondary.
@@ -701,7 +710,7 @@ inside, and creates the inner `#lws-popup` element.
   re-renders pass `reposition: false`.
 - After the next paint, captures the actual rendered size and bumps the
   monotonic min-size memos.
-- Calls `pauseVideoIfApplicable()` (idempotent within a session).
+- Calls `pauseVideoIfApplicable(target)` (idempotent within a session).
 
 `hidePopup` is wired to a 120 ms `mouseleave` delay (`scheduleHide`),
 cancellable when the cursor re-enters either the word or the popup.
@@ -710,9 +719,15 @@ cancellable when the cursor re-enters either the word or the popup.
 
 When `siteConfig.findVideo()` returns a video element:
 
-- `pauseVideoIfApplicable` pauses it on first `showPopup` of a session,
-  sets `pausedVideo` and `resumeVideoOnHide`, and attaches a `pause`
-  event listener.
+- `pauseVideoIfApplicable(anchor)` first checks that the hovered word
+  (`anchor`) is inside the configured `sentenceContainer` — the same
+  selector that identifies caption-style text. This prevents hovers on
+  the video title, comments, description, or any other non-caption text
+  from interrupting playback. If the anchor isn't in a caption
+  container, no pause happens.
+- On first eligible `showPopup` of a session, pauses the video, sets
+  `pausedVideo` and `resumeVideoOnHide`, and attaches a `pause` event
+  listener.
 - The listener swallows exactly one event (the one our own
   `.pause()` emitted) via `suppressNextPauseEvent`. Any subsequent pause
   event is the user's, and it flips `resumeVideoOnHide` to `false`
@@ -972,17 +987,30 @@ Exports:
 
 ### 7.9 `site-configs.js`
 
-Purpose: per-site overrides to the content script's behavior. Two
-classes of override:
+Purpose: the single registry that makes the extension's video-site
+behavior modular. Adding Netflix / Viki is "append a SITE_CONFIGS entry
++ drop in two files" — no edits to `content.js` or `popup.js`. Fields:
 
 - `sentenceContainer` — CSS selector used by `content.js`'s
-  `extractSentence` instead of the default block-element walk. Tightest
-  match wins (we use `closest()`). For YouTube, this points at our own
-  overlay's KO line first, then YouTube's native caption containers as
-  fallbacks.
+  `extractSentence` instead of the default block-element walk, AND the
+  caption-vs-prose signal that gates auto-pause. Tightest match wins
+  (we use `closest()`). For YouTube, this points at our own overlay's
+  KO line first, then YouTube's native caption containers as fallbacks.
 - `findVideo()` — returns the page's main video element (or null). Used
-  by `content.js` to auto-pause when the popup opens.
-- `adapter` — relative path to a JS module that gets dynamic-imported and whose `setup()` is invoked. The adapter is then on its own — it manages its own lifecycle, including teardown on SPA navigation.
+  by `content.js` to auto-pause when the popup opens, but only when the
+  hover is inside `sentenceContainer` (so comments / titles don't pause
+  the video).
+- `adapter` — relative path to a content-script-side JS module that
+  gets dynamic-imported and whose `setup()` is invoked. The adapter
+  owns its lifecycle including teardown on SPA navigation. For YouTube
+  this is the dual-subs overlay + page-hook injection.
+- `popupModule` — relative path to a popup-side module. `popup.js`
+  dynamic-imports it when the active tab matches this config and calls
+  `renderSection({ tab, container })`. The module owns all DOM inside
+  the container (a hidden `<section id="site-adapter-section">` in
+  `popup.html`) and is responsible for `container.hidden = false`. Use
+  this for per-site UI in the toolbar popup — e.g. YouTube's
+  per-video secondary-language picker.
 
 Exports:
 
@@ -1064,13 +1092,36 @@ icon. Four sections:
   `disabledHosts` activates / deactivates immediately. The list is
   sorted on every write so storage diffs stay small.
 - Status row (API key status / disabled / active).
-- YouTube section — visible only on `youtube.com/watch?...`. Asks the
-  active tab for its tracklist via `chrome.tabs.sendMessage`, renders
-  a radio group of available secondary languages, writes the per-video
-  selection to `chrome.storage.local.dualSubsOverrides`.
+- Adapter section — generic shell. `loadAdapterSection()` resolves the
+  active tab's hostname against `findSiteConfig(...)` from
+  `site-configs.js`, and if the matched config declares a
+  `popupModule`, dynamic-imports that module and calls
+  `renderSection({ tab, container })`. The module owns the DOM under
+  `<section id="site-adapter-section">`. For YouTube this is
+  `youtube-popup.js` (track-list picker). Adding Netflix / Viki is a
+  new SITE_CONFIGS entry + its own `*-popup.js` — no edits to
+  `popup.js` or `popup.html`.
 
-The popup never imports `parsers.js` or anything Korean-related — it's
-purely a settings/status UI.
+`popup.js` itself never imports `parsers.js` or anything
+Korean-related — it's a settings/status shell. Per-site UI lives in the
+site's own `*-popup.js`.
+
+### 7.12.1 `youtube-popup.js`
+
+Popup-side counterpart to `youtube-adapter.js`. Exports
+`renderSection({ tab, container })` which:
+
+1. Returns silently if the tab isn't on `/watch`.
+2. Builds a `Subtitles for this video` title + status line, unhides
+   the container.
+3. Sends `lws-yt-popup-info` to the active tab; the content-script
+   adapter responds with `{ tracks, secondaryLang, ... }`.
+4. Renders a radio group of distinct non-Korean languages from the
+   tracklist (preserving auto-translate fallback for languages not in
+   the list) plus an "Off (Korean only)" option.
+5. Writes the per-video selection to
+   `chrome.storage.local.dualSubsOverrides`; the adapter's onChanged
+   listener picks it up and re-activates without a direct message.
 
 ### 7.13 `options.html` / `options.js` / `options.css`
 

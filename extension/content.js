@@ -248,10 +248,20 @@
   // open and resumes on close — but only when *we* were the ones to pause
   // it. If the user pauses the video again after our auto-pause (signal
   // that they want it stopped), we suppress the auto-resume.
-  function pauseVideoIfApplicable() {
+  function pauseVideoIfApplicable(anchor) {
     if (pausedVideo) return; // already handled this popup session
     const finder = siteConfig && siteConfig.findVideo;
     if (typeof finder !== 'function') return;
+    // Only auto-pause when the hovered word is inside a caption container
+    // (the same selector that lets the sentence-extractor recognize caption
+    // text vs. surrounding prose). Hovering a comment, title, or video
+    // description must not interrupt playback. If no sentenceContainer is
+    // configured, fall through to the old behavior so non-video sites with
+    // findVideo defined (none today) aren't silently broken.
+    const container = siteConfig && siteConfig.sentenceContainer;
+    if (container && anchor && typeof anchor.closest === 'function') {
+      if (!anchor.closest(container)) return;
+    }
     let v;
     try { v = finder(); } catch { return; }
     if (!v || v.paused) return;
@@ -342,8 +352,9 @@
     popupHost.style.pointerEvents = 'none';
     // Idempotent: only pauses on the first showPopup of a session, so
     // rerenders triggered by tab clicks / language toggle / chip expand
-    // don't re-pause the (already-paused) video.
-    pauseVideoIfApplicable();
+    // don't re-pause the (already-paused) video. The anchor is passed so
+    // pause can verify the hovered word is in a caption container.
+    pauseVideoIfApplicable(target);
     const reposition = opts.reposition !== false;
     requestAnimationFrame(() => {
       // After paint, capture the actual rendered size so future renders can't
