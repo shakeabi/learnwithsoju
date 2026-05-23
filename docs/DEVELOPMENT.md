@@ -360,13 +360,19 @@ The YouTube hook is in the page main world (`<script src=…>` injection)
 because content scripts can't see page expandos like
 `html5VideoPlayer.getOption`. All communication is via `window.postMessage`:
 
-| Direction                | Shape                                                            | Sent by               | Handled by               |
-|--------------------------|------------------------------------------------------------------|-----------------------|--------------------------|
-| isolated → main          | `{ __lwsYtCmd: 'tracklist', reqId }`                             | `youtube-adapter.js`  | `youtube-page-hook.js`   |
-| isolated → main          | `{ __lwsYtCmd: 'load-track', reqId, lang: 'ko' \| 'en' \| ... }` | `youtube-adapter.js`  | `youtube-page-hook.js`   |
-| main → isolated          | `{ __lwsYtReply: 'tracklist', reqId, tracks }`                   | hook                  | `awaitHookReply` in adapter |
-| main → isolated          | `{ __lwsYtReply: 'load-track', reqId, ok, error? }`              | hook                  | adapter (fire-and-forget) |
-| main → isolated (broadcast) | `{ __lwsYtCaption: true, url, status, body }`                 | hook (XHR/fetch tap)  | `captureCaption` in adapter |
+| Direction                | Shape                                                                    | Sent by               | Handled by               |
+|--------------------------|--------------------------------------------------------------------------|-----------------------|--------------------------|
+| isolated → main          | `{ __lwsYtCmd: 'tracklist', reqId }`                                     | `youtube-adapter.js`  | `youtube-page-hook.js`   |
+| isolated → main          | `{ __lwsYtCmd: 'player-response-tracks', reqId }`                        | `youtube-adapter.js`  | `youtube-page-hook.js`   |
+| isolated → main          | `{ __lwsYtCmd: 'load-track', reqId, lang: 'ko' \| 'en' \| ... }`         | `youtube-adapter.js`  | `youtube-page-hook.js`   |
+| main → isolated          | `{ __lwsYtReply: 'tracklist', reqId, tracks }`                           | hook                  | `awaitHookReply` in adapter |
+| main → isolated          | `{ __lwsYtReply: 'player-response-tracks', reqId, tracks }`              | hook                  | `awaitHookReply` in adapter |
+| main → isolated          | `{ __lwsYtReply: 'load-track', reqId, ok, error? }`                      | hook                  | adapter (fire-and-forget) |
+| main → isolated (broadcast) | `{ __lwsYtCaption: true, url, status, body }`                         | hook (XHR/fetch tap)  | `captureCaption` in adapter |
+
+(There used to be an `audio-info` command pair here too. Removed in
+favour of in-adapter `detectAudioLangFromTracklist` — see §15.11 for
+why the hook-based detection was inescapably stale.)
 
 `reqId` (e.g. `lws-1714430000000-3`) lets the adapter run multiple
 commands in flight without their replies getting cross-wired.
@@ -607,23 +613,19 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
        SPA-nav — see "stale ytInitialPlayerResponse" gotcha below).
        Dedupes by `(languageCode, kind)` — player entries win on
        overlap. Polls every 250 ms for up to 10 s.
-    3. **Audio-language gate**: `getAudioInfo()` posts
-       `{__lwsYtCmd:'audio-info'}` and reads
-       `player.getPlayerResponse().captions.playerCaptionsTracklistRenderer`.
-       Signals tried in order:
-        - First ASR track's `languageCode` (YouTube generates ASR in
-          whatever language was actually spoken — most reliable).
-        - `audioTracks[defaultAudioTrackIndex].defaultCaptionTrackIndex`
-          **only when** `audioTracks.length > 1`. On genuine multi-audio
-          videos that pointer correctly maps to the selected audio's
-          language; on single-audio videos the same field is the default
-          *display* caption (e.g. English manual subs added by the
-          uploader on a Korean video) and would mis-identify the audio.
+    3. **Audio-language gate**: `detectAudioLangFromTracklist(tracklist)`
+       in the adapter — no hook round-trip. Looks at the first ASR
+       track in the just-fetched tracklist; YouTube generates ASR in
+       whatever language was actually spoken, so the ASR track's
+       `languageCode` IS the audio language. The tracklist itself
+       came from `player.getOption('captions','tracklist')` which is
+       always fresh for the currently-loaded video.
        The gate is **fail-open** — we only bail when audio is
-       *positively* detected as non-Korean. Unknown audio engages dual
-       subs if a Korean caption track exists, since many real Korean
-       videos have no ASR (the uploader supplied manual KO captions, so
-       YouTube didn't generate ASR).
+       *positively* detected as non-Korean. Unknown audio (no ASR)
+       engages dual subs if a Korean caption track exists, since many
+       real Korean videos have no ASR (uploader provided manual KO).
+       Multi-audio detection (audioTracks[]) isn't possible from the
+       tracklist alone — see the §15.11 gotcha for why we accept that.
     4. `resolveSecondaryLang(videoId)` — per-video override (from
        `local.dualSubsOverrides`) wins over `sync.secondaryLang`, which
        defaults to `'en'`.
@@ -1184,17 +1186,30 @@ Implementation notes:
 
 Purpose: runs in the page main world. Monkey-patches `XMLHttpRequest.prototype.open` and `window.fetch` to capture every `/api/timedtext` request the YouTube player makes, and posts the URL + response body back to the content script via `window.postMessage`. Also exposes a command channel for the adapter to query the player's tracklist and trigger track loads (since `player.getOption` / `player.setOption` are page-world expandos invisible to isolated scripts).
 
-Three-message protocol:
+Message protocol:
 
 1. `__lwsYtCaption` — broadcast on every captured request. The adapter's
    `captureCaption` filters by URL predicate.
-2. `__lwsYtCmd: 'tracklist'` — request; replies with
-   `__lwsYtReply: 'tracklist'`.
-3. `__lwsYtCmd: 'load-track'` — request; the hook calls
+2. `__lwsYtCmd: 'tracklist'` — request. Hook returns
+   `player.getOption('captions','tracklist')` (live for the current
+   video, but sometimes empty on ASR-only videos before CC is enabled).
+3. `__lwsYtCmd: 'player-response-tracks'` — request. Hook returns the
+   tracklist from `getCurrentPlayerResponse()` as a fallback /
+   supplement to (2). Adapter merges both sources in `waitForTracklist`.
+4. `__lwsYtCmd: 'load-track'` — request; the hook calls
    `player.setOption('captions', 'track', {})` then
    `player.setOption('captions', 'track', { languageCode: lang })`. The
    clear-then-set pattern forces a fresh `/api/timedtext` fetch even
    when the player thinks it already has the target track loaded.
+
+There used to be an `audio-info` command that returned the inferred
+audio language from `getCurrentPlayerResponse()` — removed because
+`player.getPlayerResponse()` doesn't actually exist on the inline
+player element, so `getCurrentPlayerResponse()` fell through to
+`window.ytInitialPlayerResponse` (stale post-SPA-nav) and audio
+detection got the first video's data forever. Audio detection now
+runs in the adapter against the already-fetched tracklist's ASR
+track; see `detectAudioLangFromTracklist` and §15.11.
 
 The hook is idempotent via `window.__lwsYtHookInstalled`.
 
@@ -2387,18 +2402,43 @@ playlist, autoplay, in-page click on a related video). Any code that
 reads it on a SPA-navigated video sees the FIRST video's data — wrong
 tracklist, wrong audio language.
 
-Cure: read `player.getPlayerResponse()` instead (the YouTube player
-element's own method, always reflects the currently-loaded video).
-Fall back to `ytInitialPlayerResponse` only when the player isn't
-ready yet (very early first load). `youtube-page-hook.js`'s
-`getCurrentPlayerResponse()` helper centralises this.
+`player.getPlayerResponse()` SOUNDS like the right alternative — it's
+the IFrame Player API's standard method — but on YouTube's inline
+player element (the `<div class="html5-video-player">`) it doesn't
+reliably exist. Calling it just returns `undefined`, the
+`getCurrentPlayerResponse()` helper falls through to
+`ytInitialPlayerResponse`, and you're back to the stale value.
+
+What DOES work: `player.getOption('captions', 'tracklist')`. This
+returns the current video's tracklist, with `kind: 'asr'` flagged on
+ASR tracks. Use it as the source for both:
+
+- **Tracklist** (`waitForTracklist`): the getOption result is the
+  primary source; the `getCurrentPlayerResponse()` fallback is only
+  used when getOption returns empty (rare — happens on ASR-only
+  videos before CC is enabled).
+- **Audio-language detection**: `detectAudioLangFromTracklist` finds
+  the first ASR track in the already-fetched tracklist. YouTube
+  generates ASR in whatever language was spoken, so that's the audio
+  language.
+
+This means we **cannot** detect multi-audio cases (videos with
+audioTracks[].length > 1, e.g. a K-drama with an English-dub option)
+from the tracklist alone — that data only lives in the full
+PlayerResponse, which is stale post-SPA-nav and unreachable per-video
+from the inline player. Acceptable limitation; if the user is on a
+multi-audio Korean video that has the English audio active, dual subs
+will engage anyway. Per-site disable is the workaround.
 
 This bug was masked for a long time by another bug — the dual-overlay
-race — because the orphaned previous-video overlay was visible
-alongside whatever the user was watching. Once the race was fixed,
-audio detection started running cleanly on the new video and the
-stale-global misread surfaced as "audio detected as `en` on a Korean
-video, dual subs skipped."
+race fixed in `fcee30e`. The orphaned previous-video overlay was
+visible alongside whatever the user was watching, so audio-detection
+misreads didn't matter (something was always visible). Once the race
+was fixed, audio detection started running cleanly on the new video
+and the stale-global misread surfaced as "audio detected as `en` on
+a Korean video, dual subs skipped." The tracklist-based detection
+above is the durable fix — it can't go stale because the tracklist
+itself is always fresh.
 
 ---
 

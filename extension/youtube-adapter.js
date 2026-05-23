@@ -313,11 +313,17 @@ async function initForCurrentVideo() {
   // Skip dual subs when we're *confident* the audio is non-Korean
   // (e.g. an English-ASR video with a translated KO subtitle track —
   // the learner would be listening to English with Korean text below).
-  // Detection is best-effort: many Korean videos have no ASR at all
-  // because the uploader supplied manual captions, so we fail OPEN —
-  // unknown audio engages dual subs as long as a Korean caption track
-  // exists (pickPrimarySource gates on that downstream).
-  const audioInfo = await getAudioInfo();
+  // Detection uses the just-fetched tracklist's ASR track language as
+  // the signal — YouTube generates ASR in whatever language was
+  // actually spoken, and `tracklist` came from
+  // `player.getOption('captions','tracklist')` which is always live
+  // for the currently-loaded video (unlike `window.ytInitialPlayerResponse`,
+  // which is set once on page load and never refreshed on SPA nav).
+  //
+  // Fail OPEN: many Korean videos have no ASR (uploader supplied
+  // manual captions), so unknown audio engages dual subs as long as
+  // pickPrimarySource finds a Korean track downstream.
+  const audioInfo = detectAudioLangFromTracklist(tracklist);
   log('audio info:', audioInfo);
   if (audioInfo.lang) {
     const lang = String(audioInfo.lang).toLowerCase();
@@ -612,19 +618,35 @@ function triggerLoadTrack(lang, kind) {
 }
 
 /**
- * Best-effort detection of the video's spoken audio language.
- * Returns `{ lang: 'ko'|'en'|..., source: 'multiAudio'|'asr' } | { lang: null }`.
- * Detection logic lives in the page-world hook (needs access to
- * ytInitialPlayerResponse); see youtube-page-hook.js's 'audio-info' handler.
+ * Best-effort detection of the video's spoken audio language, reading
+ * from the just-fetched tracklist. Returns
+ * `{ lang: 'ko'|'en'|..., source: 'asr' } | { lang: null }`.
+ *
+ * Signal: the language of the first ASR track. YouTube generates ASR
+ * in whatever language was actually spoken — even on videos with manual
+ * captions in other languages, ASR (when present) is the audio.
+ *
+ * The tracklist parameter comes from `waitForTracklist`, which uses
+ * `player.getOption('captions','tracklist')` — always live for the
+ * currently-loaded video. We used to ask the page-world hook for
+ * this, but that handler had to read `window.ytInitialPlayerResponse`
+ * (stale after any SPA navigation — YouTube doesn't update it
+ * in-page) or `player.getPlayerResponse()` (which doesn't reliably
+ * exist on the inline player element). Either way the data was wrong
+ * after the first auto-played video, so detection bailed with
+ * "audio is en" on a Korean video.
+ *
+ * Multi-audio detection (audioTracks[] in the PlayerResponse) isn't
+ * available from the tracklist alone, so multi-audio videos with the
+ * user currently on a non-Korean audio track will incorrectly engage
+ * dual subs. Acceptable limitation — multi-audio is rare, the user
+ * can disable per-site if it's a real problem.
  */
-async function getAudioInfo() {
-  const reqId = sendHookCmd('audio-info');
-  try {
-    const reply = await awaitHookReply('audio-info', reqId, 1500);
-    return (reply && reply.info) || { lang: null, source: null };
-  } catch {
-    return { lang: null, source: null };
-  }
+function detectAudioLangFromTracklist(tracklist) {
+  if (!Array.isArray(tracklist)) return { lang: null, source: null };
+  const asr = tracklist.find((t) => isAsr(t) && t.languageCode);
+  if (asr) return { lang: asr.languageCode, source: 'asr' };
+  return { lang: null, source: null };
 }
 
 function parseTimedText(body) {

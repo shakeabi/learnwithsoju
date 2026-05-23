@@ -132,52 +132,6 @@
         }
       } catch {}
       window.postMessage({ __lwsYtReply: 'player-response-tracks', reqId, tracks }, '*');
-    } else if (d.__lwsYtCmd === 'audio-info') {
-      // Best-effort detection of the video's primary spoken-audio
-      // language. Two signals, in order of reliability:
-      //
-      //   1. First ASR track's languageCode. YouTube generates ASR in
-      //      whatever language was actually spoken, so this is the most
-      //      reliable signal even on videos that also have manual
-      //      translated subs in another language.
-      //
-      //   2. Multi-audio path (audioTracks.length > 1): the
-      //      defaultAudioTrackIndex's defaultCaptionTrackIndex points
-      //      at a caption track whose language matches that audio.
-      //      Only safe when there are GENUINELY multiple audio tracks
-      //      — on single-audio videos, defaultCaptionTrackIndex is
-      //      the default *display* caption (e.g. EN manual subs on a
-      //      Korean video where the uploader provided them) and would
-      //      mis-identify the audio language.
-      let info = { lang: null, source: null };
-      try {
-        // getCurrentPlayerResponse() — not ytInitialPlayerResponse —
-        // so SPA-nav reflects the new video's audio, not the first
-        // video's. The global global is stale after any in-page nav.
-        const pr = getCurrentPlayerResponse();
-        const renderer = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer;
-        if (renderer) {
-          const captionTracks = Array.isArray(renderer.captionTracks) ? renderer.captionTracks : [];
-          const audioTracks = Array.isArray(renderer.audioTracks) ? renderer.audioTracks : [];
-          const asr = captionTracks.find((t) => t.kind === 'asr' && t.languageCode);
-          if (asr) {
-            info.lang = asr.languageCode;
-            info.source = 'asr';
-          } else if (audioTracks.length > 1) {
-            const idx = Number.isInteger(renderer.defaultAudioTrackIndex)
-              ? renderer.defaultAudioTrackIndex : 0;
-            const audio = audioTracks[idx];
-            if (audio && Number.isInteger(audio.defaultCaptionTrackIndex)) {
-              const cap = captionTracks[audio.defaultCaptionTrackIndex];
-              if (cap && cap.languageCode) {
-                info.lang = cap.languageCode;
-                info.source = 'multiAudio';
-              }
-            }
-          }
-        }
-      } catch {}
-      window.postMessage({ __lwsYtReply: 'audio-info', reqId, info }, '*');
     } else if (d.__lwsYtCmd === 'load-track' && typeof d.lang === 'string') {
       const player = getPlayer();
       if (!player) {
