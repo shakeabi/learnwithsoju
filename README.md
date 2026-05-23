@@ -35,6 +35,9 @@ A free, open-source browser extension that turns any webpage into a Korean readi
 - **Per-character Hanja breakdown on demand** — for Sino-Korean entries, click the origin chip to expand a compact per-character breakdown (Sino-Korean reading + English gloss) from [hangulhanja.com](https://hangulhanja.com). Each character in the expanded panel also links out to its full hangulhanja.com page. The fetch is lazy — only fires on click — and results are cached locally so re-hovering the same Sino-Korean word is instant.
 - **English / Korean toggle** — switch the popup definition language with one click. Preference is remembered.
 - **Examples on demand** — KRDict examples are hidden by default to keep the popup compact; click *Show examples* per-sense to reveal.
+- **YouTube dual subtitles** — on Korean videos (audio language auto-detected), the extension replaces YouTube's native captions with a stacked Korean + secondary-language overlay. The Korean line is hoverable just like any other text on the page. Per-video override for the secondary language available from the toolbar popup; the default is set in the options page.
+- **"Ask AI" pill** — each popup includes a one-click link that opens ChatGPT or Claude (your choice) with a structured prompt pre-filled — focus word, sentence translation, breakdown, and an exhaustive grammar deep-dive of the focused word. The prompt template is fully customizable in the options page's Advanced section.
+- **Per-site disable** — open the toolbar popup on any site to turn the extension off there. Setting is remembered and the page updates immediately — the popup hides, the underlines come off, and (on YouTube) the dual-subs overlay tears down. Re-enabling activates without a reload.
 - **Local cache** — every word you've looked up is cached on your machine, so you never hit the dictionary API twice for the same surface form. Clear the cache anytime from the settings page.
 - **No backend** — everything runs in your browser. The only network calls are to the official Korean dictionary APIs, with your own free API key.
 - **Light + dark themes** — automatic, follows your system preference.
@@ -78,35 +81,41 @@ Paste your key into the extension's settings page (`chrome://extensions` → cli
 - **Hover** any Korean word on any webpage. The popup appears, and stays as long as your cursor is on the word or on the popup itself.
 - **Click** a Korean word as a fallback — useful on sites where hover doesn't always fire (some video players, overlays). Click triggers the lookup immediately and doesn't navigate even if the word sits inside a link.
 - **Click any word in the sentence** shown inside the popup to look that word up instead. The popup keeps the same sentence as context, just with the new word highlighted — so you can read through a sentence word by word without having to re-find each one on the page.
-- **Click the toolbar icon** to toggle the extension on/off, or to open settings.
+- **Click the toolbar icon** to open the popup. From there you can disable the extension on the current site (toggle is remembered per host), pick a secondary subtitle language for the current YouTube video, or jump to the settings page.
+- **Click the ✨ Ask AI pill** at the top of the popup to open a fresh chat with ChatGPT or Claude (whichever you've picked in settings) pre-filled with a structured analysis prompt for the focused word in its sentence.
 - **Click the EN / KR toggle** in the popup to switch the definition language. The choice persists.
 - **Click a tab** when there are multiple homograph entries — the popup keeps its current position.
 - **Click "+N related"** in the tab strip to fold in entries KRDict returned that aren't exact headword matches.
 - **Click the Morpheme breakdown tab** (between the sentence and the dictionary entries) to see the mecab decomposition. Collapsed by default.
 - **Click "Show examples"** under a sense to reveal example sentences (when KRDict provides them).
 - **Click the Hanja chip** (Sino-Korean entries only) to expand a per-character breakdown — Sino-Korean reading + English gloss. The chip shows a `+` when collapsed and `−` when expanded. From the panel, clicking the character itself opens its full breakdown on hangulhanja.com.
+- **For "off everywhere"**, disable the extension from `chrome://extensions` (or `about:addons` on Firefox). There's no in-app global toggle — the per-site toggle handles "off here" and the browser's extensions page handles "off entirely."
 
 The first hover after the extension wakes up takes ~1–2 seconds while the morphological analyzer's dictionary loads. After that, hovers are instant.
 
 ## Privacy
 
 - The extension makes network requests **only** to `krdict.korean.go.kr`, `opendict.korean.go.kr` (when you've added the OpenDict key), and `hangulhanja.com` (only when you click a Hanja origin chip to expand its meanings — never automatically). Your API keys are sent only to the first two; the Hanja API takes the characters themselves as its query — no key, no other data.
+- On YouTube, the extension also fetches YouTube's own `/api/timedtext` caption URLs (the same ones the YouTube player is about to fetch anyway) to build the dual-subs overlay. These go directly to YouTube — same network as the page you're already on.
+- The "Ask AI" pill is an outbound link only — clicking it opens ChatGPT or Claude in a new tab with a `?q=` URL parameter. The extension does not fetch from those services itself, and they only see what you click through to send.
 - No analytics, no tracking, no telemetry.
-- Your API keys and the lookup cache are stored locally via `chrome.storage` — never sent anywhere except the dictionary servers.
+- Your API keys, prompt template, per-site disable list, and the lookup cache are stored locally via `chrome.storage` (sync for cross-device preferences, local for per-device state) — never sent anywhere except the dictionary servers.
 
 ## Limitations & known gaps
 
 - **First-hover latency.** ~1–2 seconds the first time you hover a word after the extension's service worker has been idle, while the ~22 MB compressed dictionary unzips and the WASM analyzer initializes. Hovers after that are instant.
 - **No multi-morpheme grammar-pattern detection.** The morpheme breakdown labels each piece (e.g. `-야` → "must / have to") but the popup doesn't try to recognize whole textbook constructions like `아/어야 되다/하다`. A regex-on-text version of this existed in earlier builds but produced too many false positives (e.g. matching `-나` as the listing particle inside `-나요` question endings); doing it correctly requires token-aware pattern matching, which is a separate project.
-- **No per-domain disable list** yet. The toolbar toggle is global.
+- **Dual subs only auto-engage on Korean-audio videos.** Detection is best-effort (YouTube's ASR language is the primary signal). On videos where audio language can't be determined we engage anyway if a Korean caption track exists; on videos positively detected as non-Korean (e.g. English ASR present, KO captions added as translation) we skip — the learner would otherwise be listening to non-Korean speech with KO text below it.
+- **YouTube only** for the dual-subs overlay. The site-adapter architecture supports adding Netflix, Viki, etc. (see [docs/DEVELOPMENT.md §14](docs/DEVELOPMENT.md)) but those adapters haven't been written.
 - **No pronunciation audio playback** yet (KRDict has audio URLs; chips link to koreanverb.app's pronunciation page in the meantime).
 - **No published Chrome Web Store / AMO listing** yet — install as unpacked / temporary for now.
 
 ## Roadmap
 
-- Per-domain disable list
-- Pronunciation audio playback (KRDict has audio URLs; just need to wire them in)
+- Netflix / Viki dual-subs adapters (the registry is in `extension/site-configs.js`; each new site is one entry + a small adapter file).
+- Pronunciation audio playback (KRDict has audio URLs; just need to wire them in).
 - Token-aware grammar-pattern detection — replacement for the removed regex-on-text matcher, using mecab POS sequences instead of text matching.
+- More "Ask AI" providers (current registry: ChatGPT, Claude; one entry in `extension/ai-providers.js` adds another that supports a `?q=` URL).
 
 ## Contributing & development
 

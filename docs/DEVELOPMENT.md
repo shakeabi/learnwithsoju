@@ -30,12 +30,25 @@ any Korean word and a popup appears showing:
   gloss ("subject marker", "past tense", "polite ending", ...)
 - a click-to-expand per-character Hanja breakdown — Sino-Korean reading
   plus an English meaning for every Han ideograph in the entry's origin
+- an "Ask AI" pill that opens ChatGPT or Claude (user's choice) with a
+  structured prompt pre-filled — focus word, sentence translation,
+  word-by-word table, and an exhaustive grammar deep-dive of the
+  focused word. The prompt template is fully customizable
 
 On YouTube, the extension goes a step further: it replaces YouTube's native
 caption rendering with a dual-language overlay (Korean on top, the user's
-preferred secondary language below). The Korean line is then hoverable
-just like any other text on the page, so the user can build out vocabulary
-straight from the video they're watching.
+preferred secondary language below) — but only on videos whose audio is
+detected as Korean. The Korean line is then hoverable just like any other
+text on the page, so the user can build out vocabulary straight from the
+video they're watching. The secondary language has a default in settings
+and a per-video override from the toolbar popup.
+
+Per-site behaviour: the toolbar popup has a per-host disable toggle that
+takes effect immediately — dictionary popups stop firing, the dashed
+underlines come off, and (on YouTube) the dual-subs overlay tears down.
+Toggling back on re-activates without a reload. There is no global
+"hover dictionary on/off" toggle — the per-site list covers "off here"
+and `chrome://extensions` covers "off everywhere".
 
 The extension is intentionally small and **has no build step**. The
 contents of `extension/` are what get loaded directly into the browser.
@@ -92,16 +105,19 @@ on-demand Hanja meanings service.
       │ chrome.tabs.sendMessage
       │   {type:'lws-yt-popup-info'}
       │
-   ┌──┴───────────────────────────┐    ┌───────────────────┐
-   │  popup.html / popup.js       │    │ options.html /    │
-   │  (toolbar action; opens on   │    │ options.js        │
-   │  toolbar-icon click)         │    │ (chrome://exts →  │
-   │  - enable/disable toggle     │    │  Options)         │
-   │  - per-site adapter section  │    │  - API keys       │
-   │                              │    │  - dual subs on/off│
-   └──────────────────────────────┘    │  - secondary lang │
-                                       │  - clear cache    │
-                                       └───────────────────┘
+   ┌──┴───────────────────────────┐    ┌─────────────────────────┐
+   │  popup.html / popup.js       │    │ options.html /          │
+   │  (toolbar action; opens on   │    │ options.js              │
+   │  toolbar-icon click)         │    │ (chrome://exts →        │
+   │  - per-site disable toggle   │    │  Options)               │
+   │  - per-site adapter section  │    │  - API keys             │
+   │    (e.g. youtube-popup.js    │    │  - dual subs on/off     │
+   │     secondary-lang dropdown) │    │  - secondary lang       │
+   │  - status row                │    │  - Advanced (collapsed):│
+   │                              │    │      Ask-AI provider    │
+   │                              │    │      Ask-AI prompt tmpl │
+   │                              │    │  - clear cache          │
+   └──────────────────────────────┘    └─────────────────────────┘
 
 External services contacted at runtime (with user-supplied keys or no key):
 
@@ -162,7 +178,7 @@ learnwithsoju/
 │   ├── youtube-page-hook.js            ← page-main-world script; XHR/fetch hooks + tracklist/load-track command channel
 │   ├── cache.js                        ← two-tier (in-mem LRU + storage adapter) cache factory; namespaced (pure)
 │   ├── popup.html                      ← toolbar-action popup markup
-│   ├── popup.js                        ← toolbar popup logic (enable toggle, per-site disable, generic adapter-section loader)
+│   ├── popup.js                        ← toolbar popup logic (per-site disable toggle, generic adapter-section loader, content-script lws-site-info fallback for hostname)
 │   ├── popup.css                       ← styling for the toolbar popup (NOT the in-page hover popup)
 │   ├── options.html                    ← settings-page markup (API keys, behaviour, cache)
 │   ├── options.js                      ← settings-page logic (load/save, test key, clear cache)
