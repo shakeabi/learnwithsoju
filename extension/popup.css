@@ -177,20 +177,24 @@ header .brand {
   border-top: 1px solid var(--border);
   padding-top: 12px;
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
-  gap: 18px;
+  gap: 10px;
 }
 
 .link-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
   color: var(--muted);
   text-decoration: none;
+  cursor: pointer;
   transition: color 0.12s ease, background 0.12s ease;
 }
 
@@ -203,24 +207,4 @@ header .brand {
   opacity: 0.4;
   pointer-events: none;
   cursor: default;
-}
-
-.actions {
-  margin-top: 14px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-
-.link-btn {
-  background: transparent;
-  border: none;
-  color: var(--accent);
-  font: inherit;
-  font-size: 13px;
-  padding: 0;
-  cursor: pointer;
-}
-
-.link-btn:hover {
-  text-decoration: underline;
 }

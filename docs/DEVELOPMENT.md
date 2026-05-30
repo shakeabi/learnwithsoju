@@ -1323,14 +1323,17 @@ icon. Four sections:
   `youtube-popup.js` (secondary-subs dropdown). Adding Netflix / Viki is
   a new SITE_CONFIGS entry + its own `*-popup.js` — no edits to
   `popup.js` or `popup.html`.
-- Links row — three small inline-SVG icon links centered at the bottom
-  of the popup. Notepad opens `notepad.html` (§7.x) in a new tab; its
+- Links row — a left-aligned row of small inline-SVG icons at the
+  bottom of the popup. Two are always present and baked into
+  `popup.html`: Notepad (opens `notepad.html` (§7.x) in a new tab; its
   `href` is resolved at popup-open time via
   `chrome.runtime.getURL('notepad.html')` since the extension ID isn't
-  known until runtime. GitHub points at the repo URL (baked into HTML).
-  Discord is a placeholder (`link-icon--disabled`, `pointer-events:
-  none`, `aria-disabled="true"`, "Coming soon" tooltip) until we have
-  an invite URL.
+  known until runtime) and Settings (gear `<button>` wired to
+  `chrome.runtime.openOptionsPage()`). External links (GitHub, Discord)
+  live in a `LINKS` dict at the top of `popup.js` — a non-empty URL
+  renders an active `<a>` for that key, an empty string renders a
+  greyed `link-icon--disabled` placeholder. To enable GitHub or surface
+  a Discord invite, set the URL in `LINKS`; no HTML/CSS edits needed.
 
 `popup.js` stays a settings/status shell — no Korean-text rendering
 of its own.
@@ -1356,7 +1359,7 @@ Popup-side counterpart to `youtube-adapter.js`. Exports
 
 ### 7.13 `options.html` / `options.js` / `options.css`
 
-The settings page. Linked from the popup ("Open settings →") and from
+The settings page. Linked from the popup (gear icon in the links row) and from
 `chrome://extensions` via the manifest's `options_page` field. Sections:
 
 - API keys: KRDict (required) + OpenDict (optional, experimental).
