@@ -46,7 +46,7 @@
  * goes through the hard-reload path instead.
  */
 
-const LWS_YT_DIAG = false;
+const LWS_YT_DIAG = true;
 
 const SETTING_KEY = 'dualSubsYouTube';
 const DEFAULT_SECONDARY_KEY = 'secondaryLang';
