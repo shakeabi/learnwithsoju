@@ -1558,7 +1558,12 @@ Standalone extension page reached from the toolbar popup's links row
   `target.textContent = input.value`; content.js's mutation observer
   then wraps each Korean run in a `.lws-word` span, and the regular
   in-page hover popup machinery takes over — same dictionary popup
-  the user gets on any webpage.
+  the user gets on any webpage. The target div carries the class
+  `lws-sentence-root`; `extractSentence` in content.js treats the
+  nearest `.lws-sentence-root` ancestor as the hard ceiling when
+  walking up the DOM, so the sentence context is scoped to the pasted
+  text only and never includes sibling instruction text in the same
+  card.
 
 The page links `content.css` (for the `.lws-word` underline) and
 loads `content.js` as a plain `<script src>` at the bottom — its

@@ -528,6 +528,12 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   }
 
   function extractSentence(wordEl) {
+    // Hard ceiling: if the word lives inside a `.lws-sentence-root` element
+    // (e.g. the notepad target div), never walk above it. This prevents
+    // sibling instruction text in the same section from leaking into the
+    // sentence context.
+    const sentenceRoot = wordEl.closest('.lws-sentence-root');
+
     // Per-site override (see site-configs.js): sites that render text as
     // many flat sibling spans (YouTube subtitles, etc.) need a specific
     // ancestor selector — the default walk-up hits the body before finding
@@ -536,7 +542,9 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     // YouTube), `closest()` returns null and we fall through to the
     // default walk so non-caption text on the same page still works.
     let block = null;
-    if (siteConfig && siteConfig.sentenceContainer) {
+    if (sentenceRoot) {
+      block = sentenceRoot;
+    } else if (siteConfig && siteConfig.sentenceContainer) {
       block = wordEl.closest(siteConfig.sentenceContainer);
     }
     if (!block) {
