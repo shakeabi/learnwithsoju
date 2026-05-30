@@ -53,6 +53,7 @@
   // -----------------------------------------------------------------------
 
   let probed = false;
+  let loadedProbed = false;
 
   function listMethods(obj) {
     const methods = new Set();
@@ -270,6 +271,129 @@
         } catch (e) {
           console.log('[lws-nx-api] action creators probe threw:', e.message);
         }
+
+        // Round 3: arm a second poll that waits for tracks to populate.
+        // Capture the session id and player references from this round for reuse.
+        (() => {
+          let _r3sid = null;
+          let _r3session = null;
+          let _r3videoPlayer = null;
+          let _r3store = null;
+          try {
+            const _r3api = playerApp.getAPI();
+            _r3videoPlayer = _r3api.videoPlayer;
+            const _r3ids = _r3videoPlayer.getAllPlayerSessionIds ? _r3videoPlayer.getAllPlayerSessionIds() : [];
+            _r3sid = Array.isArray(_r3ids) && _r3ids.length > 0 ? _r3ids[0] : null;
+            if (_r3sid) _r3session = _r3videoPlayer.getVideoPlayerBySessionId(_r3sid);
+            _r3store = playerApp.getStore();
+          } catch (e) {
+            console.log('[lws-nx-api-loaded] round-3 setup threw:', e && e.message);
+            return;
+          }
+          if (!_r3sid || !_r3session) {
+            console.log('[lws-nx-api-loaded] round-3 setup: no usable session — skipping');
+            return;
+          }
+
+          const _r3Start = Date.now();
+          const _r3PollId = setInterval(() => {
+            if (loadedProbed) { clearInterval(_r3PollId); return; }
+            if (Date.now() - _r3Start > 45000) {
+              clearInterval(_r3PollId);
+              console.log('[lws-nx-api-loaded] gave up — no tracks after 45s');
+              return;
+            }
+
+            let textList = [];
+            let timedList = [];
+            let audioList = [];
+            try { textList = _r3session.getTextTrackList ? (_r3session.getTextTrackList() || []) : []; } catch {}
+            try { timedList = _r3session.getTimedTextTrackList ? (_r3session.getTimedTextTrackList() || []) : []; } catch {}
+            try {
+              const _r3st = _r3store.getState();
+              const _r3ps = _r3st && _r3st.videoPlayer && _r3st.videoPlayer.playbackStateBySessionId;
+              audioList = (_r3ps && _r3ps[_r3sid] && _r3ps[_r3sid].audioTrackList) || [];
+            } catch {}
+
+            if (!Array.isArray(textList) || !Array.isArray(timedList) || !Array.isArray(audioList)) return;
+            if (textList.length === 0 && timedList.length === 0 && audioList.length === 0) return;
+
+            clearInterval(_r3PollId);
+            loadedProbed = true;
+
+            console.log('[lws-nx-api-loaded] tracks populated — session:', _r3sid);
+
+            // 1. textTrackList
+            try {
+              console.log('[lws-nx-api-loaded] textTrackList: count=' + textList.length);
+              for (let i = 0; i < textList.length; i++) {
+                const track = textList[i];
+                console.log('[lws-nx-api-loaded] textTrackList[' + i + '] raw:', track);
+                try { console.table(walkShape(track, 4)); } catch { console.log(walkShape(track, 4)); }
+              }
+            } catch (e) { console.log('[lws-nx-api-loaded] textTrackList probe threw:', e && e.message); }
+
+            // 2. timedTextTrackList
+            try {
+              console.log('[lws-nx-api-loaded] timedTextTrackList: count=' + timedList.length);
+              for (let i = 0; i < timedList.length; i++) {
+                const track = timedList[i];
+                console.log('[lws-nx-api-loaded] timedTextTrackList[' + i + '] raw:', track);
+                try { console.table(walkShape(track, 4)); } catch { console.log(walkShape(track, 4)); }
+              }
+            } catch (e) { console.log('[lws-nx-api-loaded] timedTextTrackList probe threw:', e && e.message); }
+
+            // 3. audioTrackList from store
+            try {
+              console.log('[lws-nx-api-loaded] audioTrackList from store: count=' + audioList.length);
+              for (let i = 0; i < audioList.length; i++) {
+                console.log('[lws-nx-api-loaded] audioTrackList[' + i + '] raw:', audioList[i]);
+                try { console.table(walkShape(audioList[i], 4)); } catch { console.log(walkShape(audioList[i], 4)); }
+              }
+            } catch (e) { console.log('[lws-nx-api-loaded] audioTrackList probe threw:', e && e.message); }
+
+            // 4. active text track
+            try {
+              console.log('[lws-nx-api-loaded] active text track — session.getTextTrack():', safeCallR3('session.getTextTrack()', () => _r3session.getTextTrack && _r3session.getTextTrack()));
+              console.log('[lws-nx-api-loaded] active text track — session.getCurrentTextTrack():', safeCallR3('session.getCurrentTextTrack()', () => _r3session.getCurrentTextTrack && _r3session.getCurrentTextTrack()));
+              console.log('[lws-nx-api-loaded] active text track — videoPlayer.getCurrentTextTrackBySessionId:', safeCallR3('vpCurrentTextTrack', () => _r3videoPlayer.getCurrentTextTrackBySessionId && _r3videoPlayer.getCurrentTextTrackBySessionId(_r3sid)));
+            } catch (e) { console.log('[lws-nx-api-loaded] active text track probe threw:', e && e.message); }
+
+            // 5. active audio track
+            try {
+              console.log('[lws-nx-api-loaded] active audio track — session.getAudioTrack():', safeCallR3('session.getAudioTrack()', () => _r3session.getAudioTrack && _r3session.getAudioTrack()));
+              console.log('[lws-nx-api-loaded] active audio track — session.getCurrentAudioTrack():', safeCallR3('session.getCurrentAudioTrack()', () => _r3session.getCurrentAudioTrack && _r3session.getCurrentAudioTrack()));
+            } catch (e) { console.log('[lws-nx-api-loaded] active audio track probe threw:', e && e.message); }
+
+            // 6. playback state subset — keys matching /track|text|audio|loaded/i
+            try {
+              const _r3st = _r3store.getState();
+              const _r3ps = _r3st && _r3st.videoPlayer && _r3st.videoPlayer.playbackStateBySessionId;
+              const pbState = _r3ps && _r3ps[_r3sid];
+              if (pbState) {
+                const interestingPbKeys = Object.keys(pbState).filter((k) => /track|text|audio|loaded/i.test(k));
+                console.log('[lws-nx-api-loaded] playback state subset — interesting keys:', interestingPbKeys);
+                for (const k of interestingPbKeys) {
+                  try {
+                    const walked = walkShape(pbState[k], 3);
+                    console.log('[lws-nx-api-loaded] playback state subset [' + k + ']:');
+                    try { console.table(walked); } catch { console.log(walked); }
+                  } catch (e) {
+                    console.log('[lws-nx-api-loaded] playback state subset [' + k + '] threw:', e && e.message);
+                  }
+                }
+              } else {
+                console.log('[lws-nx-api-loaded] playback state subset: pbState not found for sid', _r3sid);
+              }
+            } catch (e) { console.log('[lws-nx-api-loaded] playback state subset probe threw:', e && e.message); }
+
+          }, 1000);
+
+          function safeCallR3(label, fn) {
+            try { return fn(); } catch (e) { return '(threw: ' + (e && e.message) + ')'; }
+          }
+        })();
+
       } catch (outerErr) {
         console.log('[lws-nx-api] probe outer error:', outerErr && outerErr.message);
       }
