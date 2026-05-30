@@ -137,16 +137,26 @@ export async function setup(api = {}) {
 
   document.addEventListener('yt-navigate-start', handleNavStart);
   document.addEventListener('yt-navigate-finish', handleNavFinish);
-  // Safety net for navigations that don't fire yt-navigate-* (some
-  // playlist auto-advances and a few embed paths). Polls the URL and
-  // simulates the same start/finish sequence.
+  // Safety net for navigations that don't fire yt-navigate-* cleanly.
+  // Primary signal is the player's `getVideoData().video_id` — always-fresh
+  // and updates the instant the player swaps to the next video. Autoplay
+  // transitions land here first; the URL's ?v= can lag by hundreds of ms
+  // (or, on some playlist paths, until the next user interaction). URL
+  // change is kept as a secondary trigger so manual nav still fires this
+  // path even if a video_id read fails.
   let lastHref = window.location.href;
-  setInterval(() => {
-    if (window.location.href === lastHref) return;
-    lastHref = window.location.href;
+  let lastSeenVideoId = null;
+  setInterval(async () => {
+    const href = window.location.href;
+    const vid = await readPlayerVideoId();
+    const hrefChanged = href !== lastHref;
+    const vidChanged = vid && vid !== lastSeenVideoId;
+    if (!hrefChanged && !vidChanged) return;
+    lastHref = href;
+    if (vid) lastSeenVideoId = vid;
     handleNavStart();
     handleNavFinish();
-  }, 1000);
+  }, 500);
 
   await injectHookOnce();
   await activate();
@@ -661,6 +671,16 @@ function triggerLoadTrack(lang, kind) {
   const payload = kind ? { lang, kind } : { lang };
   const reqId = sendHookCmd('load-track', payload);
   awaitHookReply('load-track', reqId, 1500).catch(() => {/* fire-and-forget */});
+}
+
+async function readPlayerVideoId() {
+  try {
+    const reply = await awaitHookReply('video-id', sendHookCmd('video-id'), 1500);
+    return (reply && typeof reply.videoId === 'string' && reply.videoId) || null;
+  } catch (err) {
+    log('video_id read failed:', err && err.message);
+    return null;
+  }
 }
 
 async function readCurrentTrack() {

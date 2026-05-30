@@ -132,6 +132,27 @@
         }
       } catch {}
       window.postMessage({ __lwsYtReply: 'player-response-tracks', reqId, tracks }, '*');
+    } else if (d.__lwsYtCmd === 'video-id') {
+      // Always-fresh signal for "which video is loaded right now". The URL's
+      // ?v= param can lag during autoplay transitions (player swaps the
+      // <video> src and starts the next video before History API fires),
+      // so the adapter polls this instead of relying solely on location.href.
+      const player = getPlayer();
+      let videoId = null;
+      if (player && typeof player.getVideoData === 'function') {
+        try {
+          const vd = player.getVideoData();
+          if (vd && typeof vd.video_id === 'string') videoId = vd.video_id;
+        } catch {}
+      }
+      if (!videoId) {
+        try {
+          const pr = getCurrentPlayerResponse();
+          const id = pr && pr.videoDetails && pr.videoDetails.videoId;
+          if (typeof id === 'string') videoId = id;
+        } catch {}
+      }
+      window.postMessage({ __lwsYtReply: 'video-id', reqId, videoId }, '*');
     } else if (d.__lwsYtCmd === 'get-track') {
       // Read the player's current caption track selection so the adapter
       // can mirror YT's CC button state on its overlay. Returns `{}` when

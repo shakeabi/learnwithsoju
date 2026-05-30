@@ -1308,10 +1308,17 @@ back-button SPA-style navigation YouTube does.
 - `resolveSecondaryLang(videoId)` does a parallel sync+local read,
 catches per-promise failures so one bad read doesn't sink the other.
 Per-video override wins; default is `sync.secondaryLang || 'en'`.
-- The `setInterval(..., 1000)` href-poll is a fallback for cases where
+- The `setInterval(..., 500)` poll is a fallback for cases where
 the `yt-navigate-finish` event doesn't fire (some YouTube internal
-navigation paths skip it). It calls the same `handleNavStart` /
-`handleNavFinish` pair so the unwrap / activate logic is shared.
+navigation paths skip it). Its primary trigger is a change in
+`player.getVideoData().video_id` (queried via the `video-id` hook
+command); URL change is a secondary trigger. The video_id signal is
+always-fresh — during autoplay the player swaps to the next video's
+`video_id` immediately, but `?v=` in `location.href` can lag by
+hundreds of ms (long enough for YouTube to re-render the title /
+description containers into our stale `.lws-word` spans, producing
+the "AB" mangling). Both signals fan into the same `handleNavStart`
+/ `handleNavFinish` pair so the unwrap / activate logic is shared.
 - **SPA navigation race**: `activate()` is async — its
 `waitForVideoElement` + `waitForTracklist` + `captureBaseTrack`
 chain can take seconds. Without the generation token, a YouTube
@@ -1330,7 +1337,11 @@ previous video, YouTube's renderer can't cleanly replace the text
 — it ends up appending the new text alongside our stale spans
 ("A" → "AB"). `handleNavStart` calls `hostUnwrap()` to strip the
 spans BEFORE YouTube does its update; `handleNavFinish` calls
-`hostRescan()` 250 ms later to rewrap the new content.
+`hostRescan()` 250 ms later to rewrap the new content. This had
+to be wired to the `video_id` poll (not just URL change) because
+autoplay starts the next video — and re-renders those containers
+— before the URL's `?v=` updates, so a URL-only signal would miss
+the transition and leave the stale spans in place.
 - Caption-source picking is the most subtle bit — see §10.
 - Overlay container is `.html5-video-player` (the player root), not
 the inner `.html5-video-container`. The inner container is
@@ -1381,6 +1392,13 @@ Message protocol:
    adapter to restore CC-off after the capture pipeline forced tracks
    to fetch caption bodies; without this the user would find CC
    silently enabled on every video they opened.
+7. `__lwsYtCmd: 'video-id'` — request. Hook returns
+  `player.getVideoData().video_id` (falling back to
+   `getCurrentPlayerResponse().videoDetails.videoId` if `getVideoData`
+   isn't available yet). The adapter's SPA-nav poll uses this as the
+   primary "which video is loaded right now" signal because the
+   player updates `video_id` the instant autoplay swaps to the next
+   video — well before the URL's `?v=` reflects the change.
 
 There used to be an `audio-info` command that returned the inferred
 audio language from `getCurrentPlayerResponse()` — removed because
@@ -1893,13 +1911,15 @@ communicate over `window.postMessage`.
 ### 10.2 The command channel
 
 
-| Direction  | Message shape                                       | Purpose                               |
-| ---------- | --------------------------------------------------- | ------------------------------------- |
-| iso → main | `{ __lwsYtCmd: 'tracklist', reqId }`                | "What captions does this video have?" |
-| iso → main | `{ __lwsYtCmd: 'load-track', reqId, lang }`         | "Switch to the lang track."           |
-| main → iso | `{ __lwsYtReply: 'tracklist', reqId, tracks }`      | tracklist reply                       |
-| main → iso | `{ __lwsYtReply: 'load-track', reqId, ok, error? }` | load-track ACK                        |
-| main → iso | `{ __lwsYtCaption: true, url, status, body }`       | broadcast — every captured timedtext  |
+| Direction  | Message shape                                       | Purpose                                        |
+| ---------- | --------------------------------------------------- | ---------------------------------------------- |
+| iso → main | `{ __lwsYtCmd: 'tracklist', reqId }`                | "What captions does this video have?"          |
+| iso → main | `{ __lwsYtCmd: 'load-track', reqId, lang }`         | "Switch to the lang track."                    |
+| iso → main | `{ __lwsYtCmd: 'video-id', reqId }`                 | "Which video is loaded right now?" (SPA poll)  |
+| main → iso | `{ __lwsYtReply: 'tracklist', reqId, tracks }`      | tracklist reply                                |
+| main → iso | `{ __lwsYtReply: 'load-track', reqId, ok, error? }` | load-track ACK                                 |
+| main → iso | `{ __lwsYtReply: 'video-id', reqId, videoId }`      | video-id reply (`null` if player not ready)    |
+| main → iso | `{ __lwsYtCaption: true, url, status, body }`       | broadcast — every captured timedtext           |
 
 
 `reqId` is a monotonic-per-content-script-lifetime sequence
