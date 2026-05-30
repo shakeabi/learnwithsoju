@@ -288,7 +288,7 @@ learnwithsoju/
 │           └── entries.bin.gz                ← entry strings + features (9.7 MB / 54 MB)
 │
 ├── tests/                              ← node:test suite. Pure modules only — no jsdom, no Chrome stubs.
-│   ├── api.test.js                     ← URL builders, looksEmpty, extractApiError (20 tests)
+│   ├── api.test.js                     ← URL builders, looksEmpty, extractApiError, extractItemWords, groupByWord, pickTabsAndUnrelated (30 tests)
 │   ├── cache.test.js                   ← two-tier cache, LRU eviction, namespace isolation (11 tests)
 │   ├── grammar-glosses.test.js         ← morphemeGloss disambiguation + isContentMorpheme filter (11 tests)
 │   ├── lemmatizer.test.js              ← candidate-generation rules incl. compound-noun + Inflect-stem (29 tests)
@@ -602,20 +602,28 @@ Files: `content.js`, `background.js`, `lemmatizer.js`, `parsers.js`,
     dictionary candidates (see §8).
   4. Read `krdictApiKey` from `chrome.storage.sync`. If missing,
     return `{ error: 'NO_API_KEY' }`.
-  5. Pick the top 4 distinct candidates and fire `Promise.all` of
+  5. Pick the top 5 distinct candidates and fire `Promise.all` of
     `fetchKrdictCached(q, key)` — each call consults `krdictCache`
      (keyed by lemma) before hitting the network; two surfaces that
-     lemmatize to the same lemma share the cached XML. See §9 for the
-     partition logic that depends on the order of these results.
-  6. If none of the 4 returned anything, fall through to remaining
-    candidates sequentially (each also goes through `fetchKrdictCached`).
-  7. If `opendictApiKey` is set AND KRDict came back empty, try
-    OpenDict via `fetchOpendictCached` in candidate order until one
+     lemmatize to the same lemma share the cached XML. The full result
+     list per query is preserved in `krXmls[i]` (null for empty), aligned
+     with `parallelQueue`, so the grouping algorithm in step 8 can walk
+     each query's items in order. See §9 for the grouping algorithm.
+  6. If `opendictApiKey` is set AND every KRDict query returned empty,
+    try OpenDict via `fetchOpendictCached` in candidate order until one
     returns content; `opendictCache` (keyed by lemma) is consulted
-    first so repeat lemma queries skip the network.
+    first so repeat lemma queries skip the network. The OpenDict result
+    feeds into the same grouping algorithm as one additional tail query.
+  7. For each non-empty XML, `extractItemWords(xml)` (regex, in `api.js` —
+    no DOMParser in the service worker) reads the `<word>` of each
+    `<item>` in document order; that per-query word list drives
+    `pickTabsAndUnrelated`. The output is the `{tabs, unrelated}` plan —
+    every `section` carries `{source, queryIdx, itemIdx}` so the content
+    script can locate the matching parsed entry without re-grouping.
   8. Build the response object — `surface`, `lemma`, `queryUsed`,
-    `queriesUsed`, `multiPrimary` flag, `tokens`, `krXmls[]`,
-     `odXml`, `cachedAt`. Persist to cache and return.
+    `queriesUsed`, `candidates`, `tokens`, `krQueries`, `krXmls[]`,
+     `odXml`, `odQuery`, `tabs`, `unrelated`, `cachedAt`. Persist to
+     cache and return.
 5. Back in `content.js`, the response arrives. If
   `requestId !== pendingRequestId`, the user has moved on; bail.
 6. Handle error responses (`NO_API_KEY`, `FETCH_FAILED`, other) with
@@ -682,25 +690,33 @@ Files: `content.js`.
    re-extraction (which would clobber a sentence-word-click rebuild),
    no popup move.
 
-### 6.6 Tab switching: homograph entries and `+N related` expand
+### 6.6 Tab switching: word-grouped tabs and the related bucket
 
 Files: `content.js`.
 
-KRDict often returns more than one entry per query. `buildResultNode`
-partitions the merged set of entries (across all parallel queries) into
-"primary" (exact headword matches against promoted forms) and "related"
-(everything else). See §9 for the partition logic.
+Background already computed the `{tabs, unrelated}` plan (see §9).
+`buildResultNode` walks `payload.tabs`, materializes each section by
+parsing the corresponding `payload.krXmls[queryIdx]` / `payload.odXml`
+via `parsers.parseKrdictXml` / `parseOpendictXml`, and renders the
+result as a tab strip + tab body.
 
-1. Primary entries get rendered as tabs in `buildTabBar`. The active tab
-  shows in `buildKrEntryNode`.
-2. If there are hidden related entries, a `+N related` pill appears at
-  the end of the tab strip.
-3. Clicking a normal tab calls `onTabClick(idx)` →
-  `rerenderActivePopup()` with `reposition: false` (so the user's click
-   on the next tab in the strip doesn't get eaten by the popup moving
-   away mid-click).
-4. Clicking `+N related` sets `relatedExpanded = true` and re-renders.
-  The previously hidden entries are now appended to the tab list.
+1. Each tab is one headword. The tab strip is rendered by `buildTabBar`;
+  multi-section tabs get a "·N" badge so the user can tell at a glance
+   which tabs hold more than one entry.
+2. The active tab's body (`buildTabBodyNode`) stacks N section nodes —
+  one per dictionary entry that fell into this tab. Section 0 is
+   expanded; the rest collapse to a header row whose pill set (POS,
+   pronunciation, Hanja-origin) is fully duplicated so a collapsed
+   section header is self-describing.
+3. Clicking a collapsed section header toggles `expandedSections.has(key)`
+  for `key = "${tabIdx}:${sectionIdx}"` and rerenders.
+4. Clicking a tab calls `onTabClick(idx)` → `rerenderActivePopup()` with
+  `reposition: false` (so the user's click on the next tab in the strip
+   doesn't get eaten by the popup moving away mid-click).
+5. The `payload.unrelated` bucket renders below the tabs as a single
+  collapsible "▸ Show related (N)" panel. Open with `relatedExpanded`.
+   Inside, each group renders with the same per-section layout as a tab
+   body — duplicated pills, first section expanded, rest collapsible.
 
 ### 6.7 Hanja meanings: click-to-expand per-character panel
 
@@ -1023,29 +1039,33 @@ the popup).
 
 `buildResultNode(payload, options)` is the big one:
 
-1. Parse the XML — `payload.krXmls[]` (new format) or
-  `[krXml, krXmlExtra].filter(Boolean)` (legacy cached payloads). The
-  parsed entry arrays are memoized on `payload.__parsedGroups` /
-  `payload.__parsedOd` so tab / language toggles re-rendering from the
-  same `lastPayload` don't re-walk the raw XML strings.
-2. `mergeKrEntriesAll(groups)` dedupes across parallel-query result
-  groups by `(word|pos|definition[0..40])` — earlier groups (more
-   specific queries) win.
-3. Render the strip (lemma chip + EN/KR toggle), the sentence band,
+1. Materialize each tab/unrelated group from the background-computed
+  `payload.tabs` / `payload.unrelated` plan. `entryForSection({source,
+   queryIdx, itemIdx})` parses the matching XML the first time a section
+   from a given query is requested (`parsers.parseKrdictXml` for `source
+   === 'kr'`; `parsers.parseOpendictXml` for `source === 'od'`) and
+   memoizes on `payload.__entryCache = { kr: Map<queryIdx, entries[]>,
+   od: entries[] | null }`. Re-renders (tab switch, EN/KR toggle, section
+   expand) reuse the parsed arrays without re-walking the XML.
+2. Render the strip (lemma chip + EN/KR toggle), the sentence band,
   the insights node (morpheme breakdown tab).
-4. Partition entries into primary vs related using the multiPrimary
-  flag and promoted forms (see §9).
-5. Sort primary so entries whose word equals the literal surface lead
-  (stable sort).
-6. Render tab bar (if >1 entry or hidden related entries), then the
-  active entry via `buildKrEntryNode`.
-7. If OpenDict has results, render those under a "OpenDict experimental"
-  section label.
+3. Render the tab bar (`buildTabBar`) when `tabs.length > 1`, then
+  `buildTabBodyNode(tabs[activeTabIdx], activeTabIdx)` for the active
+   tab.
+4. Render the unrelated bucket (`buildUnrelatedNode`) when
+  `unrelated.length > 0`. Collapsed by default; click to expand.
+5. If there are no tabs and no unrelated entries, render the empty
+  state (`No definition found for …`).
 
-`buildKrEntryNode` lays out: headline (word + ★ stars), meta row (POS
-chip, pronunciation chip, Hanja-origin chip), the Hanja meanings panel
-(conditional on `expandedHanja`), then numbered senses with their
-translations / definitions and the per-sense "Show examples" toggle.
+`buildTabBodyNode` stacks one `buildSectionNode` per entry. Each
+section's header (`buildSectionHeader`) renders headline (word + ★
+stars) plus the meta row (POS chip, pronunciation chip, Hanja-origin
+chip). The pill set is duplicated for every section so a collapsed
+section header is fully self-describing. The body (only present when
+`isOpen`) holds the Hanja meanings panel (conditional on
+`expandedHanja`) and the numbered senses (`buildSenseNode` /
+`buildOdSenseNode`) with translations / definitions and the per-sense
+"Show examples" toggle.
 
 #### POS shortform adapter
 
@@ -1102,7 +1122,7 @@ Module-level state:
    (see [MECAB_INTEGRATION.md](MECAB_INTEGRATION.md)).
 
 `tokenizeSurfaceNbest(surface)` wraps `mecab.tokenize_nbest(surface,
-NBEST_N)` (NBEST_N = 3) and normalizes each path's WASM class instances
+NBEST_N)` (NBEST_N = 5) and normalizes each path's WASM class instances
 into plain JS objects (for structured-clone via `sendMessage` and
 `chrome.storage.local.set`). Returns an array of
 `{ tokens, cost }` paths sorted by Viterbi cost ascending; the 1-best
@@ -1117,17 +1137,21 @@ and the lemmatizer falls back to surface-only.
 `handleLookup(surface)` — see §6.2 step 4 for the full pipeline. Key
 points:
 
-- Top 4 distinct candidates fired in parallel via `Promise.all`. The
-first non-empty per slot is collected into `krXmls[]` along with
-the corresponding query in `queriesUsed[]`.
-- `multiPrimary = candidates.length > 0 && candidates[0] === surface` —
-this is the lemmatizer's surface-first signal that the surface is a
-pure noun compound (see §8). It controls how the partition logic in
-`buildResultNode` divvies primary vs related entries.
-- Backward-compat: `krXml = krXmls[0]`, `krXmlExtra = krXmls[1]`,
-`queryUsed = queriesUsed[0]`, `queryUsedExtra = queriesUsed[1]` —
-older cached payloads in `storage.local` don't have the new array
-field, so `buildResultNode` reads both.
+- Top 5 distinct candidates (`KRDICT_PARALLEL_CAP = 5`) fired in
+parallel via `Promise.all`. Each query's full XML is kept at its own
+slot in `krXmls[]` (null on empty/error), aligned with `parallelQueue`,
+so the grouping plan stays addressable by `queryIdx`.
+- `extractItemWords(xml)` (regex-based, lives in `api.js` — the SW has
+no DOMParser) extracts one `<word>` per `<item>` per query. The list
+of per-query word arrays is fed into `pickTabsAndUnrelated`, which
+runs the five-step merging algorithm (see §9) and returns
+`{tabs, unrelated}`. Each section in the plan is
+`{source: 'kr' | 'od', queryIdx, itemIdx}` so the content script can
+resolve back to a parsed entry without re-grouping.
+- OpenDict fallback fires only when every KRDict query returned empty.
+OpenDict's response is treated as one additional tail query (`source =
+'od'`) in `pickTabsAndUnrelated`, so OD entries flow through the same
+grouping pipeline — typically yielding 1 tab with 1 section.
 
 `handleHanjaLookup(chars)` is much simpler: the whole Hanja string is
 the cache key, the API takes the whole string at once and returns one
@@ -1891,82 +1915,96 @@ under "+N related"). See §9.
 
 ---
 
-## 9. KRDict partition logic
+## 9. KRDict grouping algorithm
 
-`content.js`'s `buildResultNode` divides the merged-across-parallel-
-queries KRDict entries into two visual buckets:
+`background.js` runs the five top-ranked lemma candidates as parallel
+KRDict queries, then assembles the response into `{tabs, unrelated}`
+using `pickTabsAndUnrelated` (in `api.js`, pure, fully unit-tested).
+The content script renders one tab per `tabs[i].word`, each tab
+holding 1+ sections (= one KRDict entry per section).
 
-- **Primary** entries get tabs in the tab strip.
-- **Related** entries hide behind a `+N related` pill that, when
-clicked, appends them as additional tabs.
+### 9.1 Why grouping by `word`
 
-The partition key is a `promotedForms` set. An entry belongs in primary
-iff its `word` (trimmed) is in that set.
+KRDict often returns multiple entries for the same headword — different
+POS (살 the noun, 살 the bound noun) or different sense rows on the same
+POS (살 noun definition #1, 살 noun definition #2). Pre-grouping, those
+all became separate tabs, fragmenting the user's attention across what
+they read as "the same word". Post-grouping, one tab "살" holds all
+three; the user clicks once and sees every interpretation stacked, with
+the first expanded and the rest one click away.
 
-### 9.1 What goes into `promotedForms`
+### 9.2 The five-step merge
 
-Always: the literal hovered surface, plus `<surface>하다` and `<surface>되다`. The +하다 / +되다 promotion catches the very common case where
-a noun maps to its action-verb form — `예약` queries return both `예약`
-(noun) and `예약하다` (verb); both belong together for a learner, not
-split across a primary/related fold.
+Input: per-query `<word>` lists (extracted in document order by
+`extractItemWords`). Output: `{tabs, unrelated}` where each section is
+`{source: 'kr' | 'od', queryIdx, itemIdx}`.
 
-Then, depending on `multiPrimary`:
+1. **Per-query result list**: already done by the caller — one list of
+  `<word>` strings per query, indexed by `queryIdx`.
+2. **Group by `word`**: `groupByWord(words)` collapses one query's flat
+  list into ordered, deduped `{word, indices[]}` buckets, preserving
+   first-occurrence order of distinct words. Same `word` from different
+   `<item>` blocks goes into the same group (different POS / sense
+   variants).
+3. **Pick primary tabs in query order**: walk queries in order. For each
+  query, pick its FIRST not-yet-tabbed group as a new tab. If the
+   query's first group's word was already picked from an earlier query,
+   advance to the NEXT group from that query. A single query can
+   contribute multiple tabs when earlier groups are duplicates.
+4. **Across-query consolidation**: after the tab set is fixed, walk
+  every query's every group again. If a group's word matches an
+   existing tab, fold its items into that tab's `sections[]`. This is
+   what keeps query 살's `살다(v.)` row from becoming a duplicate tab
+   when query 살다 already produced one.
+5. **Unrelated bucket**: every group whose word is neither a primary
+  tab nor folded becomes an `unrelated[]` entry, also grouped by word,
+   in query-then-item order.
 
-- **multiPrimary === true (pure-noun compound case)**: every entry from
-`queriesUsed` is promoted. With its `하다`/`되다` variants, that's
-potentially 3N forms in the set.
-- **multiPrimary === false (verb compound or anything else)**: only the
-first query — the canonical lemma — is promoted, plus its `하다`/`되다`
-variants. The other queries' constituents stay in "related".
+### 9.3 Worked example — `살이었지`
 
-Concrete examples:
+Mecab top-5 → `[살, 살다, 살이, 살이었지, 사다]`. KRDict returns:
 
+| Query     | `<word>` per item (in order)        |
+| --------- | ----------------------------------- |
+| 살         | 살, 살, 살, 살-, 살다                    |
+| 살다        | 살다                                  |
+| 살이        | (empty)                             |
+| 살이었지      | (empty)                             |
+| 사다        | 사다                                  |
 
-| Surface | candidates              | multiPrimary | promotedForms                                |
-| ------- | ----------------------- | ------------ | -------------------------------------------- |
-| `반말`    | ['반말', '반', '말']        | true         | {반말, 반말하다, 반말되다, 반, 반하다, 반되다, 말, 말하다, 말되다}   |
-| `예약해야`  | ['예약하다', '예약', '하다', …] | false        | {예약해야, 예약해야하다, 예약해야되다, 예약하다, 예약하다하다, 예약하다되다} |
-| `학교에서`  | ['학교', '학교에서']          | false        | {학교에서, 학교에서하다, 학교에서되다, 학교, 학교하다, 학교되다}       |
+After grouping:
 
+- **Tab 살** ← query 살 picks `살` (3 sections: items 0, 1, 2 — three
+  POS/sense variants).
+- **Tab 살다** ← query 살다 picks `살다`; step 4 folds query 살's `살다`
+  item (idx 4) into the same tab. Sections: `[{kr,1,0}, {kr,0,4}]`.
+- (queries 살이 / 살이었지 contribute nothing — empty)
+- **Tab 사다** ← query 사다 picks `사다`.
+- **Unrelated 살-** ← left over from query 살.
 
-Yes, you'll see entries like "예약하다하다" in promotedForms — they
-don't match anything in KRDict, so they cost nothing. The set inclusion
-is what's load-bearing, not the literal strings.
+Net rendering: 3 visible tabs + 1 unrelated entry. Tab `살` opens with
+section 0 expanded; sections 1 and 2 collapse to header rows whose POS
+chips are visible without clicking.
 
-### 9.2 The sort
+### 9.4 OpenDict integration
 
-If more than one entry is primary AND the literal surface is non-empty,
-`primaryEntries.sort` puts entries whose `word === surface` first. The
-sort is stable (per ECMAScript 2019), so same-priority entries keep
-their merge order (which was insertion order across query groups, with
-earlier — i.e. more specific — groups winning).
+When every KRDict query returned empty, `handleLookup` fires OpenDict
+sequentially over `candidates` until one returns content. That one
+result is treated as a single additional tail query (`source: 'od'`)
+inside `pickTabsAndUnrelated`. The typical outcome is `tabs.length ===
+1` with one section. The rest of the pipeline (content rendering) is
+source-agnostic — each section just carries its `source` so the OD
+"experimental" styling can hook in if needed.
 
-### 9.3 The merge
+### 9.5 The unrelated bucket
 
-`mergeKrEntriesAll(parsedGroups)` walks each per-query result group and
-dedupes by `(word|pos|first-40-chars-of-definition)`. The first
-occurrence wins. KRDict's broad-match can return overlapping entries
-across adjacent queries (querying 파티원들 + 파티 + 원, KRDict's
-exact-match for 파티 will include 파티원들 in its loose-match list).
-The merge collapses these.
-
-### 9.4 The fallback if no entry is exact
-
-If `exactEntries.length === 0`, the partition collapses — every entry
-becomes primary. This handles the case where the lemma chain hit
-something looser than the headword (some KRDict idioms / multi-word
-expressions whose `word` is wrapped in spaces or punctuation), and we'd
-rather show the entries as tabs than as a single locked "+N related"
-pill.
-
-### 9.5 The "+N related" expansion
-
-The pill is rendered into the tab strip only when there are hidden
-related entries. Clicking it sets `relatedExpanded = true` and
-rerenders. On rerender, the hidden entries are concatenated onto
-`displayedEntries` — they appear as additional tabs to the right of the
-primary ones. The pill itself disappears (since there's nothing left to
-expand).
+`unrelated[]` always renders below the active tab inside a single
+collapsible panel — `▸ Show related (N)`. KRDict's broad-match list is
+often noisy (compound nouns containing the queried word, derived forms,
+etc.) and we don't want to push the primary tabs offscreen by default.
+Expanding the panel shows each unrelated group with the same per-section
+layout as a tab body — pill set duplicated per section, first expanded,
+rest collapsible.
 
 ---
 
@@ -2232,7 +2270,7 @@ its own prefix.
 
 | Cache        | Key                | Value                                                       |
 | ------------ | ------------------ | ----------------------------------------------------------- |
-| `lookup:*`   | `surface` (raw)    | Full `LookupResponse` with the raw XMLs etc.                |
+| `lookup:*`   | `surface` (raw)    | Full `LookupResponse` — surface, lemma, candidates, tokens, krQueries[], krXmls[], odXml, odQuery, tabs[], unrelated[], cachedAt |
 | `hanja:*`    | concatenated Hanja | `{ chars, hanjas: [{character, sino, summary}], cachedAt }` |
 | `krdict:*`   | lemma (query sent) | `{ xml, cachedAt }` — raw KRDict XML response text          |
 | `opendict:*` | lemma (query sent) | `{ xml, cachedAt }` — raw OpenDict XML response text        |
@@ -2240,7 +2278,16 @@ its own prefix.
 
 The `lookup:` cache is keyed by **surface** (not lemma) — the popup
 re-renders from `lastPayload` and needs to know what surface the user
-actually hovered, including its sentence context.
+actually hovered, including its sentence context. The cached value
+includes BOTH the raw `krXmls[]` / `odXml` AND the pre-computed
+`{tabs, unrelated}` grouping plan — the plan is what the renderer
+actually walks (so grouping doesn't repeat on every re-render or every
+re-load from disk), and the raw XMLs are still needed because the
+content script parses entries on demand (one query's XML at a time, as
+a tab is opened). Old-shape cache entries (from
+before this commit — missing `tabs`/`unrelated`) render as the empty
+state on next hover; a `Clear cache` from the options page repopulates
+everything in the new shape.
 
 The `krdict:` and `opendict:` caches are keyed by the **exact lemma
 string** passed to the API. They sit between `handleLookup` and the

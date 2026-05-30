@@ -503,7 +503,7 @@ a.lws-hanja-row-char:hover {
   font-weight: 500;
 }
 
-/* Headword block */
+/* Headword block — used both as a primary section and inside .lws-unrelated. */
 .lws-entry {
   padding: 4px 16px 14px;
 }
@@ -511,6 +511,53 @@ a.lws-hanja-row-char:hover {
 .lws-entry + .lws-entry {
   padding-top: 12px;
   border-top: 1px solid var(--border);
+}
+
+/* Each tab holds 1+ sections (= one dictionary entry per section: same word,
+   different POS or different definition row). First section is expanded;
+   the rest collapse to a header row whose pill set is duplicated so the
+   user can scan POS labels without expanding everything. */
+.lws-section-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: default;
+}
+button.lws-section-header {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin: -2px -4px 0;
+  transition: background-color 0.12s ease;
+}
+button.lws-section-header:hover {
+  background: var(--soft);
+}
+
+.lws-section-closed .lws-section-header {
+  margin-bottom: 0;
+}
+.lws-section-closed .lws-meta-row {
+  margin-bottom: 0;
+}
+
+.lws-section-indicator {
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1;
+  align-self: center;
+}
+button.lws-section-header[aria-expanded="true"] .lws-section-indicator {
+  color: var(--chip-amber-fg);
 }
 
 .lws-headline {
@@ -597,19 +644,31 @@ a.lws-hanja-row-char:hover {
   color: var(--chip-amber-fg);
 }
 
-/* "+N related" pill appended to the tab bar when KRDict returned loosely
-   related entries alongside the headword match. Click expands them as
-   additional tabs inline. Visually muted vs. regular tabs so it reads as
-   a control, not an entry. */
-.lws-tab-expand {
-  color: var(--muted);
-  font-style: italic;
-  opacity: 0.85;
+/* "Related" bucket below the primary tabs. Collapsible: header always
+   visible, body only when expanded. Holds same-shape section nodes as the
+   main tab body — headword + chips + senses. */
+.lws-unrelated {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
 }
-.lws-tab-expand:hover {
+.lws-unrelated-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 8px 16px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+.lws-unrelated-toggle:hover,
+.lws-unrelated-toggle[aria-expanded="true"] {
   color: var(--chip-amber-fg);
-  background: var(--chip-amber-bg);
-  opacity: 1;
+}
+.lws-unrelated-body {
+  border-top: 1px dashed var(--border);
 }
 
 .lws-examples {

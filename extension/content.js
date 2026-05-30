@@ -179,6 +179,10 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   let activeInsightTab = null;
   let activeTabIdx = 0;
   let relatedExpanded = false;
+  // Per-tab, per-section collapse state. Keys are `${tabIdx}:${sectionIdx}`.
+  // Section 0 of each tab is implicitly expanded (we don't seed it; the
+  // renderer treats absence-from-set differently for sectionIdx === 0).
+  let expandedSections = new Set();
   let popupMinHeight = 0;
   let popupMinWidth = 0;
   let expandedExamples = new Set();
@@ -895,57 +899,48 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     return div;
   }
 
-  // Dedupe KRDict entries across N parallel query results. KRDict's word
-  // search is approximate, so adjacent queries (반말 + 반, 파티원들 + 파티 +
-  // 원, etc.) occasionally overlap when one query's broad-match list
-  // bleeds into another's exact-word territory. We keep the first
-  // occurrence in iteration order — earlier groups (more-specific queries
-  // first) win.
-  function mergeKrEntriesAll(groups) {
-    if (!groups || groups.length === 0) return [];
-    if (groups.length === 1) return groups[0] || [];
-    const keyOf = (e) => {
-      const word = (e.word || '').trim();
-      const pos = (e.pos || '').trim();
-      const def = ((e.senses && e.senses[0] && e.senses[0].definition) || '').slice(0, 40);
-      return `${word}|${pos}|${def}`;
-    };
-    const seen = new Set();
-    const out = [];
-    for (const group of groups) {
-      if (!group) continue;
-      for (const e of group) {
-        const k = keyOf(e);
-        if (seen.has(k)) continue;
-        seen.add(k);
-        out.push(e);
-      }
+  // Resolve a {source, queryIdx, itemIdx} section reference into a parsed
+  // KRDict/OpenDict entry. Parsed entry arrays for each KR query and the OD
+  // response are memoized on `payload.__entryCache` so re-renders (tab
+  // switch, EN/KR toggle, expand) don't re-walk the raw XML.
+  function entryForSection(payload, section) {
+    if (!payload.__entryCache) payload.__entryCache = { kr: new Map(), od: null };
+    const cache = payload.__entryCache;
+    if (section.source === 'od') {
+      if (!cache.od) cache.od = parseOpendictXml(payload.odXml, DOMParser);
+      return cache.od[section.itemIdx] || null;
     }
-    return out;
+    let arr = cache.kr.get(section.queryIdx);
+    if (!arr) {
+      const xml = Array.isArray(payload.krXmls) ? payload.krXmls[section.queryIdx] : null;
+      arr = parseKrdictXml(xml, DOMParser);
+      cache.kr.set(section.queryIdx, arr);
+    }
+    return arr[section.itemIdx] || null;
+  }
+
+  function materializeGroup(payload, group) {
+    if (!group || !Array.isArray(group.sections)) return { word: group ? group.word : '', entries: [] };
+    const entries = [];
+    for (const s of group.sections) {
+      const e = entryForSection(payload, s);
+      if (e) entries.push({ entry: e, source: s.source });
+    }
+    return { word: group.word, entries };
   }
 
   function buildResultNode(payload, options = {}) {
     const root = document.createElement('div');
 
-    // Background may have run up to 4 parallel KRDict queries for
-    // multi-constituent compounds. Read the new krXmls array if present;
-    // fall back to the old krXml + krXmlExtra fields for cached payloads
-    // from earlier versions.
-    const xmls = Array.isArray(payload.krXmls) && payload.krXmls.length > 0
-      ? payload.krXmls
-      : [payload.krXml, payload.krXmlExtra].filter(Boolean);
-    if (!payload.__parsedGroups) {
-      payload.__parsedGroups = xmls.map((x) => parseKrdictXml(x, DOMParser));
-    }
-    if (!payload.__parsedOd) {
-      payload.__parsedOd = parseOpendictXml(payload.odXml, DOMParser);
-    }
-    const parsedGroups = payload.__parsedGroups;
-    const krEntries = mergeKrEntriesAll(parsedGroups);
-    const odEntries = payload.__parsedOd;
+    const tabs = (Array.isArray(payload.tabs) ? payload.tabs : [])
+      .map((g) => materializeGroup(payload, g))
+      .filter((g) => g.entries.length > 0);
+    const unrelated = (Array.isArray(payload.unrelated) ? payload.unrelated : [])
+      .map((g) => materializeGroup(payload, g))
+      .filter((g) => g.entries.length > 0);
 
     const showLemmaChip = payload.queryUsed && payload.queryUsed !== payload.surface;
-    if (showLemmaChip || krEntries.length > 0 || odEntries.length > 0) {
+    if (showLemmaChip || tabs.length > 0 || unrelated.length > 0) {
       root.appendChild(buildStripNode({
         showLemmaChip,
         lemma: payload.queryUsed,
@@ -959,7 +954,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     const insights = buildInsightsNode(payload);
     if (insights) root.appendChild(insights);
 
-    if (krEntries.length === 0 && odEntries.length === 0) {
+    if (tabs.length === 0 && unrelated.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'lws-popup-body lws-empty';
       const surf = document.createElement('div');
@@ -976,91 +971,23 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       return root;
     }
 
-    // Partition: KRDict often returns the headword we asked for plus loosely
-    // related forms (compound words containing it, derived nouns, etc.).
-    // Headword matches get the default tabs; the rest sit behind a "+N related"
-    // pill that, when clicked, appends them as additional tabs inline.
-    //
-    // We also promote the +하다 (action verb) and +되다 (passive) forms of a
-    // queried noun — `예약` and `예약하다` belong together for a learner, not
-    // split across a fold. Keeps "related" for genuinely tangential entries
-    // like compound nouns (`예약자`, `예약금`).
-    // For pure-noun compounds (multiPrimary=true), every constituent we
-    // queried is a primary tab — 파티원들 surfaces both 파티 and 원 in
-    // the tab strip rather than burying one behind +N related. For verb
-    // compounds (multiPrimary=false), only the lemma is primary and the
-    // constituents (예약, 하다 etc.) stay related.
-    const queriesUsed = Array.isArray(payload.queriesUsed) && payload.queriesUsed.length > 0
-      ? payload.queriesUsed
-      : [payload.queryUsed, payload.queryUsedExtra].filter(Boolean);
-    const multiPrimary = payload.multiPrimary === true;
-    const promoteAll = multiPrimary ? queriesUsed : queriesUsed.slice(0, 1);
-    const surfaceLiteral = (payload.surface || '').trim();
-    const PROMOTED_SUFFIXES = ['', '하다', '되다'];
-    const promotedForms = new Set();
-    // Always include the literal surface — KRDict's broad-match often
-    // returns the exact word the user hovered even when our `q=<surface>`
-    // query came back empty (e.g. 창조자: q=창조자 may be empty but q=창조
-    // includes 창조자 in its broad-match results).
-    if (surfaceLiteral) {
-      for (const suf of PROMOTED_SUFFIXES) promotedForms.add(surfaceLiteral + suf);
+    if (activeTabIdx >= tabs.length) activeTabIdx = 0;
+    if (tabs.length > 1) {
+      root.appendChild(buildTabBar(tabs));
     }
-    for (const q of promoteAll) {
-      const trimmed = (q || '').trim();
-      if (!trimmed) continue;
-      for (const suf of PROMOTED_SUFFIXES) promotedForms.add(trimmed + suf);
-    }
-    const isExactMatch = (e) => promotedForms.has((e.word || '').trim());
-    const exactEntries = krEntries.filter(isExactMatch);
-    const relatedEntries = krEntries.filter((e) => !isExactMatch(e));
-    // If KRDict didn't return any headword exact match (unusual — the query
-    // hit something looser), fall back to the original behavior: show all
-    // entries as tabs rather than burying them all.
-    const primaryEntries = exactEntries.length > 0 ? exactEntries : krEntries;
-    const hiddenRelated = exactEntries.length > 0 ? relatedEntries : [];
-    // Sort primary so entries whose word equals the literal hovered surface
-    // lead. Stable JS sort — same-priority entries keep their merge order.
-    if (surfaceLiteral && primaryEntries.length > 1) {
-      primaryEntries.sort((a, b) => {
-        const aMatch = (a.word || '').trim() === surfaceLiteral ? 0 : 1;
-        const bMatch = (b.word || '').trim() === surfaceLiteral ? 0 : 1;
-        return aMatch - bMatch;
-      });
-    }
-    const displayedEntries = relatedExpanded
-      ? primaryEntries.concat(hiddenRelated)
-      : primaryEntries;
-    const showExpandPill = !relatedExpanded && hiddenRelated.length > 0;
-
-    if (displayedEntries.length > 1 || showExpandPill) {
-      if (activeTabIdx >= displayedEntries.length) activeTabIdx = 0;
-      root.appendChild(buildTabBar(displayedEntries, {
-        expandCount: showExpandPill ? hiddenRelated.length : 0,
-      }));
-    }
-    if (displayedEntries.length > 0) {
-      root.appendChild(buildKrEntryNode(displayedEntries[activeTabIdx]));
+    if (tabs.length > 0) {
+      root.appendChild(buildTabBodyNode(tabs[activeTabIdx], activeTabIdx));
     }
 
-    if (odEntries.length > 0) {
-      const sep = document.createElement('div');
-      sep.className = 'lws-section-label';
-      const label = document.createElement('span');
-      label.textContent = 'OpenDict ';
-      sep.appendChild(label);
-      const beta = document.createElement('span');
-      beta.className = 'lws-beta';
-      beta.textContent = 'experimental';
-      sep.appendChild(beta);
-      root.appendChild(sep);
-      for (const entry of odEntries) root.appendChild(buildOdEntryNode(entry));
+    if (unrelated.length > 0) {
+      root.appendChild(buildUnrelatedNode(unrelated));
     }
 
     return root;
   }
 
-  function buildTabBar(entries, opts = {}) {
-    const labels = computeTabLabels(entries);
+  function buildTabBar(tabs) {
+    const labels = computeTabLabels(tabs);
     const bar = document.createElement('div');
     bar.className = 'lws-tabs';
     bar.setAttribute('role', 'tablist');
@@ -1069,49 +996,29 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       btn.type = 'button';
       btn.className = 'lws-tab';
       btn.textContent = label;
-      // Tab text uses POS shortform to stay narrow; full form goes in the
-      // tooltip so the meaning is one hover away.
-      const fullPos = displayPos(entries[i].pos);
-      if (fullPos) btn.title = `${entries[i].word || ''} — ${fullPos}`.trim();
+      const firstEntry = tabs[i].entries[0] && tabs[i].entries[0].entry;
+      const fullPos = firstEntry ? displayPos(firstEntry.pos) : '';
+      const sectionCount = tabs[i].entries.length;
+      const suffix = sectionCount > 1 ? ` — ${sectionCount} entries` : '';
+      btn.title = fullPos
+        ? `${tabs[i].word} — ${fullPos}${suffix}`.trim()
+        : `${tabs[i].word}${suffix}`;
       btn.setAttribute('role', 'tab');
       btn.setAttribute('aria-selected', i === activeTabIdx ? 'true' : 'false');
       btn.dataset.idx = String(i);
       btn.addEventListener('click', () => onTabClick(i));
       bar.appendChild(btn);
     });
-    if (opts.expandCount > 0) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'lws-tab lws-tab-expand';
-      btn.textContent = `+${opts.expandCount} related`;
-      btn.title = 'Show related entries KRDict returned for this query';
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        relatedExpanded = true;
-        rerenderActivePopup();
-      });
-      bar.appendChild(btn);
-    }
     return bar;
   }
 
-  function computeTabLabels(entries) {
-    // Tab format: "<headword> (<pos shortform>)" — e.g. "예약하다 (v.)".
-    // When the same headword + POS combo appears twice (rare KRDict homograph),
-    // append a numeric disambiguator.
-    const base = entries.map((e) => {
-      const word = e.word || '·';
-      const short = posToShortform(e.pos, defLang);
-      return short ? `${word} (${short})` : word;
-    });
-    const counts = new Map();
-    base.forEach((l) => counts.set(l, (counts.get(l) || 0) + 1));
-    const seen = new Map();
-    return base.map((l) => {
-      if (counts.get(l) === 1) return l;
-      const n = (seen.get(l) || 0) + 1;
-      seen.set(l, n);
-      return `${l} ${n}`;
+  function computeTabLabels(tabs) {
+    // Tab label is the headword. When a tab holds multiple sections we
+    // append a "·N" badge so the user can tell at a glance which tabs are
+    // multi-entry; single-section tabs stay clean.
+    return tabs.map((t) => {
+      const word = t.word || '·';
+      return t.entries.length > 1 ? `${word} ·${t.entries.length}` : word;
     });
   }
 
@@ -1119,6 +1026,167 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     if (activeTabIdx === idx) return;
     activeTabIdx = idx;
     rerenderActivePopup();
+  }
+
+  // A tab body stacks every section (= one dictionary entry) for that word.
+  // The first section is implicitly expanded; the rest collapse to a header
+  // row showing the same pill set so the user can scan POS labels without
+  // expanding everything.
+  function buildTabBodyNode(group, tabIdx) {
+    const body = document.createElement('div');
+    body.className = 'lws-tab-body';
+    group.entries.forEach(({ entry, source }, sIdx) => {
+      const key = `${tabIdx}:${sIdx}`;
+      const isOpen = sIdx === 0 || expandedSections.has(key);
+      body.appendChild(buildSectionNode({
+        entry,
+        source,
+        tabIdx,
+        sectionIdx: sIdx,
+        isOpen,
+        isFirst: sIdx === 0,
+        senseKeyPrefix: `${source}:${tabIdx}:${sIdx}`,
+      }));
+    });
+    return body;
+  }
+
+  // A section is one entry. Header shows word + chips (POS, pron, hanja) —
+  // always visible. Body holds the senses + hanja meanings panel — visible
+  // only when expanded. The pill set is duplicated for each section so a
+  // collapsed section header is fully self-describing.
+  function buildSectionNode({ entry, source, tabIdx, sectionIdx, isOpen, isFirst, senseKeyPrefix }) {
+    const section = document.createElement('div');
+    section.className = 'lws-entry lws-section'
+      + (isOpen ? ' lws-section-open' : ' lws-section-closed')
+      + (source === 'od' ? ' lws-od-entry' : '');
+    section.appendChild(buildSectionHeader({ entry, isOpen, isFirst, tabIdx, sectionIdx }));
+    if (isOpen) {
+      if (entry.origin) {
+        const meanings = buildHanjaMeaningsNode(entry.origin);
+        if (meanings) section.appendChild(meanings);
+      }
+      if (Array.isArray(entry.senses) && entry.senses.length > 0) {
+        const senses = document.createElement('div');
+        senses.className = 'lws-senses';
+        const showMultiple = entry.senses.length > 1;
+        entry.senses.forEach((sense, i) => {
+          const senseId = `${senseKeyPrefix}:${i}`;
+          const node = source === 'od'
+            ? buildOdSenseNode(sense, showMultiple ? i + 1 : null, senseId)
+            : buildSenseNode(sense, showMultiple ? i + 1 : null, senseId);
+          senses.appendChild(node);
+        });
+        section.appendChild(senses);
+      }
+    }
+    return section;
+  }
+
+  function buildSectionHeader({ entry, isOpen, isFirst, tabIdx, sectionIdx }) {
+    // The header is a button when the section is collapsible (i.e. not the
+    // first one). The first section's header is a plain div — collapsing
+    // and expanding section 0 would just hide the only section by default,
+    // confusing.
+    const tag = isFirst ? 'div' : 'button';
+    const header = document.createElement(tag);
+    header.className = 'lws-section-header';
+    if (!isFirst) {
+      header.type = 'button';
+      header.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      header.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const key = `${tabIdx}:${sectionIdx}`;
+        if (expandedSections.has(key)) expandedSections.delete(key);
+        else expandedSections.add(key);
+        rerenderActivePopup();
+      });
+    }
+
+    const headline = document.createElement('div');
+    headline.className = 'lws-headline';
+    const word = document.createElement('span');
+    word.className = 'lws-word-form';
+    word.textContent = entry.word || '';
+    headline.appendChild(word);
+    const stars = gradeToStars(entry.grade);
+    if (stars) {
+      const s = document.createElement('span');
+      s.className = 'lws-stars';
+      s.textContent = stars;
+      const tooltip = gradeToTooltip(entry.grade);
+      if (tooltip) {
+        s.title = tooltip;
+        s.setAttribute('aria-label', tooltip);
+      }
+      headline.appendChild(s);
+    }
+    if (!isFirst) {
+      const ind = document.createElement('span');
+      ind.className = 'lws-section-indicator';
+      ind.setAttribute('aria-hidden', 'true');
+      ind.textContent = isOpen ? '−' : '+';
+      headline.appendChild(ind);
+    }
+    header.appendChild(headline);
+
+    const meta = document.createElement('div');
+    meta.className = 'lws-meta-row';
+    if (entry.pos) meta.appendChild(makePosChip(entry.word, entry.pos));
+    if (entry.pronunciation) {
+      const pron = makePronChip(entry.word, entry.pronunciation);
+      if (pron) meta.appendChild(pron);
+    }
+    if (entry.origin) meta.appendChild(makeHanjaChip(entry.origin));
+    if (meta.children.length) header.appendChild(meta);
+
+    return header;
+  }
+
+  // Unrelated bucket: same per-entry layout as a tab body, but rendered
+  // below the active tab under a labeled, fully collapsible section. The
+  // outer container itself starts collapsed — KRDict's loose-match list
+  // is often noisy and we don't want to push the primary tabs offscreen.
+  function buildUnrelatedNode(unrelated) {
+    const wrap = document.createElement('div');
+    wrap.className = 'lws-unrelated';
+    const total = unrelated.reduce((n, g) => n + g.entries.length, 0);
+    const header = document.createElement('button');
+    header.type = 'button';
+    header.className = 'lws-unrelated-toggle';
+    header.setAttribute('aria-expanded', relatedExpanded ? 'true' : 'false');
+    header.textContent = relatedExpanded
+      ? `▾ Hide related (${total})`
+      : `▸ Show related (${total})`;
+    header.addEventListener('click', (e) => {
+      e.stopPropagation();
+      relatedExpanded = !relatedExpanded;
+      rerenderActivePopup();
+    });
+    wrap.appendChild(header);
+
+    if (relatedExpanded) {
+      const body = document.createElement('div');
+      body.className = 'lws-unrelated-body';
+      unrelated.forEach((group, gIdx) => {
+        const tabIdx = `u${gIdx}`;
+        group.entries.forEach(({ entry, source }, sIdx) => {
+          const key = `${tabIdx}:${sIdx}`;
+          const isOpen = sIdx === 0 || expandedSections.has(key);
+          body.appendChild(buildSectionNode({
+            entry,
+            source,
+            tabIdx,
+            sectionIdx: sIdx,
+            isOpen,
+            isFirst: sIdx === 0,
+            senseKeyPrefix: `${source}:u${gIdx}:${sIdx}`,
+          }));
+        });
+      });
+      wrap.appendChild(body);
+    }
+    return wrap;
   }
 
   function buildStripNode({ showLemmaChip, lemma }) {
@@ -1178,59 +1246,6 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       buildResultNode(lastPayload, { sentence: lastSentence }),
       { reposition: false },
     );
-  }
-
-  function buildKrEntryNode(entry, senseKeyPrefix = `kr:${activeTabIdx}`) {
-    const wrap = document.createElement('div');
-    wrap.className = 'lws-entry';
-
-    const headline = document.createElement('div');
-    headline.className = 'lws-headline';
-    const word = document.createElement('span');
-    word.className = 'lws-word-form';
-    word.textContent = entry.word || '';
-    headline.appendChild(word);
-    const stars = gradeToStars(entry.grade);
-    if (stars) {
-      const s = document.createElement('span');
-      s.className = 'lws-stars';
-      s.textContent = stars;
-      const tooltip = gradeToTooltip(entry.grade);
-      if (tooltip) {
-        s.title = tooltip;
-        s.setAttribute('aria-label', tooltip);
-      }
-      headline.appendChild(s);
-    }
-    wrap.appendChild(headline);
-
-    const meta = document.createElement('div');
-    meta.className = 'lws-meta-row';
-    if (entry.pos) meta.appendChild(makePosChip(entry.word, entry.pos));
-    if (entry.pronunciation) {
-      const pron = makePronChip(entry.word, entry.pronunciation);
-      if (pron) meta.appendChild(pron);
-    }
-    if (entry.origin) meta.appendChild(makeHanjaChip(entry.origin));
-    if (meta.children.length) wrap.appendChild(meta);
-
-    if (entry.origin) {
-      const meanings = buildHanjaMeaningsNode(entry.origin);
-      if (meanings) wrap.appendChild(meanings);
-    }
-
-    if (entry.senses.length > 0) {
-      const senses = document.createElement('div');
-      senses.className = 'lws-senses';
-      const showMultiple = entry.senses.length > 1;
-      entry.senses.forEach((sense, i) => {
-        const senseId = `${senseKeyPrefix}:${i}`;
-        senses.appendChild(buildSenseNode(sense, showMultiple ? i + 1 : null, senseId));
-      });
-      wrap.appendChild(senses);
-    }
-
-    return wrap;
   }
 
   function buildSenseNode(sense, num, senseId) {
@@ -1300,41 +1315,6 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       }
       senseEl.appendChild(list);
     }
-  }
-
-  function buildOdEntryNode(entry) {
-    const wrap = document.createElement('div');
-    wrap.className = 'lws-entry lws-od-entry';
-    const headline = document.createElement('div');
-    headline.className = 'lws-headline';
-    const word = document.createElement('span');
-    word.className = 'lws-word-form';
-    word.textContent = entry.word || '';
-    headline.appendChild(word);
-    wrap.appendChild(headline);
-
-    if (entry.pos || entry.origin) {
-      const meta = document.createElement('div');
-      meta.className = 'lws-meta-row';
-      if (entry.pos) meta.appendChild(makePosChip(entry.word, entry.pos));
-      if (entry.origin) meta.appendChild(makeHanjaChip(entry.origin));
-      wrap.appendChild(meta);
-    }
-
-    if (entry.origin) {
-      const meanings = buildHanjaMeaningsNode(entry.origin);
-      if (meanings) wrap.appendChild(meanings);
-    }
-
-    const senses = document.createElement('div');
-    senses.className = 'lws-senses';
-    const showMultiple = entry.senses.length > 1;
-    entry.senses.forEach((sense, i) => {
-      const senseId = `od:${i}`;
-      senses.appendChild(buildOdSenseNode(sense, showMultiple ? i + 1 : null, senseId));
-    });
-    wrap.appendChild(senses);
-    return wrap;
   }
 
   function buildOdSenseNode(sense, num, senseId) {
@@ -1606,6 +1586,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     popupMinWidth = 0;
     expandedExamples = new Set();
     expandedHanja = new Set();
+    expandedSections = new Set();
     relatedExpanded = false;
     activeInsightTab = null;
     if (popupEl) {
