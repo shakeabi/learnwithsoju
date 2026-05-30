@@ -35,11 +35,15 @@
  * ---------
  * setup() is called once by content.js at init. It wires up:
  *   - Settings listener (chrome.storage.sync.dualSubsYouTube)
- *   - Navigation listener (yt-navigate-finish + URL polling fallback)
+ *   - video_id poll (500 ms) that hard-reloads on change. SPA-style
+ *     teardown raced YouTube's React reconciler too often (stale
+ *     .lws-word wrappers got adopted by the next video's title), so
+ *     we just reload — costs ~1–2 s per swap, sidesteps every race.
  *   - Initial activation if we're on a /watch page with the setting on
  *
- * The returned teardown closure undoes everything when we navigate away
- * or the user disables the setting.
+ * The returned teardown closure undoes everything when the user
+ * disables the setting / disables the host. Cross-video navigation
+ * goes through the hard-reload path instead.
  */
 
 const SETTING_KEY = 'dualSubsYouTube';
@@ -71,19 +75,13 @@ let lastSecondaryLang = null;
 // stay orphaned because only the latest teardownFn assignment wins.
 let activeGeneration = 0;
 
-// Adapter ↔ content-script bridge. content.js's loadAdapter() passes
-// callbacks in via setup({unwrap, rescan}); we call them around SPA
-// navigation so the content script can strip its .lws-word wrapping
-// before YouTube re-renders the title / description / sidebar
-// (otherwise stale spans confuse YouTube's reconciliation and you get
-// "AB" mangling — old span "A" plus new appended "B"). Default to
-// no-op so the adapter doesn't crash on older callers.
-let hostUnwrap = () => {};
-let hostRescan = () => {};
+// True when the video_id poll is allowed to trigger a hard reload on
+// change. Set in activate() once we've confirmed the extension is
+// enabled here; cleared in deactivate() so a settings flip / host
+// disable doesn't get bounced by a reload mid-teardown.
+let reloadOnVideoIdChange = false;
 
-export async function setup(api = {}) {
-  if (typeof api.unwrap === 'function') hostUnwrap = api.unwrap;
-  if (typeof api.rescan === 'function') hostRescan = api.rescan;
+export async function setup(_api = {}) {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'sync') {
       if (changes[SETTING_KEY]) {
@@ -135,27 +133,28 @@ export async function setup(api = {}) {
     return undefined;
   });
 
-  document.addEventListener('yt-navigate-start', handleNavStart);
-  document.addEventListener('yt-navigate-finish', handleNavFinish);
-  // Safety net for navigations that don't fire yt-navigate-* cleanly.
-  // Primary signal is the player's `getVideoData().video_id` — always-fresh
-  // and updates the instant the player swaps to the next video. Autoplay
-  // transitions land here first; the URL's ?v= can lag by hundreds of ms
-  // (or, on some playlist paths, until the next user interaction). URL
-  // change is kept as a secondary trigger so manual nav still fires this
-  // path even if a video_id read fails.
-  let lastHref = window.location.href;
-  let lastSeenVideoId = null;
+  // Single SPA-nav signal: poll the player's `getVideoData().video_id`
+  // and (when it changes) hard-reload to the new URL. Earlier attempts
+  // tried a graceful teardown + re-init on yt-navigate-* events and on
+  // video_id change, but YouTube's React reconciler kept racing us —
+  // stale .lws-word wrappers ended up adopted by the new video's title
+  // and the user saw the next title appended to the old text. Hard
+  // reload sidesteps the race entirely; costs ~1–2s per video swap.
+  let lastSeenVideoId = currentVideoId();
   setInterval(async () => {
-    const href = window.location.href;
+    if (!reloadOnVideoIdChange) return;
     const vid = await readPlayerVideoId();
-    const hrefChanged = href !== lastHref;
-    const vidChanged = vid && vid !== lastSeenVideoId;
-    if (!hrefChanged && !vidChanged) return;
-    lastHref = href;
-    if (vid) lastSeenVideoId = vid;
-    handleNavStart();
-    handleNavFinish();
+    if (!vid || vid === lastSeenVideoId) return;
+    // First successful read after activation seeds the baseline rather
+    // than triggering a reload — only a CHANGE from a known id reloads.
+    if (lastSeenVideoId === null) { lastSeenVideoId = vid; return; }
+    lastSeenVideoId = vid;
+    // hard reload — React reconciliation race; teardown was too late
+    reloadOnVideoIdChange = false;
+    const newUrl = new URL(window.location.href);
+    newUrl.searchParams.set('v', vid);
+    log('video_id changed → hard reload to', newUrl.toString());
+    window.location.href = newUrl.toString();
   }, 500);
 
   await injectHookOnce();
@@ -191,22 +190,6 @@ function log(...args) {
   console.log('[learnwithsoju/youtube]', ...args);
 }
 
-function handleNavStart() {
-  deactivate();
-  // Strip our word-wrapping spans so YouTube's renderer can replace
-  // the title / description / sidebar text cleanly. Stale spans cause
-  // the "AB" mangling where the new title appends to the old one.
-  try { hostUnwrap(); } catch {}
-}
-
-function handleNavFinish() {
-  // Wait a beat for YouTube to settle its new DOM before re-mounting.
-  setTimeout(() => {
-    void activate();
-    try { hostRescan(); } catch {}
-  }, 250);
-}
-
 async function activate() {
   const myGen = ++activeGeneration;
   // Always tear down whatever's currently mounted — we're starting
@@ -234,8 +217,12 @@ async function activate() {
       return;
     }
     teardownFn = teardown;
-    if (teardownFn) log('dual subs mounted');
-    else log('initForCurrentVideo returned null (check the log lines above for which guard rejected — tracklist, audio gate, primary source, or 0 KO lines)');
+    if (teardownFn) {
+      reloadOnVideoIdChange = true;
+      log('dual subs mounted');
+    } else {
+      log('initForCurrentVideo returned null (check the log lines above for which guard rejected — tracklist, audio gate, primary source, or 0 KO lines)');
+    }
   } catch (err) {
     console.warn('[learnwithsoju/youtube] activate failed:', err);
   }
@@ -245,6 +232,7 @@ function deactivate() {
   // Bump the generation so any in-flight activate's post-await check
   // discards its work instead of leaving an orphan overlay.
   ++activeGeneration;
+  reloadOnVideoIdChange = false;
   if (teardownFn) {
     try { teardownFn(); } catch (err) {
       console.warn('[learnwithsoju/youtube] teardown threw:', err);
@@ -441,7 +429,9 @@ async function initForCurrentVideo() {
   // State machine: CC_OFF | CC_ON_KO | CC_ON_OTHER. The poller below
   // re-evaluates from the player's current track every tick. We start
   // as null so the first tick always runs the transition path, even
-  // if the user happens to have CC pre-set to KO.
+  // if the user happens to have CC pre-set to KO. Fail-open default:
+  // unknown / unparseable states resolve to CC_ON_KO so a transient
+  // read failure doesn't hide the overlay the user opted into.
   let lastMode = null;
   function setOverlayVisible(visible) {
     if (visible) {
@@ -455,19 +445,34 @@ async function initForCurrentVideo() {
     }
   }
   function classifyTrack(track) {
-    if (!track || typeof track !== 'object') return 'CC_OFF';
+    // Fail-open buckets: UNKNOWN (read failed) and "track present but no
+    // recognizable languageCode" both resolve to CC_ON_KO. Only an
+    // explicit null (player returned {} / null — CC genuinely off) or a
+    // non-KO languageCode hide the overlay.
+    if (track === TRACK_UNKNOWN) return 'CC_ON_KO';
+    if (track === null) return 'CC_OFF';
+    if (!track || typeof track !== 'object') return 'CC_ON_KO';
     const code = track.languageCode;
-    if (!code) return 'CC_OFF';
+    if (!code) return 'CC_ON_KO';
     return isLang({ languageCode: code }, 'ko') ? 'CC_ON_KO' : 'CC_ON_OTHER';
   }
-  const ccPoll = setInterval(async () => {
+  async function evaluateCcState() {
     const track = await readCurrentTrack();
     const mode = classifyTrack(track);
     if (mode === lastMode) return;
     lastMode = mode;
-    log('CC state →', mode, track ? `(${track.languageCode || ''}${track.kind === 'asr' ? '/asr' : ''})` : '');
+    const desc = track === TRACK_UNKNOWN
+      ? '(unknown — fail open)'
+      : track ? `(${track.languageCode || ''}${track.kind === 'asr' ? '/asr' : ''})` : '(off)';
+    log('CC state →', mode, desc);
     setOverlayVisible(mode === 'CC_ON_KO');
-  }, 500);
+  }
+  // Kick a first evaluation immediately so the overlay shows (or stays
+  // hidden) on the same tick the mount completes, instead of waiting a
+  // full 500 ms for the first poll. Fire-and-forget — any error inside
+  // is already logged by readCurrentTrack.
+  void evaluateCcState();
+  const ccPoll = setInterval(() => { void evaluateCcState(); }, 500);
 
   return () => {
     clearInterval(ccPoll);
@@ -683,31 +688,45 @@ async function readPlayerVideoId() {
   }
 }
 
+// Sentinel returned by readCurrentTrack when we couldn't determine the
+// player's CC state (hook reply not ok, getOption threw, etc.). The CC
+// state machine treats this as "fail open → show overlay" rather than
+// fail-closed-to-hidden, because dual subs being mounted at all means
+// the user opted in and would rather see captions than nothing on a
+// transient read failure.
+const TRACK_UNKNOWN = Symbol('TRACK_UNKNOWN');
+
 async function readCurrentTrack() {
-  // Returns the player's current caption-track object (or `{}` when CC
-  // is off). Fail-open: any error → null, which the caller treats as
-  // CC_OFF so the user sees no overlay rather than a stuck/broken one.
+  // Returns: a track object (CC on with some lang), `null` (CC genuinely
+  // off — player returned {} or null), or TRACK_UNKNOWN (we couldn't
+  // read; caller should fail open).
   try {
     const reply = await awaitHookReply('get-track', sendHookCmd('get-track'), 1500);
     if (!reply || reply.ok === false) {
       log('CC observer: get-track reply not ok:', reply && reply.error);
-      return null;
+      return TRACK_UNKNOWN;
     }
-    return reply.track || {};
+    const t = reply.track;
+    if (!t || typeof t !== 'object') return null;
+    // Empty object = player has CC explicitly off.
+    if (!t.languageCode && Object.keys(t).length === 0) return null;
+    return t;
   } catch (err) {
     log('CC observer: get-track failed:', err && err.message);
-    return null;
+    return TRACK_UNKNOWN;
   }
 }
 
 function restoreTrack(track) {
   // Put the player back in the state the user had before the capture
-  // pipeline ran. Empty/null track → clear the selection (CC off).
-  if (!track || typeof track !== 'object' || !track.languageCode) {
-    const reqId = sendHookCmd('clear-track');
-    awaitHookReply('clear-track', reqId, 1500).catch(() => {/* fire-and-forget */});
-    return;
-  }
+  // pipeline ran. UNKNOWN snapshot → no-op (we never got a clean read,
+  // so we can't be sure clearing wouldn't disable CC the user had on).
+  // Null snapshot (CC was off) → also no-op: leaving the player on the
+  // capture-loop's last-loaded track means our overlay's CC poll reads
+  // CC_ON_KO and shows immediately. If the user wants captions off,
+  // they click YouTube's CC button — the poll mirrors that.
+  if (track === TRACK_UNKNOWN) return;
+  if (!track || typeof track !== 'object' || !track.languageCode) return;
   triggerLoadTrack(track.languageCode, track.kind);
 }
 

@@ -2082,6 +2082,40 @@ re-runs activation with the new secondary.
 The adapter never reads messages from the popup other than this one
 type — settings flow exclusively via storage events.
 
+### 10.11 SPA navigation: hard reload on video_id change
+
+Earlier iterations tried a graceful SPA-style teardown when the player
+swapped videos — listen for `yt-navigate-start/finish`, also poll
+`player.getVideoData().video_id` as a safety net for autoplay (which
+doesn't always fire those events), and on change run `hostUnwrap()` +
+deactivate + re-activate. This kept losing races against YouTube's
+React reconciler: stale `.lws-word` wrappers from the previous video's
+title/description would be adopted by the next video's containers and
+the new title would get appended to the old text ("AB" mangling).
+Replaced with a hard reload: when the 500 ms video_id poll sees the id
+change, set `window.location.href` to the new `?v=` URL. ~1–2 s reload
+cost per swap, but the new page is guaranteed clean. The poll skips
+while `reloadOnVideoIdChange` is false (e.g. during deactivate or
+before the first successful activation).
+
+### 10.12 CC visibility: fail-open state machine
+
+The CC poll classifies `player.getOption('captions','track')` into one
+of `CC_OFF | CC_ON_KO | CC_ON_OTHER` and toggles the overlay
+accordingly. Originally a parse failure or read error defaulted to
+`CC_OFF`, which manifested as "dual subs mounted" in the console
+followed by no visible overlay — the player returned an empty object
+or `getOption` threw, we classified that as off, and we hid the
+overlay the user had explicitly opted into. Now the state machine
+fails open: `readCurrentTrack` returns a `TRACK_UNKNOWN` sentinel on
+any error / not-ok hook reply, and `classifyTrack` resolves both
+UNKNOWN and "object with no recognizable languageCode" to `CC_ON_KO`.
+Only an explicit `null` (player returned `{}` — the user genuinely
+turned CC off) or a non-Korean languageCode hide the overlay.
+`restoreTrack` is also a no-op on UNKNOWN / empty snapshots — calling
+`clear-track` after a failed initial read was silently disabling CC
+the user may have had on, hiding the overlay we'd just mounted.
+
 ---
 
 ## 11. Caching strategy
