@@ -44,6 +44,13 @@ const NX_HIDE_STYLE_ID = 'lws-hide-nx-captions';
 
 let teardownFn = null;
 let hookInjected = false;
+// Hide-stylesheet element installed at activate-time (BEFORE the prime
+// dance) so the brief KO → secondary → restore selection cycle doesn't
+// flash Netflix's native captions to the user. Removed on teardown.
+let primeHideStyleEl = null;
+// Per-generation flag — at most one prime dance per activate(). Reset
+// in activate() before kicking off the dance.
+let primeKickedOff = false;
 // Bumped on every activate() and deactivate(). activate() rechecks
 // its myGen after each await; if it no longer equals activeGeneration
 // we discard our own work (see youtube-adapter for the full
@@ -98,6 +105,8 @@ export async function setup(api = {}) {
       onCaptureBody(d.url, d.body);
     } else if (d.__lwsNxManifest === true) {
       onManifest(d.tracks);
+    } else if (d.__lwsNxPrimeStatus === true) {
+      onPrimeStatus(d.status, d.detail);
     }
   });
 
@@ -123,9 +132,14 @@ export async function setup(api = {}) {
       const oldMap = changes[PER_TITLE_OVERRIDE_KEY].oldValue || {};
       const tid = currentTitleId();
       if (tid && newMap[tid] !== oldMap[tid]) {
-        // If the manifest is still in hand, re-prime so the newly
-        // chosen secondary gets fetched (if it wasn't already). The
-        // overlay rebuild itself happens once the new capture lands.
+        // Re-fetch the newly chosen secondary if it isn't already in
+        // tracksByLang. The dance handles this naturally — reset the
+        // per-session flag and let it re-run; setTextTrack on tracks
+        // Netflix has already loaded is cheap. Legacy manifest-prime
+        // path still runs as a fallback if the dance can't reach the
+        // player.
+        primeKickedOff = false;
+        void kickOffPrimeDance(activeGeneration);
         if (lastManifestTracks) void primeFromManifest(lastManifestTracks);
         void rebuildOverlay();
       }
@@ -214,6 +228,12 @@ async function activate() {
     tracksByLang = new Map();
     primedLangs = new Set();
     lastManifestTracks = null;
+    primeKickedOff = false;
+
+    // Hide Netflix's native captions up-front so the prime dance's
+    // brief track-flipping doesn't flash native subs to the user.
+    // Kept up for the whole session; teardown removes it.
+    primeHideStyleEl = hideNativeCaptions();
 
     // Install a teardown that tears down any mounted overlay; the
     // overlay itself gets mounted (later) inside onCaptureBody once
@@ -222,11 +242,16 @@ async function activate() {
     // the user's chosen subtitle track.
     teardownFn = () => {
       teardownOverlay();
+      try { primeHideStyleEl && primeHideStyleEl.remove(); } catch {}
+      primeHideStyleEl = null;
       tracksByLang = new Map();
       primedLangs = new Set();
       lastManifestTracks = null;
+      primeKickedOff = false;
       log('session over');
     };
+
+    void kickOffPrimeDance(myGen);
   } catch (err) {
     console.warn('[learnwithsoju/netflix] activate failed:', err);
   }
@@ -502,7 +527,10 @@ async function rebuildOverlay() {
 
   const overlayEl = buildOverlay();
   player.appendChild(overlayEl);
-  const styleEl = hideNativeCaptions();
+  // Hide-CSS is owned by activate()/teardown(), not the per-rebuild
+  // lifecycle — primeHideStyleEl stays up across overlay rebuilds so
+  // the dance's track-flipping never flashes native captions.
+  if (!primeHideStyleEl) primeHideStyleEl = hideNativeCaptions();
   const koEl = overlayEl.querySelector('.lws-nxsubs-ko');
   const enEl = overlayEl.querySelector('.lws-nxsubs-en');
 
@@ -534,7 +562,6 @@ async function rebuildOverlay() {
 
   overlayState = {
     overlayEl,
-    styleEl,
     video,
     listeners: [['timeupdate', update], ['seeking', update], ['seeked', update]],
   };
@@ -544,12 +571,13 @@ async function rebuildOverlay() {
 
 function teardownOverlay() {
   if (!overlayState) return;
-  const { overlayEl, styleEl, video, listeners } = overlayState;
+  const { overlayEl, video, listeners } = overlayState;
   for (const [evt, fn] of listeners) {
     try { video.removeEventListener(evt, fn); } catch {}
   }
   try { overlayEl.remove(); } catch {}
-  try { styleEl && styleEl.remove(); } catch {}
+  // primeHideStyleEl is owned by activate()/teardown() — leave it in
+  // place across rebuilds. Removed in the session teardown closure.
   overlayState = null;
 }
 
@@ -682,7 +710,70 @@ function currentTitleId() {
 }
 
 // ---------------------------------------------------------------------
-// Auto-prime: manifest → pick KO + secondary → fetch
+// Auto-prime: track-select dance (page-hook does the heavy lifting)
+//
+// Manifest endpoint is MSL-encrypted, so we can't parse track URLs from
+// network responses. Instead, the page-hook drives Netflix's player
+// API: snapshot the user's selected track, setTextTrack KO → secondary
+// (each fetch's TTML body lands in our existing __lwsNxCaption capture
+// pipeline), restore the original selection. The hide-CSS injected in
+// activate() conceals the flicker.
+// ---------------------------------------------------------------------
+
+async function kickOffPrimeDance(myGen) {
+  if (primeKickedOff) return;
+  primeKickedOff = true;
+  try {
+    const tid = currentTitleId();
+    let perTitleOverride = null;
+    try {
+      const local = await chrome.storage.local.get(PER_TITLE_OVERRIDE_KEY);
+      const map = (local && local[PER_TITLE_OVERRIDE_KEY]) || {};
+      if (tid && map[tid] && map[tid] !== 'off') perTitleOverride = map[tid];
+    } catch (err) {
+      log('per-title override read failed for kickoff:', err && err.message);
+    }
+    if (myGen !== activeGeneration) return;
+    let secondaryPref = null;
+    try {
+      const sync = await chrome.storage.sync.get(DEFAULT_SECONDARY_KEY);
+      const v = sync && sync[DEFAULT_SECONDARY_KEY];
+      if (v && v !== 'off') secondaryPref = v;
+    } catch (err) {
+      log('secondaryLang read failed for kickoff:', err && err.message);
+    }
+    if (myGen !== activeGeneration) return;
+    log('kicking off prime dance: koPref=ko, secondaryPref=' + (secondaryPref || '(default en)') + ', perTitleOverride=' + (perTitleOverride || '(none)'));
+    try {
+      window.postMessage({
+        __lwsNxRunPrime: true,
+        koPref: 'ko',
+        secondaryPref,
+        perTitleOverride,
+      }, '*');
+    } catch (err) {
+      console.warn('[learnwithsoju/netflix] prime postMessage failed:', err && err.message);
+    }
+  } catch (err) {
+    console.warn('[learnwithsoju/netflix] kickOffPrimeDance failed:', err && err.message);
+  }
+}
+
+function onPrimeStatus(status, detail) {
+  log('prime status:', status, detail != null ? detail : '');
+  // Captures themselves arrive through __lwsNxCaption; rebuildOverlay
+  // gates on tracksByLang having KO + (optionally) secondary. Nothing
+  // to do here beyond logging — kept distinct so a future iteration
+  // could surface dance failures in the popup.
+}
+
+// ---------------------------------------------------------------------
+// Auto-prime (legacy): manifest → pick KO + secondary → fetch
+//
+// Manifest endpoint is MSL-encrypted so this path almost never lands
+// usable URLs; kept as a fallback in case Netflix ever exposes an
+// unencrypted manifest variant. The track-select dance above is the
+// primary auto-prime mechanism.
 // ---------------------------------------------------------------------
 
 function onManifest(rawTracks) {

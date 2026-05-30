@@ -43,7 +43,7 @@
   window.__lwsNxHookInstalled = true;
 
   const LWS_NX_DIAG_PRIME = false;
-  const LWS_NX_DIAG_API = true;
+  const LWS_NX_DIAG_API = false;
   function diag(...args) { if (LWS_NX_DIAG_PRIME) console.log('[lws-nx-diag]', ...args); }
 
   diag('page-hook installed (v=DIAG)');
@@ -399,6 +399,243 @@
       }
     }, 500);
   }
+
+  // -----------------------------------------------------------------------
+  // Track-select prime dance
+  //
+  // Triggered by the adapter via `{__lwsNxRunPrime: true, …}`. Netflix
+  // doesn't expose subtitle URLs in any introspectable shape; the only
+  // way to make it fetch a given language's TTML is to actually select
+  // that track. We briefly drive the player through KO → secondary,
+  // capturing each TTML via the existing XHR/fetch sniff path, then
+  // restore the user's original selection. The CSS in the adapter that
+  // hides Netflix's native caption container is what conceals the
+  // flicker — activation must inject that BEFORE issuing the prime.
+  // -----------------------------------------------------------------------
+
+  let primeRunning = false;
+  let primeGen = 0;
+
+  function bcp47Matches(trackLang, pref) {
+    const t = String(trackLang || '').toLowerCase();
+    const p = String(pref || '').toLowerCase();
+    if (!t || !p) return false;
+    const tBase = t.split('-')[0];
+    const pBase = p.split('-')[0];
+    if (tBase !== pBase) return false;
+    if (!p.includes('-')) return true;
+    if (t === p) return true;
+    const pRegion = p.split('-').slice(1).join('-');
+    if (!t.includes('-')) return true;
+    if (pRegion === 'tw' && /hant|hk/.test(t)) return true;
+    if (pRegion === 'hant' && /tw|hk/.test(t)) return true;
+    if (pRegion === 'cn' && /hans/.test(t)) return true;
+    if (pRegion === 'hans' && /cn/.test(t)) return true;
+    return t === p;
+  }
+
+  function isUsableTrack(t) {
+    if (!t || typeof t !== 'object') return false;
+    if (t.isNoneTrack === true) return false;
+    if (t.isForcedNarrative === true) return false;
+    if (t.isImageBased === true) return false;
+    return true;
+  }
+
+  function pickKoTrack(tracks) {
+    const candidates = tracks.filter((t) => isUsableTrack(t) && bcp47Matches(t.bcp47, 'ko'));
+    if (candidates.length === 0) return null;
+    const cc = candidates.find((t) => String(t.rawTrackType || '').toUpperCase() === 'CLOSEDCAPTIONS');
+    return cc || candidates[0];
+  }
+
+  function pickSecondaryTrack(tracks, prefs) {
+    const usable = tracks.filter(isUsableTrack);
+    for (const pref of prefs) {
+      if (!pref) continue;
+      const matches = usable.filter((t) => bcp47Matches(t.bcp47, pref));
+      if (matches.length === 0) continue;
+      const plain = matches.find((t) => String(t.rawTrackType || '').toUpperCase() === 'SUBTITLES');
+      return plain || matches[0];
+    }
+    return null;
+  }
+
+  function postPrimeStatus(status, detail) {
+    try {
+      window.postMessage({ __lwsNxPrimeStatus: true, status, detail: detail || null }, '*');
+    } catch {}
+  }
+
+  function waitForLoadedSession(timeoutMs) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const tick = () => {
+        try {
+          const playerApp = window.netflix
+            && window.netflix.appContext
+            && window.netflix.appContext.state
+            && window.netflix.appContext.state.playerApp;
+          if (playerApp) {
+            const vp = playerApp.getAPI().videoPlayer;
+            const ids = (vp && vp.getAllPlayerSessionIds) ? vp.getAllPlayerSessionIds() : [];
+            if (Array.isArray(ids) && ids.length > 0) {
+              const sid = ids[0];
+              const session = vp.getVideoPlayerBySessionId(sid);
+              const list = session && session.getTextTrackList ? (session.getTextTrackList() || []) : [];
+              if (Array.isArray(list) && list.length > 0) {
+                return resolve({ session, sid, list });
+              }
+            }
+          }
+        } catch {}
+        if (Date.now() - start > timeoutMs) return resolve(null);
+        setTimeout(tick, 1000);
+      };
+      tick();
+    });
+  }
+
+  function waitForCapture(predicate, timeoutMs) {
+    return new Promise((resolve) => {
+      let done = false;
+      const onMsg = (e) => {
+        if (e.source !== window) return;
+        const d = e.data;
+        if (!d || d.__lwsNxCaption !== true) return;
+        try {
+          if (predicate(d)) {
+            if (done) return;
+            done = true;
+            window.removeEventListener('message', onMsg);
+            resolve(true);
+          }
+        } catch {}
+      };
+      window.addEventListener('message', onMsg);
+      setTimeout(() => {
+        if (done) return;
+        done = true;
+        window.removeEventListener('message', onMsg);
+        resolve(false);
+      }, timeoutMs);
+    });
+  }
+
+  async function selectAndCapture(session, track, label, myGen) {
+    const trackId = track && track.trackId;
+    const langTag = track && track.bcp47;
+    console.log('[lws-nx-prime] selecting ' + label + ' (bcp47=' + langTag + ', trackId=' + String(trackId).slice(0, 40) + '…) for capture');
+    let captureLanded = false;
+    const captureP = waitForCapture((msg) => {
+      const body = typeof msg.body === 'string' ? msg.body : '';
+      if (!body) return false;
+      const headSnip = body.slice(0, 4096);
+      if (langTag) {
+        const langLower = String(langTag).toLowerCase();
+        const langBase = langLower.split('-')[0];
+        const langRe = new RegExp('xml:lang\\s*=\\s*"(' + langBase + ')(?:[-_][A-Za-z0-9]+)?"', 'i');
+        if (langRe.test(headSnip)) return true;
+      }
+      return /<tt\b/i.test(headSnip) || /WEBVTT/i.test(headSnip);
+    }, 3000);
+    try {
+      const ret = session.setTextTrack(track);
+      if (ret && typeof ret.then === 'function') await ret;
+    } catch (err) {
+      console.warn('[lws-nx-prime] setTextTrack threw for ' + label + ': ' + (err && err.message));
+    }
+    if (myGen !== primeGen) return false;
+    captureLanded = await captureP;
+    if (myGen !== primeGen) return false;
+    if (!captureLanded) {
+      console.warn('[lws-nx-prime] no capture landed for ' + label + ' within 3s');
+    }
+    return captureLanded;
+  }
+
+  async function runPrimeDance(cmd) {
+    // Bump generation first; any in-flight dance will see myGen !==
+    // primeGen on its next gen check and bail before restoring. The
+    // newest dance is always the one that owns the player.
+    const myGen = ++primeGen;
+    if (primeRunning) {
+      console.log('[lws-nx-prime] dance already running — preempting (gen=' + myGen + ')');
+    }
+    primeRunning = true;
+    let session = null;
+    let originalTrack = null;
+    const isCurrent = () => myGen === primeGen;
+    try {
+      const ready = await waitForLoadedSession(45000);
+      if (myGen !== primeGen) { postPrimeStatus('aborted', 'gen-stale-after-wait'); return; }
+      if (!ready) {
+        console.warn('[lws-nx-prime] timed out waiting for loaded session + track list (45s)');
+        postPrimeStatus('aborted', 'no-session');
+        return;
+      }
+      session = ready.session;
+      const list = ready.list;
+
+      try { originalTrack = session.getTextTrack ? session.getTextTrack() : null; } catch { originalTrack = null; }
+
+      const koTrack = pickKoTrack(list);
+      if (!koTrack) {
+        console.log('[lws-nx-prime] no Korean track in list — dual-subs disabled for this title');
+        postPrimeStatus('no-ko');
+        return;
+      }
+
+      const prefs = [];
+      if (cmd && cmd.perTitleOverride) prefs.push(cmd.perTitleOverride);
+      if (cmd && cmd.secondaryPref && !prefs.includes(cmd.secondaryPref)) prefs.push(cmd.secondaryPref);
+      if (!prefs.includes('en')) prefs.push('en');
+
+      const secondaryTrack = pickSecondaryTrack(list.filter((t) => t !== koTrack), prefs);
+      if (!secondaryTrack) {
+        console.log('[lws-nx-prime] no secondary track in list (chain exhausted: ' + prefs.join(',') + ') — dual-subs disabled for this title');
+        postPrimeStatus('no-secondary');
+        return;
+      }
+
+      console.log('[lws-nx-prime] dance starting: KO=' + koTrack.bcp47 + '/' + koTrack.rawTrackType + ', secondary=' + secondaryTrack.bcp47 + '/' + secondaryTrack.rawTrackType);
+
+      const koCaptured = await selectAndCapture(session, koTrack, 'ko', myGen);
+      if (myGen !== primeGen) { postPrimeStatus('aborted', 'gen-stale-after-ko'); return; }
+      if (koCaptured) postPrimeStatus('ko-captured', koTrack.bcp47);
+
+      const secCaptured = await selectAndCapture(session, secondaryTrack, 'secondary', myGen);
+      if (myGen !== primeGen) { postPrimeStatus('aborted', 'gen-stale-after-secondary'); return; }
+      if (secCaptured) postPrimeStatus('secondary-captured', secondaryTrack.bcp47);
+
+      const origName = (originalTrack && (originalTrack.displayName || originalTrack.bcp47)) || '(none/unknown)';
+      console.log('[lws-nx-prime] dance complete: ko=' + koCaptured + ', secondary=' + secCaptured + '; restoring user track ' + origName);
+      postPrimeStatus('done', { ko: koCaptured, secondary: secCaptured, koLang: koTrack.bcp47, secondaryLang: secondaryTrack.bcp47 });
+    } catch (outerErr) {
+      console.warn('[lws-nx-prime] dance outer error: ' + (outerErr && outerErr.message));
+      postPrimeStatus('aborted', 'threw:' + (outerErr && outerErr.message));
+    } finally {
+      // Restore the user's pre-dance track unless a newer dance preempted us.
+      if (session && originalTrack && isCurrent()) {
+        try {
+          const ret = session.setTextTrack(originalTrack);
+          if (ret && typeof ret.then === 'function') await ret.catch(() => {});
+        } catch (err) {
+          console.warn('[lws-nx-prime] restore threw: ' + (err && err.message));
+        }
+      }
+      // Only clear primeRunning if we're still the current dance; a
+      // preempting newer dance owns the flag now.
+      if (isCurrent()) primeRunning = false;
+    }
+  }
+
+  window.addEventListener('message', (e) => {
+    if (e.source !== window) return;
+    const d = e.data;
+    if (!d || d.__lwsNxRunPrime !== true) return;
+    void runPrimeDance(d);
+  });
 
   const _NX_HOST_RE = /netflix\.com$|\.netflix\.com$|\.nflxso\.net$|\.nflxext\.com$/;
   const _MEDIA_CT_RE = /^(video|audio|image|font)\//i;

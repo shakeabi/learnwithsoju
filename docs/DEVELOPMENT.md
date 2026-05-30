@@ -47,25 +47,42 @@ from the toolbar popup.
 Netflix is partway through Phase 2 (dual-subs overlay). Today the
 extension:
 
-  - hooks Netflix's subtitle fetches AND its player-manifest fetch in
-    the page world (`netflix-page-hook.js`),
-  - auto-primes KO + the configured secondary language directly from
-    the manifest the moment the player loads the title — no need for
-    the user to toggle either language in Netflix's CC menu. The
-    page-hook intercepts JSON responses whose URL path contains
-    `manifest`, extracts the available `timedtexttracks` (or
-    equivalent — multiple candidate keys are tried) plus their CDN
-    URLs by format, and posts the normalized list to the adapter. The
-    adapter applies the selection chain (per-title override →
-    `secondaryLang` → `'en'` → skip), picks one URL per chosen track
-    (preferring TTML/IMSC1.1), and asks the page hook to XHR-fetch
-    each. The existing capture pipeline picks the bodies up via
-    body-sniff. Logs are prefixed `[lws-nx-prime]` end-to-end so the
-    flow is traceable in DevTools,
-  - KO is required: if Korean isn't in the manifest, no overlay is
-    mounted (dual-subs without KO isn't meaningful for the
-    learn-Korean use case). If the user's `secondaryLang` AND `'en'`
-    are both missing, no overlay either,
+  - hooks Netflix's subtitle fetches in the page world
+    (`netflix-page-hook.js`) — the existing XHR/fetch sniff pipeline
+    catches any TTML body Netflix's player downloads, regardless of
+    URL shape, and forwards it to the isolated-world adapter,
+  - auto-primes KO + the configured secondary language via a
+    **track-select dance** the page-hook runs as soon as the player
+    is loaded. Three rounds of probing
+    (commits `f9795ea`, `6523a55`, `d789702`) confirmed Netflix's
+    player API exposes a populated text-track list
+    (`videoPlayer.getVideoPlayerBySessionId(sid).getTextTrackList()`)
+    where each entry has `bcp47`, `trackId`, `rawTrackType`, and
+    metadata flags (`isNoneTrack`, `isForcedNarrative`,
+    `isImageBased`) but **no fetchable URLs**. To force Netflix to
+    download a track's TTML, you have to actually `setTextTrack` it.
+    The dance: snapshot the user's current selection, `setTextTrack`
+    KO, wait for the capture to land via `__lwsNxCaption`,
+    `setTextTrack` the secondary, wait again, then restore the
+    user's original track. The hide-CSS that suppresses Netflix's
+    native captions is injected up-front in `activate()` so the
+    flicker is invisible to the viewer,
+  - hard-requires KO: if no Korean track is in the list, the dance
+    logs `no Korean track in list — dual-subs disabled for this
+    title` and bails. Dual-subs without Korean is meaningless for the
+    learn-Korean use case,
+  - secondary chain: per-title override
+    (`chrome.storage.local.dualSubsOverridesNetflix[titleId]`) →
+    configured `secondaryLang` (`chrome.storage.sync`, default
+    `'en'`) → hard fallback `'en'` → bail. KO and secondary use a
+    loose BCP-47 match (`'zh'` matches any `'zh-*'`; `'zh-TW'`
+    matches only `'zh-TW'`/`'zh-Hant'`/`'zh-HK'`) so manifests with
+    region-suffixed lang codes don't slip through,
+  - per-track preference: KO prefers `rawTrackType: 'CLOSEDCAPTIONS'`
+    over `'SUBTITLES'` (CC has sound annotations + more on-screen
+    text, which matches what a learner wants to read along with);
+    secondary prefers `'SUBTITLES'` over `'CLOSEDCAPTIONS'` (cleaner
+    L1 reading without sound effects),
   - parses captured TTML in the isolated world
     (`netflix-adapter.js`'s `parseTtml`),
   - caches per language (`tracksByLang` Map, keyed by normalized
@@ -74,7 +91,7 @@ extension:
   - mounts a dual-language overlay on the player as soon as a Korean
     track is captured. The overlay shows KO alone if only Korean has
     been captured so far; once a secondary track arrives (typically
-    moments later via auto-prime, but also if the user manually
+    moments later via the same dance, but also if the user manually
     toggles a language in Netflix's CC menu), the overlay re-renders
     with both lines,
   - exposes a per-title Secondary Subs dropdown in the toolbar
@@ -84,9 +101,9 @@ extension:
     persisted to `dualSubsOverridesNetflix` in `chrome.storage.local`
     keyed by Netflix titleId, so each title remembers its own
     secondary-line preference across reloads. The adapter's
-    `chrome.storage.onChanged` listener re-runs the auto-prime for
-    the newly chosen secondary (if not already cached) and re-renders
-    the overlay,
+    `chrome.storage.onChanged` listener re-kicks the dance for the
+    newly chosen secondary (cheap when Netflix has already loaded the
+    track in the same session) and re-renders the overlay,
   - gates activation on the `dualSubsNetflix` toggle
     (`chrome.storage.sync`) — matching the YouTube adapter's
     `dualSubsYouTube` gate. When the toggle is off, `isEnabled()`
@@ -96,12 +113,17 @@ extension:
     immediately; flipping on calls activate (same pattern as
     YouTube).
 
-The manual-toggle path remains as a fallback — if the manifest
-interception misses (a different URL pattern, an unrecognised JSON
-shape, region-specific routing), the user can still toggle a language
-in Netflix's CC menu and the page-hook's body-sniff path will pick up
-the TTML and feed the cache. The `[lws-nx-prime]` console logs make
-it obvious when auto-prime succeeded vs fell back.
+The manual-toggle path remains the bottom-of-the-stack fallback — if
+the dance fails for any reason (Netflix changes the player API,
+`setTextTrack` throws, the track list never populates within the 45 s
+window), the user can still toggle a language in Netflix's CC menu and
+the page-hook's body-sniff path will pick up the TTML and feed the
+cache. A legacy manifest-interception path (`__lwsNxManifest`) also
+remains in `netflix-page-hook.js` and `netflix-adapter.js`'s
+`onManifest` / `primeFromManifest`; it almost never lands usable URLs
+in practice (Netflix's manifest is MSL-encrypted) but is kept as a
+no-cost belt-and-braces fallback. The `[lws-nx-prime]` console logs
+trace which path succeeded.
 
 Per-site behaviour: the toolbar popup has a per-host disable toggle that
 takes effect immediately — dictionary popups stop firing, the dashed
@@ -239,9 +261,9 @@ learnwithsoju/
 │   ├── youtube-adapter.js              ← content-script-side YouTube adapter; dual subs lifecycle
 │   ├── youtube-popup.js                ← popup-side YouTube section (secondary-language dropdown); dynamic-imported by popup.js
 │   ├── youtube-page-hook.js            ← page-main-world script; XHR/fetch hooks + tracklist/load-track command channel
-│   ├── netflix-adapter.js              ← content-script-side Netflix adapter (TTML parse, per-lang cache, dual-line overlay, manifest-driven auto-prime of KO + secondary)
+│   ├── netflix-adapter.js              ← content-script-side Netflix adapter (TTML parse, per-lang cache, dual-line overlay, kicks off track-select dance for auto-prime)
 │   ├── netflix-popup.js                ← popup-side Netflix section (secondary-language dropdown); dynamic-imported by popup.js
-│   ├── netflix-page-hook.js            ← page-main-world script; XHR/fetch hooks for Netflix subtitle URLs (TTML/DFXP/WebVTT) + manifest interception + on-demand XHR for auto-prime
+│   ├── netflix-page-hook.js            ← page-main-world script; XHR/fetch hooks for Netflix subtitle URLs (TTML/DFXP/WebVTT) + auto-prime track-select dance via window.netflix player API (KO → secondary → restore)
 │   ├── cache.js                        ← two-tier (in-mem LRU + storage adapter) cache factory; namespaced (pure)
 │   ├── popup.html                      ← toolbar-action popup markup
 │   ├── popup.js                        ← toolbar popup logic (per-site disable toggle, generic adapter-section loader, content-script lws-site-info fallback for hostname)
@@ -476,7 +498,7 @@ broadcast bus for settings:
 | `dualSubsNetflix`       | `netflix-adapter.js`              | Re-activate / deactivate dual subs on the current Netflix watch page                                                                                                                                     |
 | `secondaryLang`         | `youtube-adapter.js`              | Re-activate so the new default applies                                                                                                                                                                   |
 | `dualSubsOverrides`     | `youtube-adapter.js` (local area) | Re-activate if the override changed for the current video                                                                                                                                                |
-| `dualSubsOverridesNetflix` | `netflix-adapter.js` (local area) | Re-run auto-prime for the new secondary (if not already cached) + re-render the overlay. No activate/deactivate — captured tracks stay, the new track gets fetched on demand from the cached manifest. |
+| `dualSubsOverridesNetflix` | `netflix-adapter.js` (local area) | Re-kick the prime dance (clears the per-session "already kicked off" flag) so the new secondary gets fetched if it isn't already in `tracksByLang`, then re-render the overlay. No activate/deactivate — captured tracks stay, only the choice of which one renders as line 2 changes. |
 
 
 This keeps the options page from having to know which tabs to message —
