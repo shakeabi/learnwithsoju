@@ -41,6 +41,8 @@
  * with hand-built token arrays.
  */
 
+const LWS_NBEST_DIAG = true;
+
 const VERB_LEAD_TAGS = new Set(['VV', 'VA', 'VX', 'VCN', 'VCP', 'XSV', 'XSA']);
 const NOUN_LEAD_TAGS = new Set(['NNG', 'NNP', 'NR', 'NP', 'SL', 'SH', 'SN']);
 // Tags that can appear in the noun-phrase prefix before an XSV/XSA suffix.
@@ -217,9 +219,14 @@ export function lemmaCandidatesFromNbest(paths, surface) {
   const seen = new Set();
   const out = [];
   if (Array.isArray(paths)) {
-    for (const path of paths) {
+    for (let i = 0; i < paths.length; i++) {
+      const path = paths[i];
       if (!path || !Array.isArray(path.tokens)) continue;
-      for (const cand of lemmaCandidates(path.tokens, surface)) {
+      const pathCands = lemmaCandidates(path.tokens, surface);
+      if (LWS_NBEST_DIAG) {
+        console.log(`[lws-nbest] path ${i} candidates: [${pathCands.join(', ')}]`);
+      }
+      for (const cand of pathCands) {
         if (cand && !seen.has(cand)) {
           seen.add(cand);
           out.push(cand);
@@ -230,6 +237,9 @@ export function lemmaCandidatesFromNbest(paths, surface) {
   if (out.length === 0 && surface) {
     const s = String(surface).trim();
     if (s) out.push(s);
+  }
+  if (LWS_NBEST_DIAG) {
+    console.log(`[lws-nbest] merged (deduped): [${out.join(', ')}]`);
   }
   return out;
 }

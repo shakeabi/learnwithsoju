@@ -3,6 +3,8 @@ import { buildKrdictUrl, buildOpendictUrl, looksEmpty } from './api.js';
 import { createCache, chromeStorageAdapter } from './cache.js';
 import init, { Mecab } from './vendor/mecab-ko/mecab_ko_wasm.js';
 
+const LWS_NBEST_DIAG = true;
+
 const STORAGE_KEYS = {
   KRDICT_KEY: 'krdictApiKey',
   OPENDICT_KEY: 'opendictApiKey',
@@ -139,10 +141,19 @@ async function tokenizeSurfaceNbest(surface) {
     if (typeof mecab.tokenize_nbest === 'function') {
       const raw = mecab.tokenize_nbest(surface, NBEST_N);
       if (Array.isArray(raw) && raw.length > 0) {
-        return raw.map((p) => ({
+        const paths = raw.map((p) => ({
           tokens: (p.tokens || []).map(normalizeToken),
           cost: typeof p.cost === 'number' ? p.cost : 0,
         }));
+        if (LWS_NBEST_DIAG) {
+          console.log(`[lws-nbest] surface=${surface} got ${paths.length} paths`);
+          for (let i = 0; i < paths.length; i++) {
+            const p = paths[i];
+            const tokStr = p.tokens.map((t) => `${t.surface}(${t.pos})`).join(', ');
+            console.log(`[lws-nbest]   path ${i} (cost=${p.cost}): tokens=[${tokStr}]`);
+          }
+        }
+        return paths;
       }
     }
     // Defensive fallback: older WASM bundle without tokenize_nbest.
@@ -177,12 +188,23 @@ async function handleLookup(surface) {
   let krXmls = [];
   let queriesUsed = [];
   const parallelQueue = pickTopNDistinct(candidates, 4);
+  if (LWS_NBEST_DIAG) {
+    console.log(`[lws-nbest] top-4 queried in parallel: [${parallelQueue.join(', ')}]`);
+    const seqFallback = candidates.filter((c) => !parallelQueue.includes(c));
+    if (seqFallback.length > 0) {
+      console.log(`[lws-nbest] sequential fallback list (if parallel empty): [${seqFallback.join(', ')}]`);
+    }
+  }
   try {
     const responses = await Promise.all(
       parallelQueue.map((q) => fetchKrdictCached(q, krKeyVal).catch(() => null)),
     );
     for (let i = 0; i < parallelQueue.length; i++) {
       const xml = responses[i];
+      if (LWS_NBEST_DIAG) {
+        const entryCount = xml ? (xml.match(/<item>/g) || []).length : 0;
+        console.log(`[lws-nbest] krdict query="${parallelQueue[i]}" → ${xml ? entryCount : 0} entries${xml ? '' : ' (null/error)'}`);
+      }
       if (!xml || looksEmpty(xml)) continue;
       krXmls.push(xml);
       queriesUsed.push(parallelQueue[i]);
@@ -195,6 +217,10 @@ async function handleLookup(surface) {
       for (const q of candidates) {
         if (parallelQueue.includes(q)) continue;
         const xml = await fetchKrdictCached(q, krKeyVal);
+        if (LWS_NBEST_DIAG) {
+          const entryCount = xml ? (xml.match(/<item>/g) || []).length : 0;
+          console.log(`[lws-nbest] krdict query="${q}" (seq fallback) → ${entryCount} entries`);
+        }
         if (!looksEmpty(xml)) {
           krXmls.push(xml);
           queriesUsed.push(q);
@@ -261,6 +287,9 @@ async function handleLookup(surface) {
     odXml,
     cachedAt: Date.now(),
   };
+  if (LWS_NBEST_DIAG) {
+    console.log(`[lws-nbest] final: lemma=${result.lemma} queriesUsed=[${queriesUsed.join(', ')}] entryCount=${krXmls.length}`);
+  }
   await cache.set(surface, result);
   return result;
 }
