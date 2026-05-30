@@ -312,11 +312,50 @@ function captureCaption(predicate, timeoutMs = CAPTURE_TIMEOUT_MS) {
   });
 }
 
+/**
+ * Resolve when the video element fires 'playing', or immediately when it's
+ * already playing. Rejects after `timeoutMs` with a named reason so the
+ * caller can fail-open. The `genAtCall` token lets the callback detect a
+ * superseded generation before it does any work.
+ */
+function waitForPlaying(video, genAtCall, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    if (!video.paused && video.currentTime > 0 && video.readyState >= 2) {
+      resolve('already-playing');
+      return;
+    }
+    const timer = setTimeout(() => {
+      video.removeEventListener('playing', onPlaying, { once: true });
+      reject(new Error('playing event never fired'));
+    }, timeoutMs);
+    function onPlaying() {
+      clearTimeout(timer);
+      if (genAtCall !== activeGeneration) {
+        resolve('stale-generation');
+        return;
+      }
+      resolve('playing-event');
+    }
+    video.addEventListener('playing', onPlaying, { once: true });
+  });
+}
+
 async function initForCurrentVideo() {
+  const genAtCall = activeGeneration;
   const video = await waitForVideoElement();
   if (!video) { log('no <video> element after 10s'); return null; }
 
   await injectHookOnce();
+
+  try {
+    const reason = await waitForPlaying(video, genAtCall);
+    if (reason === 'stale-generation') { log('playing event fired for a superseded generation; bailing'); return null; }
+    if (reason !== 'already-playing') log('video playing event received; starting capture');
+  } catch (err) {
+    log('[lws-yt] playing event never fired; falling back to immediate capture');
+  }
+
+  if (genAtCall !== activeGeneration) { log('generation changed while waiting for playing; bailing'); return null; }
 
   // Snapshot the user's CC state BEFORE we touch the player, so we can
   // restore it after the capture pipeline (which has to flip tracks via

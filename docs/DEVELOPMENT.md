@@ -778,7 +778,19 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
      YouTube SPA-navs faster than the capture pipeline finishes.
 4. `initForCurrentVideo`:
   1. `waitForVideoElement` polls `document.querySelector('video.html5-main-video')` up to 10 s.
-  2. `waitForTracklist` merges two sources every iteration:
+  2. **`waitForPlaying` — gate on the video's `playing` event.** Snapshots
+    `activeGeneration` at call time, then short-circuits immediately if
+     the video is already playing (`paused===false && currentTime>0 &&
+     readyState>=2`). Otherwise attaches a one-shot `'playing'` listener.
+     If the event fires after a SPA-nav has bumped `activeGeneration` the
+     callback resolves as `'stale-generation'` and the function returns
+     `null` without mounting anything. A 10-second fallback timeout rejects
+     the promise and `initForCurrentVideo` logs the named reason and
+     continues rather than blocking forever. This eliminates the race where
+     the player's caption/tracklist infrastructure isn't ready yet on
+     slow-loading pages, causing `setOption` calls to produce no XHR and
+     capture to time out.
+  3. `waitForTracklist` merges two sources every iteration:
     `player.getOption('captions','tracklist')` (rich metadata but
      unreliable for ASR-only videos — the player sometimes returns []
      until the user enables CC manually) AND a fresh
@@ -787,7 +799,7 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
      SPA-nav — see "stale ytInitialPlayerResponse" gotcha below).
      Dedupes by `(languageCode, kind)` — player entries win on
      overlap. Polls every 250 ms for up to 10 s.
-  3. **No separate audio-language gate.** Whether to engage dual subs
+  4. **No separate audio-language gate.** Whether to engage dual subs
     is decided entirely by `pickPrimarySource` below: if the
      tracklist contains any Korean track (manual or ASR), engage;
      otherwise skip. There's no need to also inspect "audio language"
@@ -799,35 +811,35 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
      it" or "the audio is Korean" — both legitimate reasons. See
      §15.11 for the design history (we tried two more complex
      gates first and they were both either redundant or broken).
-  4. `resolveSecondaryLang(videoId)` — per-video override (from
+  5. `resolveSecondaryLang(videoId)` — per-video override (from
     `local.dualSubsOverrides`) wins over `sync.secondaryLang`, which
      defaults to `'en'`.
-  5. `pickPrimarySource(tracklist)` and `pickSecondarySource` —
+  6. `pickPrimarySource(tracklist)` and `pickSecondarySource` —
     see §10 for the fallback chains.
-  6. **Snapshot CC state** via `readCurrentTrack()` (posts
+  7. **Snapshot CC state** via `readCurrentTrack()` (posts
     `{__lwsYtCmd:'get-track'}`). This is the user's pre-capture
      choice — `{}` for CC off, `{languageCode, kind}` for a selected
      track. We save it so we can restore it after the next step.
-  7. For each unique base track involved, `captureBaseTrack(lang)`:
+  8. For each unique base track involved, `captureBaseTrack(lang)`:
     posts `{__lwsYtCmd:'load-track', lang}`, then waits for a
      `__lwsYtCaption` postMessage whose URL has `lang=…` and no
      `tlang=` (signaling it's the original, not an auto-translation).
-  8. **Restore CC state** via `restoreTrack(initialTrack)`. If the
+  9. **Restore CC state** via `restoreTrack(initialTrack)`. If the
     user had CC off, we post `{__lwsYtCmd:'clear-track'}` to put it
      back off. If they had a track selected, we re-`load-track` that
      one. We deliberately do NOT keep the player parked on KO — the
-     CC button is the user's master switch (see step 10).
-  9. `materializeLines` — for each source, either parse the captured
+     CC button is the user's master switch (see step 11).
+  10. `materializeLines` — for each source, either parse the captured
     body directly (`parseJson3` or `parseSrv1Xml`), or refetch the
      captured URL with `&tlang=<target>` appended. The signed
      `sparams` don't include `lang`/`tlang`, so YouTube's signature
      still validates the second URL.
-  10. Mount the overlay on `.html5-video-player` (the player root —
+  11. Mount the overlay on `.html5-video-player` (the player root —
     NOT `.html5-video-container`, which has wrong positioning).
      The overlay starts hidden (`display:none`) and only becomes
      visible when the CC observer (below) classifies the state as
      `CC_ON`.
-  11. **CC observer**: a 500 ms `setInterval` polls
+  12. **CC observer**: a 500 ms `setInterval` polls
     `readCurrentTrack()` and classifies the result into a 2-state
      machine — `CC_OFF`, `CC_ON` (plus `TRACK_UNKNOWN` sentinel).
      On transitions:
