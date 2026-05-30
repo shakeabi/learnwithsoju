@@ -1101,11 +1101,18 @@ Module-level state:
   constructor that takes in-memory bytes instead of filesystem paths
    (see [MECAB_INTEGRATION.md](MECAB_INTEGRATION.md)).
 
-`tokenizeSurface(surface)` wraps `mecab.tokenize(surface)` and
-normalizes the WASM class instances into plain JS objects (for
-structured-clone via `sendMessage` and `chrome.storage.local.set`). Any
-error is swallowed → returns `null`, and `lemmaCandidates` falls back
-to surface-only candidates.
+`tokenizeSurfaceNbest(surface)` wraps `mecab.tokenize_nbest(surface,
+NBEST_N)` (NBEST_N = 3) and normalizes each path's WASM class instances
+into plain JS objects (for structured-clone via `sendMessage` and
+`chrome.storage.local.set`). Returns an array of
+`{ tokens, cost }` paths sorted by Viterbi cost ascending; the 1-best
+path is `paths[0].tokens` and that's what the popup's decomposition row
+renders. The n-best union feeds candidate generation via
+`lemmaCandidatesFromNbest`, surfacing alternative parses for ambiguous
+words so KRDict hits are more likely. Defensive fallback: if
+`tokenize_nbest` is missing on the WASM bundle, it falls through to
+single-path `mecab.tokenize`; if mecab itself fails, it returns `[]`
+and the lemmatizer falls back to surface-only.
 
 `handleLookup(surface)` — see §6.2 step 4 for the full pipeline. Key
 points:
@@ -1146,8 +1153,19 @@ Public:
 
 ```js
 export function lemmaCandidates(tokens, surface): string[]
+export function lemmaCandidatesFromNbest(paths, surface): string[]
 export function inflectStem(features): string | null
 ```
+
+`lemmaCandidatesFromNbest` runs `lemmaCandidates` over each path in cost
+order (`paths` is the `Array<{tokens, cost}>` returned by
+`Mecab.tokenize_nbest`) and merges the union with insertion-order
+de-dup. The 1-best path's candidates stay first — which is what the
+lemma-first KRDict query order needs — and any extra candidates surfaced
+by lower-cost alternative parses are appended after. `background.js`
+feeds the result to the same top-4 parallel KRDict cap as before, so
+the candidate pool feeding the lookup is potentially richer without
+changing the lookup fan-out.
 
 See §8 below for a deep dive on the rules. Key tag groups:
 
@@ -2257,10 +2275,16 @@ Short summary of the runtime side:
 - Time: ~1–2 s on a cold service worker; subsequent lookups within the
 same SW lifetime tokenize in ~5 ms.
 - `Mecab.tokenize(surface)` returns class instances with getters; we
-normalize to plain objects in `tokenizeSurface` so the result is
+normalize to plain objects in `tokenizeSurfaceNbest` so the result is
 structured-clone-safe for `sendMessage` and `chrome.storage.local`.
-- Failure mode: if init throws, `tokenizeSurface` returns null; the
-lemmatizer treats null tokens as "no info" and falls back to
+- `Mecab.tokenize_nbest(surface, n)` (fork-only — wraps
+`ImprovedNbestSearcher` from `mecab-ko-core::nbest`) returns up to
+`n` candidate paths as `Array<{tokens, cost}>`. `background.js`
+calls it with `NBEST_N = 3` so ambiguous words surface alternative
+parses without blowing up the lookup fan-out.
+- Failure mode: if init throws or `tokenize_nbest` is missing on the
+bundle, `tokenizeSurfaceNbest` falls back (to 1-best, then to empty);
+the lemmatizer treats empty paths as "no info" and falls back to
 surface-only candidates. The user gets a slightly worse hit rate
 but no error UI.
 

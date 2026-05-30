@@ -153,6 +153,38 @@ export class Mecab {
         return v2;
     }
     /**
+     * N-best 형태소 분석
+     *
+     * Returns up to `n` candidate paths as a JS array of
+     * `{ tokens: WasmToken[], cost: number }` objects, sorted by cost ascending.
+     * Use this to surface alternative analyses for ambiguous words.
+     *
+     * # Example (JavaScript)
+     *
+     * ```javascript
+     * const paths = mecab.tokenize_nbest("아버지가방에들어가신다", 3);
+     * paths.forEach(({ tokens, cost }) => {
+     *   console.log(cost, tokens.map(t => `${t.surface}/${t.pos}`).join(" "));
+     * });
+     * ```
+     *
+     * # Errors
+     *
+     * Returns an error if the JS array/object construction fails.
+     * @param {string} text
+     * @param {number} n
+     * @returns {any}
+     */
+    tokenize_nbest(text, n) {
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.mecab_tokenize_nbest(this.__wbg_ptr, ptr0, len0, n);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * Perform wakati (분리) tokenization
      *
      * Returns an array of morpheme strings, similar to `morphs()`.
@@ -387,10 +419,26 @@ function __wbg_get_imports() {
                 wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
             }
         },
+        __wbg_new_02d162bc6cf02f60: function() {
+            const ret = new Object();
+            return ret;
+        },
         __wbg_new_227d7c05414eb861: function() {
             const ret = new Error();
             return ret;
         },
+        __wbg_new_310879b66b6e95e1: function() {
+            const ret = new Array();
+            return ret;
+        },
+        __wbg_push_b77c476b01548d0a: function(arg0, arg1) {
+            const ret = arg0.push(arg1);
+            return ret;
+        },
+        __wbg_set_a0e911be3da02782: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = Reflect.set(arg0, arg1, arg2);
+            return ret;
+        }, arguments); },
         __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {
             const ret = arg1.stack;
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
@@ -402,7 +450,12 @@ function __wbg_get_imports() {
             const ret = WasmToken.__wrap(arg0);
             return ret;
         },
-        __wbindgen_cast_0000000000000001: function(arg0, arg1) {
+        __wbindgen_cast_0000000000000001: function(arg0) {
+            // Cast intrinsic for `F64 -> Externref`.
+            const ret = arg0;
+            return ret;
+        },
+        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
             return ret;
@@ -429,6 +482,12 @@ const MecabFinalization = (typeof FinalizationRegistry === 'undefined')
 const WasmTokenFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmtoken_free(ptr, 1));
+
+function addToExternrefTable0(obj) {
+    const idx = wasm.__externref_table_alloc();
+    wasm.__wbindgen_externrefs.set(idx, obj);
+    return idx;
+}
 
 function getArrayJsValueFromWasm0(ptr, len) {
     ptr = ptr >>> 0;
@@ -459,6 +518,15 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function handleError(f, args) {
+    try {
+        return f.apply(this, args);
+    } catch (e) {
+        const idx = addToExternrefTable0(e);
+        wasm.__wbindgen_exn_store(idx);
+    }
 }
 
 function passArray8ToWasm0(arg, malloc) {

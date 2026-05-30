@@ -84,6 +84,27 @@ export class Mecab {
      */
     tokenize(text: string): WasmToken[];
     /**
+     * N-best 형태소 분석
+     *
+     * Returns up to `n` candidate paths as a JS array of
+     * `{ tokens: WasmToken[], cost: number }` objects, sorted by cost ascending.
+     * Use this to surface alternative analyses for ambiguous words.
+     *
+     * # Example (JavaScript)
+     *
+     * ```javascript
+     * const paths = mecab.tokenize_nbest("아버지가방에들어가신다", 3);
+     * paths.forEach(({ tokens, cost }) => {
+     *   console.log(cost, tokens.map(t => `${t.surface}/${t.pos}`).join(" "));
+     * });
+     * ```
+     *
+     * # Errors
+     *
+     * Returns an error if the JS array/object construction fails.
+     */
+    tokenize_nbest(text: string, n: number): any;
+    /**
      * Perform wakati (분리) tokenization
      *
      * Returns an array of morpheme strings, similar to `morphs()`.
@@ -191,6 +212,7 @@ export interface InitOutput {
     readonly mecab_nouns: (a: number, b: number, c: number) => [number, number];
     readonly mecab_pos: (a: number, b: number, c: number) => [number, number, number, number];
     readonly mecab_tokenize: (a: number, b: number, c: number) => [number, number];
+    readonly mecab_tokenize_nbest: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly mecab_wakati: (a: number, b: number, c: number) => [number, number];
     readonly mecab_withDictBytes: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly wasmtoken_end: (a: number) => number;
@@ -203,9 +225,11 @@ export interface InitOutput {
     readonly wasmtoken_toJSON: (a: number) => [number, number, number, number];
     readonly init: () => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_exn_store: (a: number) => void;
+    readonly __externref_table_alloc: () => number;
+    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __externref_drop_slice: (a: number, b: number) => void;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_start: () => void;

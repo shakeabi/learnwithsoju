@@ -200,3 +200,36 @@ export function lemmaCandidates(tokens, surface) {
 
   return out;
 }
+
+/**
+ * Merge candidates across the N-best parses returned by
+ * `Mecab.tokenize_nbest(surface, n)`. Each path is the same token-array
+ * shape `lemmaCandidates` already understands; we run that helper per
+ * path in cost order and de-dup the union (insertion-order preserved,
+ * so the 1-best path's candidates stay first — exactly what the
+ * lemma-first KRDict query order needs).
+ *
+ * @param {Array<{tokens: any[], cost?: number}>} paths
+ * @param {string} surface
+ * @returns {string[]}
+ */
+export function lemmaCandidatesFromNbest(paths, surface) {
+  const seen = new Set();
+  const out = [];
+  if (Array.isArray(paths)) {
+    for (const path of paths) {
+      if (!path || !Array.isArray(path.tokens)) continue;
+      for (const cand of lemmaCandidates(path.tokens, surface)) {
+        if (cand && !seen.has(cand)) {
+          seen.add(cand);
+          out.push(cand);
+        }
+      }
+    }
+  }
+  if (out.length === 0 && surface) {
+    const s = String(surface).trim();
+    if (s) out.push(s);
+  }
+  return out;
+}

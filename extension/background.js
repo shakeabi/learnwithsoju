@@ -1,4 +1,4 @@
-import { lemmaCandidates } from './lemmatizer.js';
+import { lemmaCandidatesFromNbest } from './lemmatizer.js';
 import { buildKrdictUrl, buildOpendictUrl, looksEmpty } from './api.js';
 import { createCache, chromeStorageAdapter } from './cache.js';
 import init, { Mecab } from './vendor/mecab-ko/mecab_ko_wasm.js';
@@ -11,6 +11,10 @@ const STORAGE_KEYS = {
 const MECAB_VENDOR = 'vendor/mecab-ko/';
 const MECAB_FILES = ['sys.dic.gz', 'matrix.bin.gz', 'entries.bin.gz'];
 const MECAB_WASM = 'mecab_ko_wasm_bg.wasm';
+// N-best path count fed to lemmaCandidatesFromNbest. 3 keeps the per-lookup
+// tokenize cheap while still surfacing two alternative parses for ambiguous
+// words (which is where KRDict hits were missing).
+const NBEST_N = 3;
 
 const cache = createCache(chromeStorageAdapter(chrome.storage.local));
 // Hanja-meanings cache is namespaced separately so a `Clear cache` of word
@@ -115,27 +119,39 @@ async function fetchOpendictCached(query, key) {
   return xml;
 }
 
-async function tokenizeSurface(surface) {
-  // Best-effort: if mecab fails, return null tokens — caller falls back to
+function normalizeToken(t) {
+  return {
+    surface: t.surface,
+    pos: t.pos,
+    lemma: t.lemma || null,
+    reading: t.reading || null,
+    features: t.features || null,
+    start: t.start,
+    end: t.end,
+  };
+}
+
+async function tokenizeSurfaceNbest(surface) {
+  // Best-effort: if mecab fails, return empty paths — caller falls back to
   // surface-only candidates and the popup just hides the decomposition row.
   try {
     const mecab = await ensureMecab();
-    const raw = mecab.tokenize(surface);
-    // Normalize to plain JS objects (the WASM returns a class instance with
-    // getters; we want a structured-clonable form for chrome.runtime
-    // sendMessage and chrome.storage.local).
-    return raw.map((t) => ({
-      surface: t.surface,
-      pos: t.pos,
-      lemma: t.lemma || null,
-      reading: t.reading || null,
-      features: t.features || null,
-      start: t.start,
-      end: t.end,
-    }));
+    if (typeof mecab.tokenize_nbest === 'function') {
+      const raw = mecab.tokenize_nbest(surface, NBEST_N);
+      if (Array.isArray(raw) && raw.length > 0) {
+        return raw.map((p) => ({
+          tokens: (p.tokens || []).map(normalizeToken),
+          cost: typeof p.cost === 'number' ? p.cost : 0,
+        }));
+      }
+    }
+    // Defensive fallback: older WASM bundle without tokenize_nbest.
+    console.warn('[lws] mecab.tokenize_nbest unavailable, using 1-best');
+    const single = mecab.tokenize(surface);
+    return [{ tokens: single.map(normalizeToken), cost: 0 }];
   } catch (err) {
     console.warn('[learnwithsoju] mecab unavailable, falling back:', err);
-    return null;
+    return [];
   }
 }
 
@@ -143,8 +159,11 @@ async function handleLookup(surface) {
   const cached = await cache.get(surface);
   if (cached) return cached;
 
-  const [tokens] = await Promise.all([tokenizeSurface(surface), ensureSettings()]);
-  const candidates = lemmaCandidates(tokens, surface);
+  const [paths] = await Promise.all([tokenizeSurfaceNbest(surface), ensureSettings()]);
+  // 1-best path's tokens are what the popup's decomposition row renders;
+  // n-best feeds candidate generation only.
+  const tokens = paths.length > 0 ? paths[0].tokens : null;
+  const candidates = lemmaCandidatesFromNbest(paths, surface);
   const krKeyVal = krKey;
   const odKeyVal = odKey;
 
