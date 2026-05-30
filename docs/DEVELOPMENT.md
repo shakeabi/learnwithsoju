@@ -31,9 +31,11 @@ any Korean word and a popup appears showing:
 - a click-to-expand per-character Hanja breakdown — Sino-Korean reading
   plus an English meaning for every Han ideograph in the entry's origin
 - an "Ask AI" pill that opens ChatGPT or Claude (user's choice) with a
-  structured prompt pre-filled — focus word, sentence translation,
-  word-by-word table, and an exhaustive grammar deep-dive of the
-  focused word. The prompt template is fully customizable
+  structured prompt pre-filled — five sections: Quick Summary (meaning,
+  lemma, POS, frequency, register), Translation, Breakdown table,
+  About the word (common usages, similar words, natural alternatives,
+  common conjugated forms), and a Grammar deep-dive. The prompt
+  template is fully customizable
 
 On YouTube, the extension goes a step further: when the video has a
 Korean caption track (manual or ASR), it replaces YouTube's native
