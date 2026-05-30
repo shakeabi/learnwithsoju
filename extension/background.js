@@ -27,6 +27,31 @@ const HANJA_API = 'https://hangulhanja.com/api/search';
 let mecabInstance = null;
 let mecabReadyPromise = null;
 
+let krKey = '';
+let odKey = '';
+let settingsReady = null;
+
+function ensureSettings() {
+  if (settingsReady) return settingsReady;
+  settingsReady = chrome.storage.sync.get([STORAGE_KEYS.KRDICT_KEY, STORAGE_KEYS.OPENDICT_KEY])
+    .then((settings) => {
+      krKey = settings[STORAGE_KEYS.KRDICT_KEY] || '';
+      odKey = settings[STORAGE_KEYS.OPENDICT_KEY] || '';
+    })
+    .catch((err) => {
+      console.warn('[lws] settings load failed:', err);
+    });
+  return settingsReady;
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'sync') return;
+  if (STORAGE_KEYS.KRDICT_KEY in changes) krKey = changes[STORAGE_KEYS.KRDICT_KEY].newValue || '';
+  if (STORAGE_KEYS.OPENDICT_KEY in changes) odKey = changes[STORAGE_KEYS.OPENDICT_KEY].newValue || '';
+});
+
+ensureSettings();
+
 async function fetchAndGunzip(path) {
   const url = chrome.runtime.getURL(path);
   const res = await fetch(url);
@@ -118,14 +143,12 @@ async function handleLookup(surface) {
   const cached = await cache.get(surface);
   if (cached) return cached;
 
-  const tokens = await tokenizeSurface(surface);
+  const [tokens] = await Promise.all([tokenizeSurface(surface), ensureSettings()]);
   const candidates = lemmaCandidates(tokens, surface);
+  const krKeyVal = krKey;
+  const odKeyVal = odKey;
 
-  const settings = await chrome.storage.sync.get([STORAGE_KEYS.KRDICT_KEY, STORAGE_KEYS.OPENDICT_KEY]);
-  const krKey = settings[STORAGE_KEYS.KRDICT_KEY];
-  const odKey = settings[STORAGE_KEYS.OPENDICT_KEY];
-
-  if (!krKey) return { surface, lemma: candidates[0], tokens, error: 'NO_API_KEY' };
+  if (!krKeyVal) return { surface, lemma: candidates[0], tokens, error: 'NO_API_KEY' };
 
   // Fire up to 4 parallel KRDict queries: the top candidates from the
   // lemma chain. We do more than 2 so multi-noun compounds (파티원들 →
@@ -137,7 +160,7 @@ async function handleLookup(surface) {
   const parallelQueue = pickTopNDistinct(candidates, 4);
   try {
     const responses = await Promise.all(
-      parallelQueue.map((q) => fetchKrdictCached(q, krKey).catch(() => null)),
+      parallelQueue.map((q) => fetchKrdictCached(q, krKeyVal).catch(() => null)),
     );
     for (let i = 0; i < parallelQueue.length; i++) {
       const xml = responses[i];
@@ -152,7 +175,7 @@ async function handleLookup(surface) {
     if (queriesUsed.length === 0) {
       for (const q of candidates) {
         if (parallelQueue.includes(q)) continue;
-        const xml = await fetchKrdictCached(q, krKey);
+        const xml = await fetchKrdictCached(q, krKeyVal);
         if (!looksEmpty(xml)) {
           krXmls.push(xml);
           queriesUsed.push(q);
@@ -185,10 +208,10 @@ async function handleLookup(surface) {
   const queryUsedExtra = queriesUsed[1] || null;
 
   let odXml = null;
-  if (odKey && (queryUsed === null || looksEmpty(krXml))) {
+  if (odKeyVal && (queryUsed === null || looksEmpty(krXml))) {
     try {
       for (const q of candidates) {
-        const xml = await fetchOpendictCached(q, odKey);
+        const xml = await fetchOpendictCached(q, odKeyVal);
         if (!looksEmpty(xml)) {
           odXml = xml;
           if (queryUsed === null) queryUsed = q;
@@ -294,6 +317,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     sendResponse({ ok: true });
     return false;
   }
+  if (msg && msg.type === 'warmup') {
+    ensureMecab().catch((err) => console.warn('[lws] warmup mecab failed:', err));
+    ensureSettings();
+    sendResponse({ ok: true });
+    return false;
+  }
   if (msg && msg.type === 'openOptions') {
     chrome.runtime.openOptionsPage();
     sendResponse({ ok: true });
@@ -311,4 +340,9 @@ chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     chrome.runtime.openOptionsPage();
   }
+  ensureMecab().catch((err) => console.warn('[lws] onInstalled warmup failed:', err));
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  ensureMecab().catch((err) => console.warn('[lws] onStartup warmup failed:', err));
 });

@@ -436,6 +436,7 @@ All from `content.js` (or from inside the popup's button-handlers).
 | `lookupHanja` | `{ chars: string }`   | `{ chars, hanjas: [{character, sino, summary}], cachedAt }` or `{ chars, error, ... }` | Async. Failures (5xx/429) are NOT cached so the next click retries. |
 | `openOptions` | `{}`                  | `{ ok: true }`                                                                         | Sync; `chrome.runtime.openOptionsPage()`.                           |
 | `ping`        | `{}`                  | `{ ok: true }`                                                                         | Sync; used to wake the SW.                                          |
+| `warmup`      | `{}`                  | `{ ok: true }`                                                                         | Sync response; fires `ensureMecab()` + `ensureSettings()` in the background. Sent from `content.js` init() so first hover doesn't pay the dict-fetch+inflate stall. |
 | `clearCache`  | `{}`                  | `{ ok: true }` or `{ ok: false, error }`                                               | Async. Clears all four namespaces: `lookup:`, `hanja:`, `krdict:`, `opendict:`. |
 
 
@@ -1009,7 +1010,10 @@ the popup).
 `buildResultNode(payload, options)` is the big one:
 
 1. Parse the XML — `payload.krXmls[]` (new format) or
-  `[krXml, krXmlExtra].filter(Boolean)` (legacy cached payloads).
+  `[krXml, krXmlExtra].filter(Boolean)` (legacy cached payloads). The
+  parsed entry arrays are memoized on `payload.__parsedGroups` /
+  `payload.__parsedOd` so tab / language toggles re-rendering from the
+  same `lastPayload` don't re-walk the raw XML strings.
 2. `mergeKrEntriesAll(groups)` dedupes across parallel-query result
   groups by `(word|pos|definition[0..40])` — earlier groups (more
    specific queries) win.
@@ -1067,6 +1071,9 @@ Module-level state:
 | `opendictCache`     | `createCache(adapter, { namespace: 'opendict' })` — lemma-keyed raw XML |
 | `mecabInstance`     | `Mecab` instance once initialized, otherwise null                     |
 | `mecabReadyPromise` | In-flight init promise (so concurrent first-hovers don't double-init) |
+| `krKey`             | KRDict API key mirrored from `chrome.storage.sync`; read in the lookup hot path |
+| `odKey`             | OpenDict API key mirrored from `chrome.storage.sync`                  |
+| `settingsReady`     | Promise that resolves once the initial sync.get fills `krKey`/`odKey` |
 
 
 `ensureMecab()`:
@@ -2137,6 +2144,12 @@ sent to the API. Multiple surface forms that lemmatize to the same
 lemma share the cached XML, so a second hover on `먹었어요` after
 `먹었어` re-uses the `먹다` KRDict response already stored in
 `krdictCache` without firing another network request.
+
+Beyond the four `cache.js` instances, the SW also keeps a tiny
+in-memory mirror of the two API keys (`krKey`/`odKey`), populated once
+from `chrome.storage.sync` and kept current via `storage.onChanged`.
+`handleLookup` reads the mirror instead of re-issuing `sync.get` on
+every lookup.
 
 ### 11.1 Two tiers
 

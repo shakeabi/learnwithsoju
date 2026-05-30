@@ -905,9 +905,15 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     const xmls = Array.isArray(payload.krXmls) && payload.krXmls.length > 0
       ? payload.krXmls
       : [payload.krXml, payload.krXmlExtra].filter(Boolean);
-    const parsedGroups = xmls.map((x) => parseKrdictXml(x, DOMParser));
+    if (!payload.__parsedGroups) {
+      payload.__parsedGroups = xmls.map((x) => parseKrdictXml(x, DOMParser));
+    }
+    if (!payload.__parsedOd) {
+      payload.__parsedOd = parseOpendictXml(payload.odXml, DOMParser);
+    }
+    const parsedGroups = payload.__parsedGroups;
     const krEntries = mergeKrEntriesAll(parsedGroups);
-    const odEntries = parseOpendictXml(payload.odXml, DOMParser);
+    const odEntries = payload.__parsedOd;
 
     const showLemmaChip = payload.queryUsed && payload.queryUsed !== payload.surface;
     if (showLemmaChip || krEntries.length > 0 || odEntries.length > 0) {
@@ -1741,6 +1747,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   }
 
   async function init() {
+    chrome.runtime.sendMessage({ type: 'warmup' }).catch(() => {});
     const [syncData, localData] = await Promise.all([
       chrome.storage.sync.get([STORAGE_KEYS.DEF_LANG, STORAGE_KEYS.ASK_AI_PROMPT, STORAGE_KEYS.ASK_AI_PROVIDER]),
       chrome.storage.local.get(DISABLED_HOSTS_KEY),
