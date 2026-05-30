@@ -27,6 +27,9 @@
  * disable it without disabling the whole extension on netflix.com).
  */
 
+const LWS_NX_DIAG_PRIME = true;
+function diag(...args) { if (LWS_NX_DIAG_PRIME) console.log('[lws-nx-diag]', ...args); }
+
 const HOOK_PATH = 'netflix-page-hook.js';
 const DISABLED_HOSTS_KEY = 'disabledHosts';
 const DUAL_SUBS_NX_KEY = 'dualSubsNetflix';
@@ -186,19 +189,25 @@ function handleNavFinish() {
 
 async function activate() {
   const myGen = ++activeGeneration;
+  diag('adapter activate() called for url=' + window.location.href + ' gen=' + myGen);
   if (teardownFn) {
     try { teardownFn(); } catch {}
     teardownFn = null;
   }
   if (!isWatchPage()) {
     log('activate skipped: not a /watch URL (pathname:', window.location.pathname, ')');
+    diag('activate bailed: not a /watch URL');
     return;
   }
   try {
     const enabled = await isEnabled();
-    if (myGen !== activeGeneration) return;
+    if (myGen !== activeGeneration) {
+      diag('activate bailed: generation stale after isEnabled (myGen=' + myGen + ' activeGeneration=' + activeGeneration + ')');
+      return;
+    }
     if (!enabled) {
       log('activate skipped: disabled on this host');
+      diag('activate bailed: isEnabled false');
       return;
     }
     log('activating for', window.location.href);
@@ -678,6 +687,7 @@ function currentTitleId() {
 
 function onManifest(rawTracks) {
   const myGen = activeGeneration;
+  diag('adapter received manifest message, tracks:', Array.isArray(rawTracks) ? rawTracks.length : '(not an array)');
   if (!Array.isArray(rawTracks) || rawTracks.length === 0) return;
   if (!isWatchPage()) return;
   // Cache for use when the per-title override changes mid-session.

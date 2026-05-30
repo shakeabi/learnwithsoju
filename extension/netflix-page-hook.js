@@ -42,6 +42,31 @@
   if (window.__lwsNxHookInstalled) return;
   window.__lwsNxHookInstalled = true;
 
+  const LWS_NX_DIAG_PRIME = true;
+  function diag(...args) { if (LWS_NX_DIAG_PRIME) console.log('[lws-nx-diag]', ...args); }
+
+  diag('page-hook installed (v=DIAG)');
+
+  const _NX_HOST_RE = /netflix\.com$|\.netflix\.com$|\.nflxso\.net$|\.nflxext\.com$/;
+  const _MEDIA_CT_RE = /^(video|audio|image|font)\//i;
+  const _MEDIA_EXT_RE = /\.(ts|m4s|mp4|init\.mp4)(\?|#|$)/i;
+
+  function isDiagCandidate(url, ct) {
+    if (!LWS_NX_DIAG_PRIME) return false;
+    try {
+      const host = new URL(url).hostname;
+      if (!_NX_HOST_RE.test(host)) return false;
+    } catch { return false; }
+    if (_MEDIA_CT_RE.test(ct)) return false;
+    if (_MEDIA_EXT_RE.test(url)) return false;
+    return true;
+  }
+
+  function truncBody(body) {
+    const s = typeof body === 'string' ? body : '';
+    return JSON.stringify(s.slice(0, 200));
+  }
+
   let manifestKeysLogged = false;
 
   function looksLikeCaptionUrl(url) {
@@ -179,15 +204,15 @@
     try { parsed = JSON.parse(bodyText); } catch { return; }
     if (!manifestKeysLogged) {
       manifestKeysLogged = true;
-      try {
-        const keys = parsed && typeof parsed === 'object' ? Object.keys(parsed) : [];
-        console.log('[lws-nx-prime] manifest keys:', keys, 'url:', url);
-      } catch {}
+      const keys = parsed && typeof parsed === 'object' ? Object.keys(parsed) : [];
+      try { console.log('[lws-nx-prime] manifest keys:', keys, 'url:', url); } catch {}
+      diag('manifest detection FIRED for url:', url);
     }
     const tracks = extractTracksFromManifest(parsed);
     if (tracks.length === 0) {
-      console.log('[lws-nx-prime] manifest matched URL but no tracks extracted; top-level keys:',
-        parsed && typeof parsed === 'object' ? Object.keys(parsed) : '(non-object)');
+      const topKeys = parsed && typeof parsed === 'object' ? Object.keys(parsed) : '(non-object)';
+      console.log('[lws-nx-prime] manifest matched URL but no tracks extracted; top-level keys:', topKeys);
+      diag('manifest candidate matched but parsed 0 tracks:', url, 'keys=' + JSON.stringify(topKeys));
       return;
     }
     postManifest(tracks);
@@ -245,6 +270,9 @@
         if (rtype && rtype !== 'text' && rtype !== '') return;
         const body = this.responseText || '';
         const ct = (this.getResponseHeader && this.getResponseHeader('content-type')) || '';
+        if (isDiagCandidate(url, ct)) {
+          diag('xhr', method, status, ct, url, 'body-head:', truncBody(body));
+        }
         if (maybeManifest && isJsonContentType(ct)) {
           handleManifestBody(url, body);
         }
@@ -265,11 +293,15 @@
       try {
         const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
         const ctTextish = !ct || /^(text|application\/(xml|json|dfxp|ttml|x-subrip|octet))/i.test(ct);
-        if (!urlMatch && !maybeManifest && !ctTextish) return r;
+        const diagCandidate = isDiagCandidate(u, ct);
+        if (!urlMatch && !maybeManifest && !ctTextish && !diagCandidate) return r;
 
         const clone = r.clone();
         clone.text().then((body) => {
           try {
+            if (diagCandidate) {
+              diag('fetch GET', r.status, ct, u, 'body-head:', truncBody(body));
+            }
             if (maybeManifest && isJsonContentType(ct)) {
               handleManifestBody(u, body);
             }
