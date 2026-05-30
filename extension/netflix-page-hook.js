@@ -42,10 +42,123 @@
   if (window.__lwsNxHookInstalled) return;
   window.__lwsNxHookInstalled = true;
 
-  const LWS_NX_DIAG_PRIME = true;
+  const LWS_NX_DIAG_PRIME = false;
+  const LWS_NX_DIAG_API = true;
   function diag(...args) { if (LWS_NX_DIAG_PRIME) console.log('[lws-nx-diag]', ...args); }
 
   diag('page-hook installed (v=DIAG)');
+
+  // -----------------------------------------------------------------------
+  // API probe — discover window.netflix.appContext.state.playerApp surface
+  // -----------------------------------------------------------------------
+
+  let probed = false;
+
+  function listMethods(obj) {
+    const methods = new Set();
+    let p = obj;
+    while (p && p !== Object.prototype) {
+      for (const name of Object.getOwnPropertyNames(p)) {
+        if (name === 'constructor') continue;
+        try {
+          if (typeof obj[name] === 'function') methods.add(name);
+        } catch {}
+      }
+      p = Object.getPrototypeOf(p);
+    }
+    return [...methods].sort();
+  }
+
+  function safeProbeCall(label, fn) {
+    try {
+      const result = fn();
+      let summary;
+      if (result == null) summary = String(result);
+      else if (Array.isArray(result)) summary = `Array(${result.length})${result.length ? ' first=' + JSON.stringify(result[0]).slice(0, 200) : ''}`;
+      else if (typeof result === 'object') summary = `Object keys=[${Object.keys(result).slice(0, 20).join(',')}]`;
+      else summary = `${typeof result} ${JSON.stringify(result).slice(0, 200)}`;
+      console.log(`[lws-nx-api] ${label} →`, summary, '(raw:', result, ')');
+    } catch (e) {
+      console.log(`[lws-nx-api] ${label} threw: ${e.message}`);
+    }
+  }
+
+  if (LWS_NX_DIAG_API) {
+    const _apiPollStart = Date.now();
+    const _apiPollId = setInterval(() => {
+      try {
+        if (probed) { clearInterval(_apiPollId); return; }
+        if (Date.now() - _apiPollStart > 30000) { clearInterval(_apiPollId); return; }
+        const playerApp = window.netflix
+          && window.netflix.appContext
+          && window.netflix.appContext.state
+          && window.netflix.appContext.state.playerApp;
+        if (!playerApp) return;
+
+        clearInterval(_apiPollId);
+        probed = true;
+
+        console.log('[lws-nx-api] netflix found — appContext keys:',
+          Object.keys(window.netflix.appContext));
+        console.log('[lws-nx-api] appContext.state keys:',
+          Object.keys(window.netflix.appContext.state));
+        console.log('[lws-nx-api] playerApp keys:',
+          Object.keys(playerApp));
+
+        let api;
+        try { api = playerApp.getAPI(); } catch (e) {
+          console.log('[lws-nx-api] playerApp.getAPI() threw:', e.message);
+          return;
+        }
+        console.log('[lws-nx-api] api keys:', Object.keys(api));
+
+        let videoPlayer;
+        try { videoPlayer = api.videoPlayer; } catch (e) {
+          console.log('[lws-nx-api] api.videoPlayer access threw:', e.message);
+          return;
+        }
+        console.log('[lws-nx-api] videoPlayer keys:', Object.keys(videoPlayer));
+        console.log('[lws-nx-api] videoPlayer methods:', listMethods(videoPlayer));
+
+        safeProbeCall('all session ids', () => videoPlayer.getAllPlayerSessionIds && videoPlayer.getAllPlayerSessionIds());
+
+        let sessionIds = [];
+        try { sessionIds = videoPlayer.getAllPlayerSessionIds ? videoPlayer.getAllPlayerSessionIds() : []; } catch {}
+        if (!Array.isArray(sessionIds)) sessionIds = [];
+
+        for (const sid of sessionIds) {
+          let session;
+          try { session = videoPlayer.getVideoPlayerBySessionId(sid); } catch (e) {
+            console.log(`[lws-nx-api] getVideoPlayerBySessionId(${sid}) threw:`, e.message);
+            continue;
+          }
+          if (!session) { console.log(`[lws-nx-api] session ${sid} is null/undefined`); continue; }
+
+          console.log(`[lws-nx-api] session ${sid} methods:`, listMethods(session));
+
+          safeProbeCall(`session ${sid} getTextTrackList()`, () => session.getTextTrackList && session.getTextTrackList());
+          safeProbeCall(`session ${sid} getCurrentTextTrack()`, () => session.getCurrentTextTrack && session.getCurrentTextTrack());
+          safeProbeCall(`session ${sid} getTimedTextTrack()`, () => session.getTimedTextTrack && session.getTimedTextTrack());
+          safeProbeCall(`session ${sid} getCurrentAudioTrack()`, () => session.getCurrentAudioTrack && session.getCurrentAudioTrack());
+          safeProbeCall(`session ${sid} getMovieId()`, () => session.getMovieId && session.getMovieId());
+          safeProbeCall(`session ${sid} getCurrentVideoId()`, () => session.getCurrentVideoId && session.getCurrentVideoId());
+          safeProbeCall(`session ${sid} getDuration()`, () => session.getDuration && session.getDuration());
+          safeProbeCall(`session ${sid} getCurrentTime()`, () => session.getCurrentTime && session.getCurrentTime());
+
+          const allMethods = listMethods(session);
+          const candidates = allMethods.filter((m) => /textTrack|Subtitle|timedText|Caption/i.test(m));
+          if (candidates.length) {
+            console.log(`[lws-nx-api] session ${sid} candidate methods:`, candidates);
+            for (const m of candidates) {
+              safeProbeCall(`session ${sid} ${m}()`, () => session[m]());
+            }
+          }
+        }
+      } catch (outerErr) {
+        console.log('[lws-nx-api] probe outer error:', outerErr && outerErr.message);
+      }
+    }, 500);
+  }
 
   const _NX_HOST_RE = /netflix\.com$|\.netflix\.com$|\.nflxso\.net$|\.nflxext\.com$/;
   const _MEDIA_CT_RE = /^(video|audio|image|font)\//i;

@@ -27,7 +27,7 @@
  * disable it without disabling the whole extension on netflix.com).
  */
 
-const LWS_NX_DIAG_PRIME = true;
+const LWS_NX_DIAG_PRIME = false;
 function diag(...args) { if (LWS_NX_DIAG_PRIME) console.log('[lws-nx-diag]', ...args); }
 
 const HOOK_PATH = 'netflix-page-hook.js';
