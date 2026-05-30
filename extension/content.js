@@ -27,6 +27,7 @@
     SECONDARY_LANG: 'secondaryLang',
     ASK_AI_PROMPT: 'askAiPrompt',
     ASK_AI_PROVIDER: 'askAiProvider',
+    ASK_AI_CHATGPT_TEMPORARY: 'askAiChatGptTemporary',
   };
   // Per-site disable list lives in chrome.storage.local (see popup.js for
   // rationale — sync was dropping per-site writes).
@@ -166,6 +167,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   let secondaryLang = SECONDARY_LANG_DEFAULT;
   let askAiPromptTemplate = DEFAULT_ASK_AI_PROMPT;
   let askAiProvider = DEFAULT_ASK_AI_PROVIDER;
+  let askAiChatGptTemporary = false;
   let popupHost = null;
   let popupRoot = null;
   let popupEl = null;
@@ -607,7 +609,18 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       .split('{sentence}').join(sentenceWithMark)
       .split('{word}').join(sentence.word)
       .split('{language}').join(langName);
-    return `${currentProvider().urlPrefix}${encodeURIComponent(prompt)}`;
+    const base = `${currentProvider().urlPrefix}${encodeURIComponent(prompt)}`;
+    if (askAiProvider === 'chatgpt' && askAiChatGptTemporary) {
+      try {
+        const u = new URL(base);
+        u.searchParams.set('temporary-chat', 'true');
+        return u.toString();
+      } catch (err) {
+        console.warn('[lws] buildAskAiUrl: could not append temporary-chat param', err);
+        return base;
+      }
+    }
+    return base;
   }
 
   function buildAiPill(sentence) {
@@ -1757,7 +1770,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   async function init() {
     chrome.runtime.sendMessage({ type: 'warmup' }).catch(() => {});
     const [syncData, localData] = await Promise.all([
-      chrome.storage.sync.get([STORAGE_KEYS.DEF_LANG, STORAGE_KEYS.ASK_AI_PROMPT, STORAGE_KEYS.ASK_AI_PROVIDER]),
+      chrome.storage.sync.get([STORAGE_KEYS.DEF_LANG, STORAGE_KEYS.ASK_AI_PROMPT, STORAGE_KEYS.ASK_AI_PROVIDER, STORAGE_KEYS.ASK_AI_CHATGPT_TEMPORARY]),
       chrome.storage.local.get(DISABLED_HOSTS_KEY),
     ]);
     const disabledList = Array.isArray(localData[DISABLED_HOSTS_KEY]) ? localData[DISABLED_HOSTS_KEY] : [];
@@ -1772,6 +1785,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       && AI_PROVIDERS[syncData[STORAGE_KEYS.ASK_AI_PROVIDER]])
       ? syncData[STORAGE_KEYS.ASK_AI_PROVIDER]
       : DEFAULT_ASK_AI_PROVIDER;
+    askAiChatGptTemporary = syncData[STORAGE_KEYS.ASK_AI_CHATGPT_TEMPORARY] === true;
     console.log('[lws] content init', { host: currentHost, hostDisabled, enabled, disabledList });
     await loadSecondaryLang();
     if (!document.body) {
@@ -1830,6 +1844,10 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       const next = changes[STORAGE_KEYS.ASK_AI_PROVIDER].newValue;
       askAiProvider = (typeof next === 'string' && AI_PROVIDERS[next]) ? next : DEFAULT_ASK_AI_PROVIDER;
       // No rerender — pill href + tooltip are rebuilt on next render.
+    }
+    if (STORAGE_KEYS.ASK_AI_CHATGPT_TEMPORARY in changes) {
+      askAiChatGptTemporary = changes[STORAGE_KEYS.ASK_AI_CHATGPT_TEMPORARY].newValue === true;
+      // No rerender — pill href is rebuilt on next render.
     }
   });
 

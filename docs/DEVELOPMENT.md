@@ -346,6 +346,7 @@ can grow past the 5 MB default.
 | `secondaryLang`   | string        | `'en'`                   | `options.js`                    | `youtube-adapter.js`, `netflix-adapter.js`, `popup.js` (default)                              |
 | `askAiPrompt`     | string        | unset → built-in default | `options.js` (Advanced section) | `content.js` (init + onChanged → `buildAskAiUrl`)                                             |
 | `askAiProvider`   | string        | `'chatgpt'`              | `options.js` (Advanced section) | `content.js` (init + onChanged → `buildAskAiUrl` picks the URL prefix from `ai-providers.js`) |
+| `askAiChatGptTemporary` | boolean | `false`                 | `options.js` (Advanced section, visible only when provider is ChatGPT) | `content.js` (init + onChanged → `buildAskAiUrl` appends `?temporary-chat=true` when provider is `chatgpt`) |
 
 
 *`dualSubsYouTube` and `dualSubsNetflix` default to `true` in each
@@ -1532,7 +1533,12 @@ The settings page. Linked from the popup (gear icon in the links row) and from
   to `askAiPrompt` (sync) on blur. Saving an empty value or the
   default text removes the key so the live default re-applies. Also
   an AI-service `<select>` populated dynamically from
-  `ai-providers.js` and bound to `askAiProvider` (sync).
+  `ai-providers.js` and bound to `askAiProvider` (sync). When the
+  selected provider is ChatGPT, a "Use temporary (ephemeral) ChatGPT
+  chats" checkbox appears (hidden otherwise) and is bound to
+  `askAiChatGptTemporary` (sync); when checked, `buildAskAiUrl`
+  appends `?temporary-chat=true` so opened chats aren't saved to
+  ChatGPT history.
 - Cache: a "Clear cache" button that sends `{type: 'clearCache'}` to
   the SW.
 

@@ -6,6 +6,7 @@ const KEYS = {
   SECONDARY_LANG: 'secondaryLang',
   ASK_AI_PROMPT: 'askAiPrompt',
   ASK_AI_PROVIDER: 'askAiProvider',
+  ASK_AI_CHATGPT_TEMPORARY: 'askAiChatGptTemporary',
 };
 
 // Default Ask-AI prompt. Kept in sync with the fallback in content.js
@@ -54,6 +55,8 @@ const dualSubsNxToggle = document.getElementById('dualsubs-toggle-netflix');
 const secondaryLangSelect = document.getElementById('secondary-lang');
 const askAiPromptInput = document.getElementById('ask-ai-prompt');
 const askAiProviderSelect = document.getElementById('ask-ai-provider');
+const askAiChatGptTemporaryCheckbox = document.getElementById('askai-chatgpt-temporary');
+const chatGptTemporaryRow = document.getElementById('chatgpt-temporary-row');
 const resetAskAiPromptBtn = document.getElementById('reset-ask-ai-prompt');
 const askAiPromptStatus = document.getElementById('ask-ai-prompt-status');
 const saveBtn = document.getElementById('save-btn');
@@ -88,6 +91,12 @@ function setAskAiPromptStatus(text, kind) {
   }
 }
 
+function syncChatGptTemporaryRowVisibility() {
+  if (!chatGptTemporaryRow) return;
+  const isChatGpt = askAiProviderSelect && askAiProviderSelect.value === 'chatgpt';
+  chatGptTemporaryRow.hidden = !isChatGpt;
+}
+
 async function populateAiProviderSelect(selectedValue) {
   if (!askAiProviderSelect) return;
   try {
@@ -102,6 +111,7 @@ async function populateAiProviderSelect(selectedValue) {
       askAiProviderSelect.appendChild(opt);
     }
     askAiProviderSelect.value = providers[selectedValue] ? selectedValue : fallback;
+    syncChatGptTemporaryRowVisibility();
   } catch (err) {
     console.warn('[lws] options: failed to load ai-providers.js', err);
   }
@@ -116,6 +126,7 @@ async function load() {
     KEYS.SECONDARY_LANG,
     KEYS.ASK_AI_PROMPT,
     KEYS.ASK_AI_PROVIDER,
+    KEYS.ASK_AI_CHATGPT_TEMPORARY,
   ]);
   krInput.value = data[KEYS.KRDICT_KEY] || '';
   odInput.value = data[KEYS.OPENDICT_KEY] || '';
@@ -126,6 +137,9 @@ async function load() {
     askAiPromptInput.value = typeof data[KEYS.ASK_AI_PROMPT] === 'string' && data[KEYS.ASK_AI_PROMPT]
       ? data[KEYS.ASK_AI_PROMPT]
       : DEFAULT_ASK_AI_PROMPT;
+  }
+  if (askAiChatGptTemporaryCheckbox) {
+    askAiChatGptTemporaryCheckbox.checked = data[KEYS.ASK_AI_CHATGPT_TEMPORARY] === true;
   }
   await populateAiProviderSelect(data[KEYS.ASK_AI_PROVIDER]);
   const v = chrome.runtime.getManifest().version;
@@ -195,6 +209,12 @@ if (secondaryLangSelect) {
 if (askAiProviderSelect) {
   askAiProviderSelect.addEventListener('change', () => {
     chrome.storage.sync.set({ [KEYS.ASK_AI_PROVIDER]: askAiProviderSelect.value });
+    syncChatGptTemporaryRowVisibility();
+  });
+}
+if (askAiChatGptTemporaryCheckbox) {
+  askAiChatGptTemporaryCheckbox.addEventListener('change', () => {
+    chrome.storage.sync.set({ [KEYS.ASK_AI_CHATGPT_TEMPORARY]: askAiChatGptTemporaryCheckbox.checked });
   });
 }
 if (askAiPromptInput) {
