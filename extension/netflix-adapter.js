@@ -66,6 +66,15 @@ let overlayState = null; // { overlayEl, styleEl, update, video, listeners }
 // to the toolbar popup (lws-nx-popup-info) so the dropdown can
 // preselect what's actually rendering. Updated at every rebuild.
 let lastSecondaryLang = null;
+// Per-generation set of language codes we've already fired auto-prime
+// XHRs for. Reset on activate() (new generation = new title or new
+// session); prevents double-fetching when the manifest message arrives
+// more than once (e.g. Netflix refetches the manifest mid-session).
+let primedLangs = new Set();
+// Per-generation cache of the most recent manifest tracks list. Used
+// when storage changes (per-title override flips) so we can re-evaluate
+// which secondary to prime without waiting for another manifest event.
+let lastManifestTracks = null;
 
 function log(...args) {
   console.log('[learnwithsoju/netflix]', ...args);
@@ -81,8 +90,12 @@ export async function setup(api = {}) {
   window.addEventListener('message', (e) => {
     if (e.source !== window) return;
     const d = e.data;
-    if (!d || d.__lwsNxCaption !== true) return;
-    onCaptureBody(d.url, d.body);
+    if (!d) return;
+    if (d.__lwsNxCaption === true) {
+      onCaptureBody(d.url, d.body);
+    } else if (d.__lwsNxManifest === true) {
+      onManifest(d.tracks);
+    }
   });
 
   // Per-site toggle change → reactivate. Mirrors YouTube; same
@@ -107,6 +120,10 @@ export async function setup(api = {}) {
       const oldMap = changes[PER_TITLE_OVERRIDE_KEY].oldValue || {};
       const tid = currentTitleId();
       if (tid && newMap[tid] !== oldMap[tid]) {
+        // If the manifest is still in hand, re-prime so the newly
+        // chosen secondary gets fetched (if it wasn't already). The
+        // overlay rebuild itself happens once the new capture lands.
+        if (lastManifestTracks) void primeFromManifest(lastManifestTracks);
         void rebuildOverlay();
       }
     }
@@ -186,6 +203,8 @@ async function activate() {
     }
     log('activating for', window.location.href);
     tracksByLang = new Map();
+    primedLangs = new Set();
+    lastManifestTracks = null;
 
     // Install a teardown that tears down any mounted overlay; the
     // overlay itself gets mounted (later) inside onCaptureBody once
@@ -195,6 +214,8 @@ async function activate() {
     teardownFn = () => {
       teardownOverlay();
       tracksByLang = new Map();
+      primedLangs = new Set();
+      lastManifestTracks = null;
       log('session over');
     };
   } catch (err) {
@@ -649,6 +670,158 @@ function currentTitleId() {
   // (we're not in a session that has captures anyway).
   const m = /\/watch\/(\d+)/.exec(window.location.pathname);
   return m ? m[1] : null;
+}
+
+// ---------------------------------------------------------------------
+// Auto-prime: manifest → pick KO + secondary → fetch
+// ---------------------------------------------------------------------
+
+function onManifest(rawTracks) {
+  const myGen = activeGeneration;
+  if (!Array.isArray(rawTracks) || rawTracks.length === 0) return;
+  if (!isWatchPage()) return;
+  // Cache for use when the per-title override changes mid-session.
+  lastManifestTracks = rawTracks;
+  console.log('[lws-nx-prime] manifest tracks:',
+    rawTracks.map((t) => ({ lang: t.language, original: t.originalLanguage, isCC: t.isCC, formats: Object.keys(t.urlsByFormat || {}) })));
+  void primeFromManifest(rawTracks).then(() => {
+    if (myGen !== activeGeneration) {
+      console.log('[lws-nx-prime] generation changed during prime — discarding');
+    }
+  });
+}
+
+async function primeFromManifest(rawTracks) {
+  const myGen = activeGeneration;
+  const enabled = await isEnabled();
+  if (myGen !== activeGeneration) return;
+  if (!enabled) {
+    console.log('[lws-nx-prime] disabled on this host — skipping prime');
+    return;
+  }
+
+  const koTrack = pickPrimaryKoTrack(rawTracks);
+  if (!koTrack) {
+    console.log('[lws-nx-prime] no Korean available — dual-subs disabled for this title');
+    return;
+  }
+
+  const secondaryLang = await resolveSecondaryLang();
+  if (myGen !== activeGeneration) return;
+  if (!secondaryLang || secondaryLang === 'off') {
+    console.log('[lws-nx-prime] secondary lang is off — KO-only mode not supported, skipping prime');
+    return;
+  }
+
+  // Chain: caller's preference (which already factored in per-title
+  // override) → 'en'. Loose lang matching so 'zh' picks 'zh-Hans' etc.
+  const secondaryTrack = findAvailableTrack(rawTracks, secondaryLang)
+    || (secondaryLang !== 'en' ? findAvailableTrack(rawTracks, 'en') : null);
+  if (!secondaryTrack) {
+    console.log(`[lws-nx-prime] no secondary available (wanted '${secondaryLang}', fallback 'en' also missing) — dual-subs disabled`);
+    return;
+  }
+
+  const chosenSecondaryLang = normalizeLang(secondaryTrack.language);
+  console.log(`[lws-nx-prime] picked KO (${koTrack.isCC ? 'CC' : 'plain'}, ${koTrack.originalLanguage}) + ${chosenSecondaryLang} (${secondaryTrack.isCC ? 'CC' : 'plain'}, ${secondaryTrack.originalLanguage})`);
+
+  fetchTrackIfNeeded(koTrack, 'ko');
+  fetchTrackIfNeeded(secondaryTrack, chosenSecondaryLang);
+}
+
+function fetchTrackIfNeeded(track, normalizedLang) {
+  if (primedLangs.has(normalizedLang)) {
+    console.log(`[lws-nx-prime] already primed '${normalizedLang}' this session — skip`);
+    return;
+  }
+  if (tracksByLang.has(normalizedLang)) {
+    console.log(`[lws-nx-prime] '${normalizedLang}' already captured — skip`);
+    primedLangs.add(normalizedLang);
+    return;
+  }
+  const url = pickBestTrackUrl(track);
+  if (!url) {
+    console.log(`[lws-nx-prime] '${normalizedLang}' has no usable URL — skip`);
+    return;
+  }
+  primedLangs.add(normalizedLang);
+  console.log(`[lws-nx-prime] fetching '${normalizedLang}' from ${url.slice(0, 80)}…`);
+  try {
+    window.postMessage({ __lwsNxFetchCaption: true, url, lang: normalizedLang }, '*');
+  } catch (err) {
+    console.warn('[lws-nx-prime] postMessage failed for', normalizedLang, err && err.message);
+  }
+}
+
+// Prefer Korean CC over plain KO — CC tracks tend to have more lines
+// (forced narratives + dialogue + sound annotations), better matching
+// what plays on screen. Returns null if no KO of either variant is
+// in the manifest.
+function pickPrimaryKoTrack(tracks) {
+  const koTracks = tracks.filter((t) => normalizeLang(t.language) === 'ko');
+  if (koTracks.length === 0) return null;
+  const cc = koTracks.find((t) => t.isCC);
+  return cc || koTracks[0];
+}
+
+/**
+ * Find the best track for a user-language preference using a loose
+ * BCP-47 match.
+ *   'en'     → any 'en', 'en-US', 'en-GB' etc.
+ *   'zh-TW'  → 'zh-TW' or 'zh-Hant' only (not 'zh-CN'/'zh-Hans')
+ *   'zh'     → any zh-* variant
+ * Among multiple hits, prefer plain over CC (CC of a SECONDARY lang
+ * is usually too noisy — sound effects in the learner's L1 distract
+ * from the Korean line). For KO that preference flips — see
+ * pickPrimaryKoTrack.
+ */
+function findAvailableTrack(tracks, pref) {
+  if (!pref) return null;
+  const prefLower = String(pref).toLowerCase();
+  const prefBase = prefLower.split('-')[0];
+  const prefRegion = prefLower.includes('-') ? prefLower.split('-').slice(1).join('-') : null;
+  const matches = tracks.filter((t) => {
+    const lang = String(t.language || '').toLowerCase();
+    const langBase = lang.split('-')[0];
+    if (langBase !== prefBase) return false;
+    if (!prefRegion) return true;
+    // Region-pinned preference: same region OR known equivalent
+    // (Hant ↔ TW/HK, Hans ↔ CN). Conservative — if the manifest lang
+    // is bare (e.g. 'zh'), we accept it.
+    if (!lang.includes('-')) return true;
+    if (lang === prefLower) return true;
+    if (prefRegion === 'tw' && /hant|hk/.test(lang)) return true;
+    if (prefRegion === 'hant' && /tw|hk/.test(lang)) return true;
+    if (prefRegion === 'cn' && /hans/.test(lang)) return true;
+    if (prefRegion === 'hans' && /cn/.test(lang)) return true;
+    return false;
+  });
+  if (matches.length === 0) return null;
+  const plain = matches.find((t) => !t.isCC);
+  return plain || matches[0];
+}
+
+/**
+ * Pick the best caption URL from a track's per-format url map.
+ * Preference order (TTML first — the parser handles it natively):
+ *   1. imsc1.1                            (Netflix's modern TTML profile)
+ *   2. simplesdh                          (TTML with simplified SDH)
+ *   3. any key containing ttml or dfxp
+ *   4. any key containing lssdh           (line-styled SDH variant)
+ *   5. first available
+ * Returns null if the track has no urls.
+ */
+function pickBestTrackUrl(track) {
+  if (!track || !track.urlsByFormat) return null;
+  const formats = Object.keys(track.urlsByFormat);
+  if (formats.length === 0) return null;
+  const findKey = (pred) => formats.find(pred);
+  const k = findKey((f) => /^imsc1\.1$/i.test(f))
+    || findKey((f) => /^simplesdh$/i.test(f))
+    || findKey((f) => /(ttml|dfxp)/i.test(f))
+    || findKey((f) => /lssdh/i.test(f))
+    || formats[0];
+  return track.urlsByFormat[k] || null;
 }
 
 /**
