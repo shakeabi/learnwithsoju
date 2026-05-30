@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>learnwithsoju — Notepad</title>
+  <link rel="stylesheet" href="options.css" />
+  <!-- content.css supplies the `.lws-word` underline + cursor on the
+       notepad target below; content.js's mutation observer wraps the
+       pasted text into those spans so the same hover popup machinery
+       works here as on any webpage. -->
+  <link rel="stylesheet" href="content.css" />
+  <style>
+    /* Plain block that holds the committed text. `pre-wrap` so the
+     * paragraph structure from the paste survives — newlines become
+     * real line breaks; runs of spaces are preserved. Generous
+     * padding so the wrapped `.lws-word` spans have room for the
+     * dictionary popup's anchor. min-height keeps the empty state
+     * stable instead of collapsing to a 0-height line. */
+    .notepad-target {
+      white-space: pre-wrap;
+      font-size: 16px;
+      line-height: 1.7;
+      padding: 16px;
+      min-height: 100px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--bg);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Notepad</h1>
+      <p class="subtitle">Paste Korean text and hover any word to look it up.</p>
+    </header>
+    <section class="card">
+      <label class="field">
+        <span class="label">Paste text</span>
+        <textarea id="notepad-input" rows="8" spellcheck="false" placeholder="안녕하세요. 한국어 텍스트를 여기에 붙여넣으세요…"></textarea>
+      </label>
+      <div class="actions">
+        <button type="button" id="notepad-add" class="primary">Add to notepad</button>
+        <button type="button" id="notepad-clear">Clear</button>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Hoverable text</h2>
+      <p class="hint">Korean words below are hoverable — the same dictionary popup you get on any webpage.</p>
+      <div id="notepad-target" class="notepad-target" aria-live="polite"></div>
+    </section>
+  </main>
+  <script src="notepad.js"></script>
+  <!-- content.js runs as a chrome content_script on every webpage; we
+       also load it here so the notepad target can reuse its full
+       hover-popup pipeline (mecab tokenization, KRDict fetch,
+       Shadow-DOM popup with tabs / morpheme breakdown / Hanja / Ask
+       AI). It self-initialises, scans `document.body` for Korean,
+       wraps `.lws-word` spans, and listens for clicks — same as on
+       any other page. -->
+  <script src="content.js"></script>
+</body>
+</html>

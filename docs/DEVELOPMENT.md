@@ -226,6 +226,8 @@ learnwithsoju/
 │   ├── options.html                    ← settings-page markup (API keys, behaviour, cache)
 │   ├── options.js                      ← settings-page logic (load/save, test key, clear cache)
 │   ├── options.css                     ← styling for the settings page
+│   ├── notepad.html                    ← standalone extension page; paste Korean text, hover any word
+│   ├── notepad.js                      ← notepad page logic (commit textarea → display area; content.js's observer wraps the runs)
 │   ├── icons/                          ← 16, 48, 128 px PNGs used by chrome://extensions and the toolbar
 │   └── vendor/
 │       └── mecab-ko/                   ← vendored analyzer artifacts (NOT a npm package — copied from a fork)
@@ -1321,13 +1323,14 @@ icon. Four sections:
   `youtube-popup.js` (secondary-subs dropdown). Adding Netflix / Viki is
   a new SITE_CONFIGS entry + its own `*-popup.js` — no edits to
   `popup.js` or `popup.html`.
-- Lookup entry box — input + form. The popup is too narrow to render
-  the full dictionary popup, and rebuilding it here would duplicate
-  the whole `content.js` pipeline. Instead, submitting opens the
-  options page with `#lookup=<encoded word>` and the popup closes.
-  The options page (§7.13) is the actual lookup host — it embeds
-  `content.js` and drops the word into a `.lws-word`-wrappable div,
-  reusing the in-page popup machinery verbatim.
+- Links row — three small inline-SVG icon links centered at the bottom
+  of the popup. Notepad opens `notepad.html` (§7.x) in a new tab; its
+  `href` is resolved at popup-open time via
+  `chrome.runtime.getURL('notepad.html')` since the extension ID isn't
+  known until runtime. GitHub points at the repo URL (baked into HTML).
+  Discord is a placeholder (`link-icon--disabled`, `pointer-events:
+  none`, `aria-disabled="true"`, "Coming soon" tooltip) until we have
+  an invite URL.
 
 `popup.js` stays a settings/status shell — no Korean-text rendering
 of its own.
@@ -1360,20 +1363,6 @@ The settings page. Linked from the popup ("Open settings →") and from
   Both inputs are `type="password"`. A "Test KRDict key" button hits
   the real API with `q=사람` and surfaces the error code or success.
 - Behaviour: dual-subs toggle, default secondary language dropdown.
-- Word lookup: input + a `<div id="lookup-target">`. Submitting (or
-  arriving with `#lookup=<word>` in the URL) drops the typed word
-  into the target. content.js — loaded by the page via a regular
-  `<script src>` at the bottom of options.html — runs the same
-  initialisation it runs on any webpage; its mutation observer wraps
-  the dropped text as a `.lws-word` span. `options.js` then polls
-  briefly for the wrap and dispatches a `click()` on the span, which
-  triggers the in-page dictionary popup just like a real hover would.
-  The popup mounts as a Shadow DOM on `document.body` and anchors to
-  the wrapped span's bounding rect. The page also links `content.css`
-  so the dashed-underline styling matches what users see on webpages.
-  The toolbar popup's lookup input opens this page with
-  `#lookup=<encoded>`; we also listen for `hashchange` so reusing an
-  already-open settings tab just re-targets the lookup.
 - Advanced (collapsible `<details>`, closed by default): "Ask AI"
   prompt template textarea + "Reset to default" button. Auto-saves
   to `askAiPrompt` (sync) on blur. Saving an empty value or the
@@ -1383,18 +1372,39 @@ The settings page. Linked from the popup ("Open settings →") and from
 - Cache: a "Clear cache" button that sends `{type: 'clearCache'}` to
   the SW.
 
-Embedding `content.js` on an extension page is safe — its chrome.*
-calls and dynamic imports work identically in extension and
-content-script contexts, `findSiteConfig(extensionHost)` returns null
-(no adapter loads), and the extension's own ID never appears in
-`disabledHosts` (the popup's per-site toggle only renders on
-`http(s)` pages). It scans the options page's text on init; most of
-the UI is English so almost nothing gets wrapped beyond what we
-explicitly drop into the lookup target.
+The settings page is plain settings — paste-a-word lookup has moved
+to its own Notepad page (§7.x), so options.html no longer embeds
+`content.js` or `content.css`.
 
 Every settings change is written to `chrome.storage.sync` and
 propagates to all content scripts via the `onChanged` event — no
 direct messaging from the options page.
+
+### 7.13.1 `notepad.html` / `notepad.js`
+
+Standalone extension page reached from the toolbar popup's links row
+(§7.12). Two cards:
+
+- "Paste text" — a `<textarea>` with "Add to notepad" + "Clear"
+  buttons. Autofocused on landing so the user can paste immediately.
+  Ctrl/Cmd+Enter in the textarea is a shortcut for "Add" so the user
+  doesn't have to grab the mouse after every paste.
+- "Hoverable text" — a target `<div>` with `white-space: pre-wrap` so
+  paragraph breaks from the paste survive. Clicking "Add" sets
+  `target.textContent = input.value`; content.js's mutation observer
+  then wraps each Korean run in a `.lws-word` span, and the regular
+  in-page hover popup machinery takes over — same dictionary popup
+  the user gets on any webpage.
+
+The page links `content.css` (for the `.lws-word` underline) and
+loads `content.js` as a plain `<script src>` at the bottom — its
+chrome.* calls and dynamic imports work identically in extension and
+content-script contexts. `findSiteConfig(extensionHost)` returns null
+so no site adapter loads.
+
+No persistence — the paste is ephemeral, and a page refresh resets
+everything. (We may add a "saved snippets" feature later, but the MVP
+is deliberately stateless: one paste → hover → done.)
 
 ### 7.14 `popup-shadow.css`
 
@@ -2663,7 +2673,7 @@ workaround.
 | Add a new POS-to-English mapping            | `parsers.js` `KOREAN_POS_TO_ENGLISH` + test                                                 |
 | Add a morpheme gloss for a new particle     | `grammar-glosses.js` `FORM_GLOSSES` + test                                                  |
 | Fix a wrong lemma for a specific surface    | `lemmatizer.js` candidate ordering + test                                                   |
-| Debug a "wrong lemma" hover result          | Type the word into the popup's "Look up a word" box → lands on the settings page's Word lookup section with the full in-page popup open on the wrapped word. The popup's morpheme breakdown shows mecab's tokenization; for the lemma chain itself (candidates / queriesUsed), inspect the page DevTools to see the `lookup` response from background. |
+| Debug a "wrong lemma" hover result          | Open Notepad from the popup's links row, paste the word, hover it. The popup's morpheme breakdown shows the mecab tokens that drove the lemma; for the lemma chain itself (candidates / queriesUsed), inspect the page DevTools to see the `lookup` response from background. |
 | Add a new site-specific sentence selector   | `site-configs.js` entry (see §14.1)                                                         |
 | Auto-pause a page's video on popup open     | `findVideo` in the `site-configs.js` entry (see §14.2)                                      |
 | Fix hovers being eaten by a player control overlay | `stylesheet` field on the `site-configs.js` entry — z-index promo for the caption layer (see §14.2 "Per-site visual fixes") |

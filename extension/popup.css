@@ -172,36 +172,37 @@ header .brand {
   color: var(--muted);
 }
 
-.lookup-section {
+.links-row {
   margin-top: 14px;
   border-top: 1px solid var(--border);
   padding-top: 12px;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
 }
 
-.lookup-input {
-  width: 100%;
-  font: inherit;
-  font-size: 14px;
-  padding: 6px 8px;
-  border-radius: 5px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--fg);
-  outline: none;
-}
-
-.lookup-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(125, 140, 255, 0.18);
-}
-
-.lookup-hint {
-  margin: 0;
-  font-size: 11px;
+.link-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
   color: var(--muted);
+  text-decoration: none;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.link-icon:hover {
+  color: var(--fg);
+  background: rgba(120, 140, 200, 0.12);
+}
+
+.link-icon--disabled {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: default;
 }
 
 .actions {

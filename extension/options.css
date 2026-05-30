@@ -158,47 +158,6 @@ header h1 {
   box-shadow: 0 0 0 3px rgba(125, 140, 255, 0.18);
 }
 
-.lookup-form {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.lookup-input {
-  flex: 1 1 auto;
-  padding: 9px 11px;
-  font: inherit;
-  font-size: 14px;
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  outline: none;
-}
-
-.lookup-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(125, 140, 255, 0.18);
-}
-
-.lookup-target {
-  /* Generous padding so the wrapped `.lws-word` span has room to
-   * breathe — the in-page popup anchors to its bounding rect, so a
-   * cramped target makes the popup hug the page edge. The minimum
-   * height keeps the section's footprint stable between empty and
-   * populated states. */
-  font-size: 20px;
-  padding: 18px 14px;
-  border: 1px dashed var(--border);
-  border-radius: 7px;
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(125, 140, 255, 0.04);
-}
-
 .advanced {
   /* `details.card` — keep card chrome but reset the disclosure widget
    * so the summary feels like a section header instead of a list item. */

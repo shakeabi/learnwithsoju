@@ -145,32 +145,16 @@ openOptionsBtn.addEventListener('click', () => {
   window.close();
 });
 
-// Lookup box. The popup is too small to render the full dictionary
-// popup (and re-implementing that renderer here would duplicate
-// content.js's whole pipeline), so when the user submits a word we
-// open the settings page with `#lookup=<word>` and let the in-page
-// hover machinery run there. The settings page hosts a tiny div that
-// content.js wraps as a `.lws-word`; clicking the word triggers the
-// same dictionary popup the user sees on any webpage.
-const lookupForm = document.getElementById('lookup-form');
-const lookupInput = document.getElementById('lookup-input');
-
-if (lookupForm) {
-  lookupForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const word = lookupInput.value.trim();
-    if (!word) return;
-    const url = chrome.runtime.getURL('options.html') + '#lookup=' + encodeURIComponent(word);
-    try {
-      await chrome.tabs.create({ url });
-    } catch (err) {
-      console.warn('[lws] popup: failed to open settings tab for lookup', err);
-      return;
-    }
-    window.close();
-  });
-}
-
 load();
 loadSiteSection();
 loadAdapterSection();
+
+// The notepad link can't bake the extension ID into HTML, so resolve
+// at popup-open time. GitHub link is static (in HTML). Discord is
+// intentionally disabled until we have an invite URL.
+const notepadLink = document.getElementById('notepad-link');
+if (notepadLink) {
+  notepadLink.href = chrome.runtime.getURL('notepad.html');
+  notepadLink.target = '_blank';
+  notepadLink.rel = 'noopener noreferrer';
+}
