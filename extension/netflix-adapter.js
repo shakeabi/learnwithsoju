@@ -33,14 +33,6 @@ const DEFAULT_SECONDARY_KEY = 'secondaryLang';
 const OVERLAY_CLASS = 'lws-nxsubs-overlay';
 const NX_HIDE_STYLE_ID = 'lws-hide-nx-captions';
 
-// Diagnostic mode — when true, run probeNetflixGlobals() once per
-// activate() to dump window.netflix shape + candidate player-API
-// surface. Flip to false (or delete the gated block in activate() +
-// runDiagnosticProbeOnce + probeNetflixGlobals + shapeWalk + summarize)
-// in the same commit that implements the chosen auto-prime approach.
-// See docs/superpowers/specs/2026-05-30-netflix-dual-subs-auto-prime-diagnostic-design.md
-const LWS_NX_DIAG = true;
-
 let teardownFn = null;
 let hookInjected = false;
 // Bumped on every activate() and deactivate(). activate() rechecks
@@ -143,9 +135,6 @@ async function activate() {
     }
     log('activating for', window.location.href);
     tracksByLang = new Map();
-    if (LWS_NX_DIAG) {
-      void runDiagnosticProbeOnce(myGen);
-    }
 
     // Install a teardown that tears down any mounted overlay; the
     // overlay itself gets mounted (later) inside onCaptureBody once
@@ -574,142 +563,6 @@ async function resolveSecondaryLang() {
     return d[DEFAULT_SECONDARY_KEY] || 'en';
   } catch {
     return 'en';
-  }
-}
-
-// ---------------------------------------------------------------------
-// Diagnostic probe (LWS_NX_DIAG)
-// ---------------------------------------------------------------------
-
-async function runDiagnosticProbeOnce(myGen) {
-  // Wait for the <video> element so window.netflix.* is populated
-  // (Netflix lazy-loads the player). 5s timeout matches what
-  // rebuildOverlay uses; the probe is a no-op if no video appears.
-  const video = await waitForVideoElement(5000);
-  // Generation-token gate: if the user navigated to another title
-  // while we were waiting, the new activate() bumped activeGeneration
-  // and our probe data would be for the previous title — skip.
-  if (myGen !== activeGeneration) return;
-  if (!video) {
-    log('[lws-nx-diag] probe skipped: no <video> within 5s');
-    return;
-  }
-  probeNetflixGlobals();
-}
-
-// Recursive walk of an object's key tree. Logs the path + value typeof
-// (no values printed beyond primitives). Depth-limited and cycle-aware.
-function shapeWalk(obj, path, depth, maxDepth, visited) {
-  if (depth > maxDepth || obj == null) return;
-  if (typeof obj !== 'object') return;
-  if (visited.has(obj)) {
-    console.log(`[lws-nx-diag] shape ${path}: <cycle>`);
-    return;
-  }
-  visited.add(obj);
-  let keys;
-  try { keys = Object.keys(obj); }
-  catch (err) { console.log(`[lws-nx-diag] shape ${path}: <enum error: ${err.message}>`); return; }
-  for (const k of keys) {
-    let v;
-    try { v = obj[k]; }
-    catch (err) { console.log(`[lws-nx-diag] shape ${path}.${k}: <access error: ${err.message}>`); continue; }
-    const childPath = path ? `${path}.${k}` : k;
-    const t = typeof v;
-    if (v == null || t !== 'object') {
-      console.log(`[lws-nx-diag] shape ${childPath}: ${v == null ? String(v) : t}`);
-    } else if (Array.isArray(v)) {
-      console.log(`[lws-nx-diag] shape ${childPath}: array length=${v.length}`);
-    } else {
-      console.log(`[lws-nx-diag] shape ${childPath}: object`);
-      shapeWalk(v, childPath, depth + 1, maxDepth, visited);
-    }
-  }
-}
-
-// Single-line summary of an arbitrary probe return value for the log.
-function summarizeProbeResult(v) {
-  if (v == null) return String(v);
-  if (typeof v !== 'object') return typeof v;
-  if (Array.isArray(v)) {
-    const sample = v.slice(0, 5).map((x) => {
-      if (typeof x !== 'object' || x == null) return String(x);
-      // Try a few common identity fields without enumerating large objects.
-      return x.id || x.sessionId || x.languageCode || '<obj>';
-    });
-    return `array length=${v.length} sample=[${sample.join(', ')}]`;
-  }
-  let keys;
-  try { keys = Object.keys(v).slice(0, 20); }
-  catch { return 'object <enum error>'; }
-  return `object keys=[${keys.join(', ')}]`;
-}
-
-// Run an individual probe. Logs the result-summary or the error.
-// Returns the value (or undefined on error) for downstream chaining.
-function probeCall(path, fn) {
-  try {
-    const v = fn();
-    console.log(`[lws-nx-diag] probe ${path}: ${summarizeProbeResult(v)}`);
-    return v;
-  } catch (err) {
-    console.log(`[lws-nx-diag] probe ${path}: ERROR ${err && err.message || err}`);
-    return undefined;
-  }
-}
-
-function probeNetflixGlobals() {
-  const nx = window.netflix;
-  if (!nx) {
-    console.log('[lws-nx-diag] probe window.netflix: undefined');
-    return;
-  }
-  console.log('[lws-nx-diag] window.netflix shape:');
-  // Depth 4 covers netflix → appContext → state → playerApp without
-  // exploding into per-session player internals (those get probed
-  // explicitly below).
-  shapeWalk(nx, 'netflix', 0, 4, new WeakSet());
-
-  const getAPIResult = probeCall(
-    'netflix.appContext.state.playerApp.getAPI()',
-    () => nx.appContext.state.playerApp.getAPI(),
-  );
-  if (!getAPIResult || typeof getAPIResult !== 'object') return;
-
-  const videoPlayer = getAPIResult.videoPlayer;
-  if (!videoPlayer) {
-    console.log('[lws-nx-diag] probe getAPI().videoPlayer: missing');
-    return;
-  }
-
-  const sessionIds = probeCall(
-    'getAPI().videoPlayer.getAllPlayerSessionIds()',
-    () => videoPlayer.getAllPlayerSessionIds(),
-  );
-  if (!Array.isArray(sessionIds)) return;
-
-  for (const id of sessionIds) {
-    const player = probeCall(
-      `getAPI().videoPlayer.getVideoPlayerBySessionId(${id})`,
-      () => videoPlayer.getVideoPlayerBySessionId(id),
-    );
-    if (!player || typeof player !== 'object') continue;
-
-    probeCall(`player(${id}).getTextTrackList()`, () => player.getTextTrackList());
-    probeCall(`player(${id}).getCurrentTextTrack()`, () => player.getCurrentTextTrack());
-
-    // Discover any text-track-related methods exposed on the player's
-    // prototype. Surfaces unknown method names (e.g. setTextTrack,
-    // selectTextTrack, getAvailableTextTracks) without us having to
-    // guess them all up-front.
-    try {
-      const proto = Object.getPrototypeOf(player);
-      const names = Object.getOwnPropertyNames(proto)
-        .filter((n) => /TextTrack/i.test(n) || /Subtitle/i.test(n));
-      console.log(`[lws-nx-diag] probe player(${id}) prototype text-track / subtitle method names: [${names.join(', ')}]`);
-    } catch (err) {
-      console.log(`[lws-nx-diag] probe player(${id}) prototype enum: ERROR ${err && err.message || err}`);
-    }
   }
 }
 

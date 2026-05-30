@@ -31,40 +31,6 @@
   if (window.__lwsNxHookInstalled) return;
   window.__lwsNxHookInstalled = true;
 
-  // Diagnostic mode — when true, also log every non-media XHR/fetch.
-  // Flip to false (or delete this block and all `if (LWS_NX_DIAG)`
-  // sites below) in the same commit that implements the chosen
-  // auto-prime approach. See
-  // docs/superpowers/specs/2026-05-30-netflix-dual-subs-auto-prime-diagnostic-design.md
-  const LWS_NX_DIAG = true;
-
-  // Skip filter for video/audio/image noise. Returns true if the
-  // request should NOT be diagnostically logged (still goes through
-  // the caption-capture path unchanged).
-  function isMediaSkip(url, ct) {
-    if (typeof url === 'string' && /(\.ts|\.m4s|\.mp4|init\.mp4)(\?|#|$)/i.test(url)) return true;
-    if (typeof ct === 'string' && /^(video|audio|image)\//i.test(ct)) return true;
-    return false;
-  }
-
-  // Escape a string for inclusion in a single-line console log.
-  // JSON.stringify handles control chars + quotes; we use it directly
-  // (the surrounding quotes ARE part of the log format).
-  function escapeForLog(s) {
-    if (typeof s !== 'string') return String(s);
-    return JSON.stringify(s.length > 200 ? s.slice(0, 200) : s);
-  }
-
-  // Emit one diagnostic log line per non-media request. `bodyHead`
-  // is either a string (text body, sent through escapeForLog) OR
-  // one of the sentinel markers '<binary>' / '<unreadable>'.
-  function diagLogFetch(transport, method, url, status, ct, bodyHead) {
-    const ctStr = ct || 'no-ct';
-    const isSentinel = bodyHead === '<binary>' || bodyHead === '<unreadable>';
-    const bodyStr = isSentinel ? `body=${bodyHead}` : `body=${escapeForLog(bodyHead)}`;
-    console.log(`[lws-nx-diag] ${transport} ${method} ${url} → ${status} (${ctStr}) ${bodyStr}`);
-  }
-
   function looksLikeCaptionUrl(url) {
     if (typeof url !== 'string') return false;
     return /\.(ttml|dfxp|vtt|xml)(\?|#|$)/i.test(url);
@@ -100,30 +66,12 @@
     this.addEventListener('load', () => {
       try {
         const status = this.status;
-        const ct = (() => {
-          try { return this.getResponseHeader('content-type') || ''; }
-          catch { return ''; }
-        })();
+        // Only attempt body sniff on response types we can read as
+        // text. JSON, XML, plain — all fine. Skip arraybuffer / blob.
         const rtype = this.responseType;
-        const isTextish = !rtype || rtype === 'text';
-
-        // Existing caption-capture path — body-sniff if the URL didn't
-        // already match (covers caption fetches with opaque URLs).
-        if (isTextish) {
-          const body = this.responseText || '';
-          if (urlMatch || looksLikeCaptionBody(body)) post(url, status, body);
-        }
-
-        // Diagnostic path — log every non-media request. Reads body
-        // only if responseType allows it; otherwise marks binary.
-        if (LWS_NX_DIAG && !isMediaSkip(url, ct)) {
-          if (isTextish) {
-            const body = this.responseText || '';
-            diagLogFetch('xhr', method, url, status, ct, body);
-          } else {
-            diagLogFetch('xhr', method, url, status, ct, '<binary>');
-          }
-        }
+        if (rtype && rtype !== 'text' && rtype !== '') return;
+        const body = this.responseText || '';
+        if (urlMatch || looksLikeCaptionBody(body)) post(url, status, body);
       } catch {}
     });
     return _open.call(this, method, url, ...rest);
@@ -134,45 +82,23 @@
   const _fetch = window.fetch;
   window.fetch = function(input, init) {
     const u = typeof input === 'string' ? input : (input && input.url) || '';
-    const method = (init && init.method) || (input && input.method) || 'GET';
     const urlMatch = looksLikeCaptionUrl(u);
     return _fetch.call(this, input, init).then((r) => {
       try {
+        // Cheap pre-screen by content-type so we don't read every
+        // binary response into a string. text/*, application/xml,
+        // application/dfxp+xml, application/ttml+xml, application/octet
+        // (sometimes used for subtitle bodies) all qualify.
         const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
         const ctTextish = !ct || /^(text|application\/(xml|json|dfxp|ttml|x-subrip|octet))/i.test(ct);
-        const skipMedia = isMediaSkip(u, ct);
-
-        // Read body if either (a) caption-capture might need to body-sniff
-        // (urlMatch || ctTextish) — exactly the original gate, preserved
-        // verbatim — or (b) the diagnostic will log the body head (also
-        // requires ctTextish; non-text gets the '<binary>' sentinel above
-        // without a body read). The two conditions collapse to the same
-        // expression because the diagnostic's body read is a strict
-        // subset of capture's.
-        const needBody = urlMatch || ctTextish;
-
-        if (LWS_NX_DIAG && !skipMedia && !ctTextish) {
-          // Non-text response, log without body read.
-          diagLogFetch('fetch', method, u, r.status, ct, '<binary>');
-        }
-
-        if (!needBody) return r;
+        if (!urlMatch && !ctTextish) return r;
 
         const clone = r.clone();
         clone.text().then((body) => {
           try {
-            // Caption capture (unchanged semantics).
             if (urlMatch || looksLikeCaptionBody(body)) post(u, r.status, body);
-            // Diagnostic log (gated, additive).
-            if (LWS_NX_DIAG && !skipMedia) {
-              diagLogFetch('fetch', method, u, r.status, ct, body);
-            }
           } catch {}
-        }, () => {
-          if (LWS_NX_DIAG && !skipMedia) {
-            diagLogFetch('fetch', method, u, r.status, ct, '<unreadable>');
-          }
-        });
+        }, () => {});
       } catch {}
       return r;
     });
