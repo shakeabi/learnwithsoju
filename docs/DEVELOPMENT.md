@@ -705,22 +705,25 @@ via `parsers.parseKrdictXml` / `parseOpendictXml`, and renders the
 result as a tab strip + tab body.
 
 1. Each tab is one headword. The tab strip is rendered by `buildTabBar`;
-  multi-section tabs get a "·N" badge so the user can tell at a glance
+   multi-section tabs get a count badge so the user can tell at a glance
    which tabs hold more than one entry.
-2. The active tab's body (`buildTabBodyNode`) stacks N section nodes —
-  one per dictionary entry that fell into this tab. Section 0 is
-   expanded; the rest collapse to a header row whose pill set (POS,
-   pronunciation, Hanja-origin) is fully duplicated so a collapsed
-   section header is self-describing.
-3. Clicking a collapsed section header toggles `expandedSections.has(key)`
-  for `key = "${tabIdx}:${sectionIdx}"` and rerenders.
-4. Clicking a tab calls `onTabClick(idx)` → `rerenderActivePopup()` with
-  `reposition: false` (so the user's click on the next tab in the strip
-   doesn't get eaten by the popup moving away mid-click).
-5. The `payload.unrelated` bucket renders below the tabs as a single
-  collapsible "▸ Show related (N)" panel. Open with `relatedExpanded`.
-   Inside, each group renders with the same per-section layout as a tab
-   body — duplicated pills, first section expanded, rest collapsible.
+2. Active-tab state is `activeTab = { source: 'primary' | 'related', index }`.
+   Only one tab across both rows is active at a time.
+3. The active tab's body (`buildTabBodyNode(group, tabId)`) stacks N
+   section nodes — one per dictionary entry that fell into this tab.
+   Section 0 is open by default. Only one section can be expanded at a
+   time per tab; the open index is tracked in `expandedSectionByTab` (a
+   Map from tab-id string to section index, -1 = none open). Clicking
+   the open section closes it; clicking another switches to it.
+4. Clicking a primary tab calls `onPrimaryTabClick(idx)` →
+   `rerenderActivePopup()` with `reposition: false`.
+5. The `payload.unrelated` bucket uses a two-stage reveal. The +N related
+   pill in the primary strip toggles `relatedExpanded`. When expanded, a
+   second row of pill buttons (`buildRelatedTabRow`) appears below the
+   primary strip — one pill per unrelated word. Clicking a related pill
+   sets `activeTab = { source: 'related', index }` and renders that
+   group's content via `buildTabBodyNode`. Collapsing the row while a
+   related tab is active reverts `activeTab` to primary tab 0.
 
 ### 6.7 Hanja meanings: click-to-expand per-character panel
 
@@ -954,10 +957,11 @@ All `let` bindings inside the top-level async IIFE:
 | `lastPayload`                                                                      | Last `LookupResponse` for re-rendering after toggles                  |
 | `lastSentence`                                                                     | The `{before, word, after}` used for the current popup                |
 | `activeInsightTab`                                                                 | `'breakdown' | null` — which insights panel is open                   |
-| `activeTabIdx`                                                                     | Active KRDict-entry tab (homograph switching)                         |
-| `relatedExpanded`                                                                  | Whether the "+N related" pill has been clicked                        |
+| `activeTab`                                                                        | `{ source: 'primary'\|'related', index }` — which tab is highlighted  |
+| `relatedExpanded`                                                                  | Whether the "+N related" pill has been clicked (shows related row)    |
 | `popupMinHeight`, `popupMinWidth`                                                  | Monotonic non-decreasing — popup never shrinks during a session       |
 | `expandedExamples`                                                                 | Set of `senseId` keys whose examples are open                         |
+| `expandedSectionByTab`                                                             | Map of tab-id → open section index (-1 = none); exclusive per tab     |
 | `expandedHanja`                                                                    | Set of Hanja-character strings whose meanings panels are open         |
 | `hideTimer`, `hoverTimer`                                                          | Timeout handles for the 120 ms hide / 60 ms hover delay               |
 | `pendingRequestId`                                                                 | Monotonic counter; lookup responses past this are discarded           |
@@ -1065,11 +1069,14 @@ the popup).
    expand) reuse the parsed arrays without re-walking the XML.
 2. Render the strip (lemma chip + EN/KR toggle), the sentence band,
   the insights node (morpheme breakdown tab).
-3. Render the tab bar (`buildTabBar`) when `tabs.length > 1`, then
-  `buildTabBodyNode(tabs[activeTabIdx], activeTabIdx)` for the active
-   tab.
-4. Render the unrelated bucket (`buildUnrelatedNode`) when
-  `unrelated.length > 0`. Collapsed by default; click to expand.
+3. Render the tab bar (`buildTabBar`) when `tabs.length > 1`. When
+   `relatedExpanded`, also render `buildRelatedTabRow(unrelated)` as a
+   second row of pill tabs below the primary strip. Render
+   `buildTabBodyNode(group, tabId)` for whichever group `activeTab`
+   points at — primary or related.
+4. Unrelated entries are hidden by default behind the "+N related" pill;
+   clicking it reveals the related tab row (stage 1). Clicking a related
+   pill switches the active tab to that word (stage 2).
 5. If there are no tabs and no unrelated entries, render the empty
   state (`No definition found for …`).
 
@@ -2009,8 +2016,9 @@ After grouping:
 - **Unrelated 살-** ← left over from query 살.
 
 Net rendering: 3 visible tabs + 1 unrelated entry. Tab `살` opens with
-section 0 expanded; sections 1 and 2 collapse to header rows whose POS
-chips are visible without clicking.
+section 0 expanded; sections 1 and 2 are collapsed. Only one section
+can be expanded at a time — clicking a collapsed section header switches
+to it; clicking the open one closes it.
 
 ### 9.4 OpenDict integration
 
@@ -2024,13 +2032,19 @@ source-agnostic — each section just carries its `source` so the OD
 
 ### 9.5 The unrelated bucket
 
-`unrelated[]` always renders below the active tab inside a single
-collapsible panel — `▸ Show related (N)`. KRDict's broad-match list is
-often noisy (compound nouns containing the queried word, derived forms,
-etc.) and we don't want to push the primary tabs offscreen by default.
-Expanding the panel shows each unrelated group with the same per-section
-layout as a tab body — pill set duplicated per section, first expanded,
-rest collapsible.
+`unrelated[]` is hidden by default behind the `+N related ▾` pill in
+the primary tab strip. KRDict's broad-match list is often noisy (compound
+nouns containing the queried word, derived forms, etc.) and we don't want
+to push the primary tabs offscreen by default.
+
+The reveal is two-stage. Clicking the pill toggles `relatedExpanded` and
+renders a second row of pill buttons (`buildRelatedTabRow`) directly below
+the primary strip — one pill per unrelated word, arrow flips to ▴.
+Clicking a related pill makes it the active tab (`activeTab.source ===
+'related'`) and its content fills the main body via `buildTabBodyNode`,
+the same path as primary tabs. Clicking the pill again collapses the row;
+if a related tab is active at that point, `activeTab` reverts to primary
+tab 0.
 
 ---
 

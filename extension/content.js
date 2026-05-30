@@ -177,12 +177,15 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   let lastSentence = null;
   // Which "insights" panel is open. Null means it's collapsed.
   let activeInsightTab = null;
-  let activeTabIdx = 0;
+  // Active tab identifier: { source: 'primary' | 'related', index: N }.
+  // Both rows share one active state — only one tab is highlighted at a time.
+  let activeTab = { source: 'primary', index: 0 };
   let relatedExpanded = false;
-  // Per-tab, per-section collapse state. Keys are `${tabIdx}:${sectionIdx}`.
-  // Section 0 of each tab is implicitly expanded (we don't seed it; the
-  // renderer treats absence-from-set differently for sectionIdx === 0).
-  let expandedSections = new Set();
+  // Per-tab section expand state. Key: tab id string (e.g. "p0" for primary tab 0,
+  // "r1" for related tab 1). Value: the currently-expanded section index, or -1
+  // meaning no section is expanded. Section 0 is expanded by default on first
+  // visit (absence from map = section 0 open).
+  let expandedSectionByTab = new Map();
   let popupMinHeight = 0;
   let popupMinWidth = 0;
   let expandedExamples = new Set();
@@ -971,15 +974,23 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       return root;
     }
 
-    if (activeTabIdx >= tabs.length) activeTabIdx = 0;
+    if (activeTab.source === 'primary' && activeTab.index >= tabs.length) {
+      activeTab = { source: 'primary', index: 0 };
+    }
+    if (activeTab.source === 'related' && activeTab.index >= unrelated.length) {
+      activeTab = { source: 'primary', index: 0 };
+    }
     if (tabs.length > 1 || (tabs.length === 1 && unrelated.length > 0)) {
       root.appendChild(buildTabBar(tabs, unrelated));
     }
-    if (unrelated.length > 0) {
-      root.appendChild(buildRelatedPanel(unrelated));
+    if (unrelated.length > 0 && relatedExpanded) {
+      root.appendChild(buildRelatedTabRow(unrelated));
     }
-    if (tabs.length > 0) {
-      root.appendChild(buildTabBodyNode(tabs[activeTabIdx], activeTabIdx));
+    if (activeTab.source === 'related') {
+      const group = unrelated[activeTab.index];
+      if (group) root.appendChild(buildTabBodyNode(group, `r${activeTab.index}`));
+    } else if (tabs.length > 0) {
+      root.appendChild(buildTabBodyNode(tabs[activeTab.index], `p${activeTab.index}`));
     }
 
     return root;
@@ -990,9 +1001,10 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     bar.className = 'lws-tabs';
     bar.setAttribute('role', 'tablist');
     tabs.forEach((tab, i) => {
+      const isActive = activeTab.source === 'primary' && activeTab.index === i;
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'lws-tab' + (i === activeTabIdx ? ' lws-tab-active' : '');
+      btn.className = 'lws-tab' + (isActive ? ' lws-tab-active' : '');
       const wordSpan = document.createElement('span');
       wordSpan.textContent = tab.word || '·';
       btn.appendChild(wordSpan);
@@ -1011,9 +1023,9 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
         ? `${tab.word} — ${fullPos}${suffix}`.trim()
         : `${tab.word}${suffix}`;
       btn.setAttribute('role', 'tab');
-      btn.setAttribute('aria-selected', i === activeTabIdx ? 'true' : 'false');
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
       btn.dataset.idx = String(i);
-      btn.addEventListener('click', () => onTabClick(i));
+      btn.addEventListener('click', () => onPrimaryTabClick(i));
       bar.appendChild(btn);
     });
     if (unrelated.length > 0) {
@@ -1025,6 +1037,9 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       pill.textContent = relatedExpanded ? `+${total} related ▴` : `+${total} related ▾`;
       pill.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (relatedExpanded && activeTab.source === 'related') {
+          activeTab = { source: 'primary', index: 0 };
+        }
         relatedExpanded = !relatedExpanded;
         rerenderActivePopup();
       });
@@ -1033,30 +1048,31 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     return bar;
   }
 
-  function onTabClick(idx) {
-    if (activeTabIdx === idx) return;
-    activeTabIdx = idx;
+  function onPrimaryTabClick(idx) {
+    if (activeTab.source === 'primary' && activeTab.index === idx) return;
+    activeTab = { source: 'primary', index: idx };
     rerenderActivePopup();
   }
 
   // A tab body stacks every section (= one dictionary entry) for that word.
-  // The first section is implicitly expanded; the rest collapse to a header
-  // row showing the same pill set so the user can scan POS labels without
-  // expanding everything.
-  function buildTabBodyNode(group, tabIdx) {
+  // Only one section is expanded at a time; section 0 is open by default on
+  // first visit (absence from map = section 0 open). Clicking another section
+  // switches; clicking the already-open section closes it (no section expanded).
+  function buildTabBodyNode(group, tabId) {
     const body = document.createElement('div');
     body.className = 'lws-tab-body';
+    const openIdx = expandedSectionByTab.has(tabId)
+      ? expandedSectionByTab.get(tabId)
+      : 0;
     group.entries.forEach(({ entry, source }, sIdx) => {
-      const key = `${tabIdx}:${sIdx}`;
-      const isOpen = sIdx === 0 || expandedSections.has(key);
+      const isOpen = sIdx === openIdx;
       body.appendChild(buildSectionNode({
         entry,
         source,
-        tabIdx,
+        tabId,
         sectionIdx: sIdx,
         isOpen,
-        isFirst: sIdx === 0,
-        senseKeyPrefix: `${source}:${tabIdx}:${sIdx}`,
+        senseKeyPrefix: `${source}:${tabId}:${sIdx}`,
       }));
     });
     return body;
@@ -1066,12 +1082,12 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   // always visible. Body holds the senses + hanja meanings panel — visible
   // only when expanded. The pill set is duplicated for each section so a
   // collapsed section header is fully self-describing.
-  function buildSectionNode({ entry, source, tabIdx, sectionIdx, isOpen, isFirst, senseKeyPrefix }) {
+  function buildSectionNode({ entry, source, tabId, sectionIdx, isOpen, senseKeyPrefix }) {
     const section = document.createElement('div');
     section.className = 'lws-entry lws-section'
       + (isOpen ? ' lws-section-open' : ' lws-section-closed')
       + (source === 'od' ? ' lws-od-entry' : '');
-    section.appendChild(buildSectionHeader({ entry, isOpen, isFirst, tabIdx, sectionIdx }));
+    section.appendChild(buildSectionHeader({ entry, isOpen, tabId, sectionIdx }));
     if (isOpen) {
       if (entry.origin) {
         const meanings = buildHanjaMeaningsNode(entry.origin);
@@ -1094,25 +1110,26 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     return section;
   }
 
-  function buildSectionHeader({ entry, isOpen, isFirst, tabIdx, sectionIdx }) {
-    // The header is a button when the section is collapsible (i.e. not the
-    // first one). The first section's header is a plain div — collapsing
-    // and expanding section 0 would just hide the only section by default,
-    // confusing.
-    const tag = isFirst ? 'div' : 'button';
-    const header = document.createElement(tag);
+  function buildSectionHeader({ entry, isOpen, tabId, sectionIdx }) {
+    // All section headers are buttons now — any section can be toggled.
+    // Clicking the currently-open section closes it (no section expanded);
+    // clicking a different section switches to it. Only one open at a time.
+    const header = document.createElement('button');
+    header.type = 'button';
     header.className = 'lws-section-header';
-    if (!isFirst) {
-      header.type = 'button';
-      header.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-      header.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const key = `${tabIdx}:${sectionIdx}`;
-        if (expandedSections.has(key)) expandedSections.delete(key);
-        else expandedSections.add(key);
-        rerenderActivePopup();
-      });
-    }
+    header.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    header.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const currentOpen = expandedSectionByTab.has(tabId)
+        ? expandedSectionByTab.get(tabId)
+        : 0;
+      if (currentOpen === sectionIdx) {
+        expandedSectionByTab.set(tabId, -1);
+      } else {
+        expandedSectionByTab.set(tabId, sectionIdx);
+      }
+      rerenderActivePopup();
+    });
 
     const headline = document.createElement('div');
     headline.className = 'lws-headline';
@@ -1132,13 +1149,11 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       }
       headline.appendChild(s);
     }
-    if (!isFirst) {
-      const ind = document.createElement('span');
-      ind.className = 'lws-section-indicator';
-      ind.setAttribute('aria-hidden', 'true');
-      ind.textContent = isOpen ? '−' : '+';
-      headline.appendChild(ind);
-    }
+    const ind = document.createElement('span');
+    ind.className = 'lws-section-indicator';
+    ind.setAttribute('aria-hidden', 'true');
+    ind.textContent = isOpen ? '−' : '+';
+    headline.appendChild(ind);
     header.appendChild(headline);
 
     const meta = document.createElement('div');
@@ -1154,31 +1169,41 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     return header;
   }
 
-  // Related panel: sits between the tab strip and the main tab body.
-  // Toggled by the +N pill in the tab strip; only rendered when expanded.
-  // Collapsed = zero-height (display:none via CSS); expanded = shows the
-  // same per-section layout as a tab body for every unrelated group.
-  function buildRelatedPanel(unrelated) {
-    const panel = document.createElement('div');
-    panel.className = 'lws-related-panel' + (relatedExpanded ? ' lws-related-panel-open' : '');
-    if (!relatedExpanded) return panel;
-    unrelated.forEach((group, gIdx) => {
-      const tabIdx = `u${gIdx}`;
-      group.entries.forEach(({ entry, source }, sIdx) => {
-        const key = `${tabIdx}:${sIdx}`;
-        const isOpen = sIdx === 0 || expandedSections.has(key);
-        panel.appendChild(buildSectionNode({
-          entry,
-          source,
-          tabIdx,
-          sectionIdx: sIdx,
-          isOpen,
-          isFirst: sIdx === 0,
-          senseKeyPrefix: `${source}:u${gIdx}:${sIdx}`,
-        }));
-      });
+  // Related tab row: a second row of pill buttons below the primary tab strip.
+  // Only rendered when the +N pill has been clicked (relatedExpanded === true).
+  // Clicking a related pill makes it the active tab, showing its content in the
+  // main body — same rendering path as a primary tab.
+  function buildRelatedTabRow(unrelated) {
+    const row = document.createElement('div');
+    row.className = 'lws-related-tab-row';
+    unrelated.forEach((group, i) => {
+      const isActive = activeTab.source === 'related' && activeTab.index === i;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lws-tab lws-tab-related' + (isActive ? ' lws-tab-active' : '');
+      const wordSpan = document.createElement('span');
+      wordSpan.textContent = group.word || '·';
+      btn.appendChild(wordSpan);
+      if (group.entries.length > 1) {
+        const badge = document.createElement('span');
+        badge.className = 'lws-tab-count';
+        badge.textContent = String(group.entries.length);
+        badge.setAttribute('aria-hidden', 'true');
+        btn.appendChild(badge);
+      }
+      btn.setAttribute('role', 'tab');
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      btn.title = group.word || '';
+      btn.addEventListener('click', () => onRelatedTabClick(i));
+      row.appendChild(btn);
     });
-    return panel;
+    return row;
+  }
+
+  function onRelatedTabClick(idx) {
+    if (activeTab.source === 'related' && activeTab.index === idx) return;
+    activeTab = { source: 'related', index: idx };
+    rerenderActivePopup();
   }
 
   function buildStripNode({ showLemmaChip, lemma }) {
@@ -1578,7 +1603,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     popupMinWidth = 0;
     expandedExamples = new Set();
     expandedHanja = new Set();
-    expandedSections = new Set();
+    expandedSectionByTab = new Map();
     relatedExpanded = false;
     activeInsightTab = null;
     if (popupEl) {
@@ -1630,7 +1655,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       return;
     }
     lastPayload = response;
-    activeTabIdx = 0;
+    activeTab = { source: 'primary', index: 0 };
     const sentence = opts.sentence !== undefined
       ? opts.sentence
       : extractSentence(anchor);

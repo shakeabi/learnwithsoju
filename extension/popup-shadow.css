@@ -528,7 +528,20 @@ a.lws-hanja-row-char:hover {
 .lws-tab[aria-selected="true"] .lws-tab-count,
 .lws-tab.lws-tab-active .lws-tab-count {
   background: var(--chip-amber-fg);
-  color: var(--chip-amber-bg);
+  color: #000;
+}
+
+/* Related tab row — second row of pill buttons below the primary tab strip.
+   Shown when the +N pill is expanded; each pill is a related-word tab.
+   Lighter background distinguishes it from the primary strip at a glance. */
+.lws-related-tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--soft);
 }
 
 /* +N related pill — lives at the end of the tab strip, visually subdued */
@@ -561,18 +574,6 @@ a.lws-hanja-row-char:hover {
   border-color: var(--border-strong);
 }
 
-/* Related panel — sits between the tab strip and main tab body.
-   Hidden when collapsed (empty); when expanded, shows grouped entries
-   with a bottom border separating it from the primary tab body. */
-.lws-related-panel {
-  display: none;
-}
-
-.lws-related-panel.lws-related-panel-open {
-  display: block;
-  border-bottom: 1px solid var(--border);
-  background: var(--soft);
-}
 
 /* Headword block — used both as a primary section and inside .lws-unrelated. */
 .lws-entry {
