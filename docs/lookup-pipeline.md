@@ -100,16 +100,19 @@ Files: `content.js`, `background.js`, `core/lemmatizer.js`,
       below. Each section in the plan is
       `{source: 'kr' | 'od', queryIdx, itemIdx}` so the content
       script can locate the matching parsed entry without re-grouping.
-   9. **Proper-noun synthesis (NNP fallback).** If both `tabs` and
-      `unrelated` are empty after steps 5–8, `synthesizeProperNounEntry`
-      scans the 1-best token path for any token whose leading Sejong
-      tag is `NNP` (proper noun). When found, a single synthetic tab
-      is injected with `source: 'synthetic-nnp'`, `pos: '고유명사'`,
-      and a canned definition telling the user it's a proper noun.
-      The whole surface is used as the entry word. If no NNP token
-      exists, the result stays empty and the existing empty-state
-      renders normally. Synthetic results are cached in
-      `lookup:<surface>` like any real result.
+   9. **Per-NNP-run synthesis.** `extractNnpRuns` walks the 1-best
+      token path and collects *runs* of consecutive `NNP`-tagged
+      tokens (e.g. `강남(NNP)+구(NNP)` → one run `"강남구"`; a
+      particle between two proper nouns produces two separate runs).
+      For each run, if no existing tab's `word` already matches that
+      run's surface, `synthesizeMissingNnpRuns` prepends a synthetic
+      tab with `source: 'synthetic-nnp'`, `pos: '고유명사'`, and a
+      canned definition. Multiple missing runs each get their own
+      synthetic tab, prepended in surface order before any real dict
+      tabs. Runs already covered by a real dict result produce no
+      synthetic tab. If there are no NNP tokens at all, this step is
+      a no-op. Synthetic results are cached in `lookup:<surface>` like
+      any real result.
    10. **Build the response object** — `surface`, `lemma`,
        `queryUsed`, `queriesUsed`, `candidates`, `tokens`,
        `krQueries`, `krXmls[]`, `odXml`, `odQuery`, `tabs`,

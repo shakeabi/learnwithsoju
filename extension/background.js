@@ -164,26 +164,45 @@ async function tokenizeSurfaceNbest(surface) {
   }
 }
 
-function synthesizeProperNounEntry(surface, tokens) {
+function extractNnpRuns(tokens) {
   if (!Array.isArray(tokens) || tokens.length === 0) return [];
-  const nnpToken = tokens.find((t) => {
+  const runs = [];
+  let run = null;
+  for (const t of tokens) {
     const tag = (t.pos || '').split('+')[0];
-    return tag === 'NNP';
-  });
-  if (!nnpToken) return [];
-  const word = surface;
-  console.log(`[lws] synthesizing proper-noun entry for surface="${surface}" (NNP token="${nnpToken.surface}")`);
-  return [{
-    word,
-    sections: [{
-      source: 'synthetic-nnp',
-      word,
-      pos: '고유명사',
-      definition: `${word} — Proper noun (name of a person, place, or thing). No dictionary entry found.`,
-      pronunciation: word,
-      isSynthetic: true,
-    }],
-  }];
+    if (tag === 'NNP') {
+      if (run) {
+        run.surface += t.surface;
+      } else {
+        run = { surface: t.surface };
+      }
+    } else {
+      if (run) { runs.push(run); run = null; }
+    }
+  }
+  if (run) runs.push(run);
+  return runs;
+}
+
+function synthesizeMissingNnpRuns(nnpRuns, existingTabs) {
+  const tabWords = new Set(existingTabs.map((t) => t.word));
+  const synthetic = [];
+  for (const r of nnpRuns) {
+    if (tabWords.has(r.surface)) continue;
+    console.log(`[lws] synthesizing proper-noun entry for NNP run="${r.surface}"`);
+    synthetic.push({
+      word: r.surface,
+      sections: [{
+        source: 'synthetic-nnp',
+        word: r.surface,
+        pos: '고유명사',
+        definition: `${r.surface} — Proper noun (name of a person, place, or thing). No dictionary entry found.`,
+        pronunciation: r.surface,
+        isSynthetic: true,
+      }],
+    });
+  }
+  return synthetic;
 }
 
 async function handleLookup(surface) {
@@ -277,8 +296,8 @@ async function handleLookup(surface) {
   if (queriesUsed.length === 0 && odQuery) queriesUsed.push(odQuery);
   const queryUsed = queriesUsed[0] || null;
 
-  const allEmpty = tabs.length === 0 && unrelated.length === 0;
-  const syntheticTabs = allEmpty ? synthesizeProperNounEntry(surface, tokens) : [];
+  const nnpRuns = extractNnpRuns(tokens || []);
+  const syntheticTabs = nnpRuns.length > 0 ? synthesizeMissingNnpRuns(nnpRuns, tabs) : [];
 
   const result = {
     surface,
@@ -291,7 +310,7 @@ async function handleLookup(surface) {
     krXmls,
     odXml,
     odQuery,
-    tabs: syntheticTabs.length > 0 ? syntheticTabs : tabs,
+    tabs: [...syntheticTabs, ...tabs],
     unrelated,
     cachedAt: Date.now(),
   };

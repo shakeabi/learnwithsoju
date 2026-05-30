@@ -227,21 +227,32 @@ case explicitly named for this (`'compound XSV verb in Inflect form:
 
 ---
 
-## Proper-noun synthesis (NNP fallback)
+## Proper-noun synthesis (per-NNP-run)
 
 Lives in `background.js`, not `core/lemmatizer.js`, but conceptually
-part of the candidate-resolution story. If both `tabs` and
-`unrelated` are empty after the parallel KRDict + OpenDict
-fallback, `synthesizeProperNounEntry` scans the 1-best token path
-for any token whose leading Sejong tag is `NNP` (proper noun).
-When found, a single synthetic tab is injected with
-`source: 'synthetic-nnp'`, `pos: '고유명사'`, and a canned
-definition telling the user it's a proper noun. The whole surface
-is used as the entry word.
+part of the candidate-resolution story.
 
-Without this fallback, hovering a proper noun (person name, brand,
-place) that's not in KRDict produces "No definition found", which
-is unhelpful — the user already knows the word's a name; what they
+`extractNnpRuns(tokens)` walks the 1-best token path and collects
+*runs* of consecutive tokens whose leading Sejong tag is `NNP`.
+Adjacent NNP tokens (e.g. `강남(NNP)` + `구(NNP)`) merge into one
+run (`"강남구"`). A non-NNP token between two proper nouns
+produces two separate runs.
+
+`synthesizeMissingNnpRuns(nnpRuns, existingTabs)` then checks each
+run against the real dict tabs already assembled. For each run whose
+surface is **not** a word in any existing tab, a synthetic tab is
+created with `source: 'synthetic-nnp'`, `pos: '고유명사'`, and a
+canned definition. If a real dict entry exists for that NNP surface,
+no synthetic tab is produced for it.
+
+Synthetic tabs are prepended to the front of `payload.tabs` (before
+any real dict tabs) so the exact-match proper noun is always shown
+first. Multiple missing runs each get their own synthetic tab,
+prepended in surface order.
+
+Without this, hovering a proper noun (person name, brand, place)
+that's not in KRDict produces "No definition found", which is
+unhelpful — the user already knows the word's a name; what they
 want is confirmation that mecab classified it as such.
 
 ---

@@ -38,10 +38,11 @@ you only need a getting-started recipe, read
 If you're catching up after time away, these are the big landings to
 skim first:
 
-- `166da60` — proper-noun synthesis (NNP fallback): when KRDict +
-  OpenDict both return empty and the 1-best path has an NNP, inject
-  a synthetic "고유명사" tab so name hovers don't dead-end on "no
-  definition found." (see [lookup-pipeline.md](lookup-pipeline.md))
+- `d958287` — per-NNP-run synthesis: `extractNnpRuns` collects runs of
+  consecutive NNP tokens; for each run not already covered by a real dict
+  tab, a synthetic "고유명사" tab is prepended at position 0. Replaces the
+  old all-empty gate so a proper noun gets its synthetic tab even when other
+  lemma queries returned real results. (see [lookup-pipeline.md](lookup-pipeline.md))
 - `4bba790` — popup two-stage related reveal + exclusive section
   expand per tab; tab-count badges. (see
   [lookup-pipeline.md](lookup-pipeline.md))
