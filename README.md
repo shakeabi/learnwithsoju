@@ -125,6 +125,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for local-dev setup and [docs/DEVELOPMENT
 
 ## License
 
-[MIT License](LICENSE) for the extension's own code. Vendored components keep their own licenses — see [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).
+Released under **AGPL-3.0-or-later**. Forks, derivatives, and any hosted/networked use must be released under AGPL-3.0-or-later with full attribution and source available. See [LICENSE](LICENSE).
+
+Vendored components keep their own licenses — see [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).
 
 This project includes a fork of `mecab-ko-wasm` (MIT/Apache-2.0) and `mecab-ko-dic 2.1.1` (Apache-2.0). Full attribution is in [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).

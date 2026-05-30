@@ -311,7 +311,7 @@ learnwithsoju/
 ├── .gitattributes                      ← marks .wasm/.gz/.png as binary
 ├── CONTRIBUTING.md                     ← contributor getting-started (clone → install → npm test → load unpacked)
 ├── README.md                           ← user-facing readme; install + privacy + feature list
-├── LICENSE                             ← MIT (extension code only)
+├── LICENSE                             ← AGPL-3.0-or-later (extension code only)
 ├── package.json                        ← exists for the test harness only ("npm test")
 └── package-lock.json
 ```

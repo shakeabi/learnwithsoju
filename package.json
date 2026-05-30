@@ -4,7 +4,7 @@
   "private": true,
   "description": "Korean hover dictionary Chrome extension. The extension itself ships in extension/ with no build step; this package.json exists only for the Node-based test harness.",
   "type": "module",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "author": "abishake",
   "homepage": "https://github.com/abishake/learnwithsoju#readme",
   "repository": {

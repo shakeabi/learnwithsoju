@@ -60,4 +60,4 @@ The extension never bundles API keys — they're entered by the user in the opti
 
 ## License
 
-Contributions are licensed under the [MIT License](LICENSE) of the project. By submitting a PR, you confirm you have the right to release your changes under that license.
+Contributions are licensed under the [AGPL-3.0-or-later License](LICENSE) of the project. By submitting a PR, you confirm you have the right to release your changes under that license.
