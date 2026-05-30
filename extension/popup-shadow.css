@@ -75,6 +75,12 @@
   font-size: 14px;
   line-height: 1.5;
   pointer-events: auto;
+  /* Content inside the popup (definitions, examples, AI text) must be
+     selectable so users can copy it. Individual chrome elements (the
+     morpheme arrow operator, etc.) opt out via their own user-select:
+     none. */
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 #lws-popup::-webkit-scrollbar {

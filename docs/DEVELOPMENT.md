@@ -628,12 +628,18 @@ Files: `content.js`.
 
 The click path (`onWordClick`) is mostly identical to hover but:
 
-- `e.preventDefault()` + `e.stopPropagation()` — keeps the click from
-navigating when the word happens to be inside an `<a>` (e.g. linked
-YouTube subtitles).
 - Skips the 60 ms hover delay — `performLookup` runs immediately.
 - Useful for touch and for sites where mouseenter is unreliable (custom
 event interceptors, overlays).
+- Does NOT call `preventDefault()` or `stopPropagation()`. If the word
+happens to be wrapped in an `<a>` / `<button>` / other interactive
+element (linked subtitles, headline links), the user's click must
+still trigger that element's behavior — the lookup runs alongside, not
+instead. The page typically navigates away before the popup matters in
+that case; if it doesn't, both happen.
+- `.lws-word` itself sets `user-select: text` so drag-selecting across
+wrapped words works even when the host page sets `user-select: none`
+on the surrounding container.
 
 ### 6.4 Sentence-word click: re-look-up without moving the popup
 

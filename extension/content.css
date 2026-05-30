@@ -2,6 +2,12 @@
   cursor: help;
   border-bottom: 1px dashed rgba(120, 140, 200, 0.45);
   transition: background-color 0.12s ease;
+  /* Defensive: some host pages set user-select: none on containers
+     (subtitles, headlines). The wrap must not block selection — users
+     should be able to drag-select across .lws-word spans like normal
+     text. */
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .lws-word:hover {

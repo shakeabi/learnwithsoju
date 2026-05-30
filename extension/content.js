@@ -1662,11 +1662,11 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     // Explicit-intent path: bypasses the hover delay and runs the lookup
     // immediately. Useful on sites where mouseenter is unreliable (some
     // overlays, custom event interceptors), and on touch where there's no
-    // hover at all. preventDefault keeps the click from navigating when the
-    // word happens to sit inside an <a> (e.g. linked subtitles).
+    // hover at all. We do NOT preventDefault/stopPropagation — if the word
+    // happens to sit inside an <a> / <button> / etc., the user's click must
+    // still trigger that element's behavior (navigation, etc.) alongside
+    // our lookup.
     if (!enabled) return;
-    e.preventDefault();
-    e.stopPropagation();
     activeWordEl = target;
     cancelHide();
     if (hoverTimer) {
