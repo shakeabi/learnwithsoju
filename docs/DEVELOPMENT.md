@@ -781,19 +781,17 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
     NOT `.html5-video-container`, which has wrong positioning).
      The overlay starts hidden (`display:none`) and only becomes
      visible when the CC observer (below) classifies the state as
-     `CC_ON_KO`.
+     `CC_ON`.
   11. **CC observer**: a 500 ms `setInterval` polls
-    `readCurrentTrack()` and classifies the result into a 3-state
-     machine — `CC_OFF`, `CC_ON_KO`, `CC_ON_OTHER`. On transitions:
-     - `CC_OFF` / `CC_ON_OTHER` → overlay hidden, native-caption
-       hider stylesheet removed (so YouTube's own caption window is
-       free to render whatever the user selected).
-     - `CC_ON_KO` → overlay shown, native-caption hider stylesheet
-       injected, and the time-sync loop attaches.
-     This makes YouTube's CC button the user's master toggle: click
-     CC → our overlay appears (if their selected track is Korean);
-     click again → it hides; gear → English → overlay hides and EN
-     native captions take over.
+    `readCurrentTrack()` and classifies the result into a 2-state
+     machine — `CC_OFF`, `CC_ON` (plus `TRACK_UNKNOWN` sentinel).
+     On transitions:
+     - `CC_OFF` → overlay hidden, native-caption hider stylesheet
+       removed (so YouTube's own caption window is free to render).
+     - `CC_ON` / `TRACK_UNKNOWN` → overlay shown, native-caption
+       hider stylesheet injected, and the time-sync loop attaches.
+     This makes YouTube's CC button the user's master on/off toggle,
+     regardless of which language is active.
   12. Attach `timeupdate` / `seeking` / `seeked` listeners on the
     video element. Each tick does a binary search over the lines
      array (`findLineIdx`) and updates the KO and EN `<div>`s.
@@ -2100,21 +2098,18 @@ before the first successful activation).
 
 ### 10.12 CC visibility: fail-open state machine
 
-The CC poll classifies `player.getOption('captions','track')` into one
-of `CC_OFF | CC_ON_KO | CC_ON_OTHER` and toggles the overlay
-accordingly. Originally a parse failure or read error defaulted to
-`CC_OFF`, which manifested as "dual subs mounted" in the console
-followed by no visible overlay — the player returned an empty object
-or `getOption` threw, we classified that as off, and we hid the
-overlay the user had explicitly opted into. Now the state machine
-fails open: `readCurrentTrack` returns a `TRACK_UNKNOWN` sentinel on
-any error / not-ok hook reply, and `classifyTrack` resolves both
-UNKNOWN and "object with no recognizable languageCode" to `CC_ON_KO`.
-Only an explicit `null` (player returned `{}` — the user genuinely
-turned CC off) or a non-Korean languageCode hide the overlay.
-`restoreTrack` is also a no-op on UNKNOWN / empty snapshots — calling
-`clear-track` after a failed initial read was silently disabling CC
-the user may have had on, hiding the overlay we'd just mounted.
+The CC poll classifies `player.getOption('captions','track')` into
+`CC_OFF | CC_ON` (plus `TRACK_UNKNOWN` sentinel) and toggles the
+overlay accordingly. The state machine is language-agnostic: `CC_ON`
+shows the overlay regardless of which language YouTube has selected.
+This is intentional — dual-subs users almost always have EN CC active
+while listening to KO audio, so gating visibility on "is the track
+Korean?" defeats the feature. Only an explicit `null` (player returned
+`{}` — CC genuinely off) hides the overlay. `TRACK_UNKNOWN` (read
+error / not-ok hook reply) fails open to `CC_ON` so a transient
+failure doesn't hide captions the user opted into. `restoreTrack` is
+a no-op on UNKNOWN / empty snapshots — calling `clear-track` after a
+failed initial read was silently disabling CC the user may have had on.
 
 ---
 

@@ -23,11 +23,12 @@
  * -------------------
  * Capture runs once per video, but the overlay's *visibility* tracks the
  * user's CC button. We poll `player.getOption('captions','track')` and
- * derive a three-state mode:
+ * derive a two-state mode (plus UNKNOWN sentinel):
  *   CC_OFF       → overlay hidden, native captions allowed to show
- *   CC_ON_KO     → overlay shown, native captions hidden via CSS
- *   CC_ON_OTHER  → overlay hidden, native captions allowed (user chose
- *                  a non-Korean language; respect that choice)
+ *   CC_ON        → overlay shown, native captions hidden via CSS
+ *                  (any language — dual-subs users typically have EN CC
+ *                  on while listening to KO audio; language is irrelevant)
+ *   TRACK_UNKNOWN → fail-open: overlay shown
  * We deliberately do NOT force-select KO. The CC button + track-picker
  * are the user's primary controls; we just mirror their state.
  *
@@ -46,7 +47,7 @@
  * goes through the hard-reload path instead.
  */
 
-const LWS_YT_DIAG = true;
+const LWS_YT_DIAG = false;
 
 const SETTING_KEY = 'dualSubsYouTube';
 const DEFAULT_SECONDARY_KEY = 'secondaryLang';
@@ -445,12 +446,11 @@ async function initForCurrentVideo() {
   video.addEventListener('seeking', update);
   video.addEventListener('seeked', update);
 
-  // State machine: CC_OFF | CC_ON_KO | CC_ON_OTHER. The poller below
-  // re-evaluates from the player's current track every tick. We start
-  // as null so the first tick always runs the transition path, even
-  // if the user happens to have CC pre-set to KO. Fail-open default:
-  // unknown / unparseable states resolve to CC_ON_KO so a transient
-  // read failure doesn't hide the overlay the user opted into.
+  // State machine: CC_OFF | CC_ON. The poller below re-evaluates from
+  // the player's current track every tick. We start as null so the
+  // first tick always runs the transition path. Fail-open default:
+  // unknown / unparseable states resolve to CC_ON so a transient read
+  // failure doesn't hide the overlay the user opted into.
   let lastMode = null;
   function setOverlayVisible(visible) {
     if (LWS_YT_DIAG) {
@@ -493,16 +493,17 @@ async function initForCurrentVideo() {
     }
   }
   function classifyTrack(track) {
-    // Fail-open buckets: UNKNOWN (read failed) and "track present but no
-    // recognizable languageCode" both resolve to CC_ON_KO. Only an
-    // explicit null (player returned {} / null — CC genuinely off) or a
-    // non-KO languageCode hide the overlay.
-    if (track === TRACK_UNKNOWN) return 'CC_ON_KO';
+    // Fail-open: UNKNOWN (read failed) and "track present but no
+    // recognizable languageCode" both resolve to CC_ON. Only an
+    // explicit null (player returned {} / null — CC genuinely off)
+    // hides the overlay. Language is irrelevant: dual-subs users
+    // typically have EN CC on while listening to KO audio.
+    if (track === TRACK_UNKNOWN) return 'CC_ON';
     if (track === null) return 'CC_OFF';
-    if (!track || typeof track !== 'object') return 'CC_ON_KO';
+    if (!track || typeof track !== 'object') return 'CC_ON';
     const code = track.languageCode;
-    if (!code) return 'CC_ON_KO';
-    return isLang({ languageCode: code }, 'ko') ? 'CC_ON_KO' : 'CC_ON_OTHER';
+    if (!code) return 'CC_ON';
+    return 'CC_ON';
   }
   async function evaluateCcState() {
     const track = await readCurrentTrack();
@@ -514,7 +515,7 @@ async function initForCurrentVideo() {
       ? '(unknown — fail open)'
       : track ? `(${track.languageCode || ''}${track.kind === 'asr' ? '/asr' : ''})` : '(off)';
     log('CC state →', mode, desc);
-    setOverlayVisible(mode === 'CC_ON_KO');
+    setOverlayVisible(mode !== 'CC_OFF');
   }
   // Kick a first evaluation immediately so the overlay shows (or stays
   // hidden) on the same tick the mount completes, instead of waiting a
