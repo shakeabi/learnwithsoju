@@ -67,6 +67,11 @@ skim first:
 - `3420542` — mecab `tokenize_nbest`: n-best paths broaden the
   lemma candidate pool. `NBEST_N = 5`. (see
   [MECAB_INTEGRATION.md](MECAB_INTEGRATION.md))
+- `e4bc2fa` — n-best cost-delta filter: `filterPathsByCost()` in
+  `background.js` drops paths whose additive cost delta from the
+  1-best exceeds `COST_DELTA_MAX = 5000` (~10^21× less probable)
+  before candidate derivation. Diagnostic log when paths are dropped.
+  (see [lookup-pipeline.md](lookup-pipeline.md))
 - `602cb29` — morpheme inspector page: tokenize Korean text + show
   every mecab field. Linked from options → Advanced. (see
   [extension-surfaces.md](extension-surfaces.md))

@@ -69,6 +69,14 @@ Files: `content.js`, `background.js`, `core/lemmatizer.js`,
       `tokenize_nbest` is missing on the WASM bundle, falls through
       to single-path `mecab.tokenize`; if mecab itself fails,
       returns `[]` and the lemmatizer falls back to surface-only.
+   2a. **`filterPathsByCost(paths)`** — drops any path whose additive
+       cost delta from the best path exceeds `COST_DELTA_MAX = 5000`.
+       Because mecab costs are additive log-likelihoods, a delta of
+       5000 corresponds to ~10^21× less probable than the 1-best path;
+       such paths produce noise candidates with no practical value.
+       Applied immediately after `tokenizeSurfaceNbest` and before
+       candidate derivation. When `LWS_NBEST_DIAG` is set, logs how
+       many paths were dropped.
    3. **`lemmaCandidatesFromNbest(paths, surface)`** runs
       `lemmaCandidates` over each path in cost order and merges the
       union with insertion-order de-dup. The 1-best candidates stay

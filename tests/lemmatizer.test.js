@@ -383,3 +383,66 @@ test('ambiguous-ㄹ guard does NOT fire for VCP (copula): 그거였어요 → �
     '이다 must appear before 였다 (or 였다 must not appear at all)',
   );
 });
+
+// ---------------------------------------------------------------------------
+// filterPathsByCost — additive cost-delta filter applied before candidate
+// derivation. Defined locally here because background.js cannot be imported
+// (it depends on chrome.* globals and WASM init). The logic is pure and small
+// enough to test directly.
+// ---------------------------------------------------------------------------
+const COST_DELTA_MAX = 5000;
+function filterPathsByCost(paths) {
+  if (paths.length <= 1) return paths;
+  const baseCost = paths[0].cost;
+  return paths.filter((p, i) => i === 0 || (p.cost - baseCost) <= COST_DELTA_MAX);
+}
+
+test('filterPathsByCost: drops path whose delta exceeds cap', () => {
+  // paths[2].cost - paths[0].cost = 7900 > 5000 — should be dropped
+  const paths = [{ cost: 100 }, { cost: 300 }, { cost: 8000 }];
+  const result = filterPathsByCost(paths);
+  assert.equal(result.length, 2);
+  assert.deepEqual(result, [{ cost: 100 }, { cost: 300 }]);
+});
+
+test('filterPathsByCost: 그거였어요 shape — keeps all 3 (deltas 0, 586)', () => {
+  // Real n-best costs for 그거였어요. Deltas: 0, 0, 586 — all under cap.
+  const paths = [{ cost: -2469 }, { cost: -2469 }, { cost: -1883 }];
+  const result = filterPathsByCost(paths);
+  assert.equal(result.length, 3);
+});
+
+test('filterPathsByCost: 되셨어요 shape — keeps all 3 (deltas 3297, 3603)', () => {
+  // Real n-best costs for 되셨어요. Both deltas under 5000.
+  const paths = [{ cost: 305 }, { cost: 3602 }, { cost: 3908 }];
+  const result = filterPathsByCost(paths);
+  assert.equal(result.length, 3);
+});
+
+test('filterPathsByCost: 더워서 shape — keeps 2, drops 1 (delta 4415 under, 6161 over)', () => {
+  // Real n-best costs for 더워서. path[2] delta = 5802 - (-359) = 6161 > 5000.
+  const paths = [{ cost: -359 }, { cost: 4056 }, { cost: 5802 }];
+  const result = filterPathsByCost(paths);
+  assert.equal(result.length, 2);
+  assert.deepEqual(result, [{ cost: -359 }, { cost: 4056 }]);
+});
+
+test('filterPathsByCost: 차린건 shape — keeps 2, drops 1 (delta 3233 under, 5293 over)', () => {
+  // Real n-best costs for 차린건. path[2] delta = 6029 - 736 = 5293 > 5000.
+  const paths = [{ cost: 736 }, { cost: 3969 }, { cost: 6029 }];
+  const result = filterPathsByCost(paths);
+  assert.equal(result.length, 2);
+  assert.deepEqual(result, [{ cost: 736 }, { cost: 3969 }]);
+});
+
+test('filterPathsByCost: single-path input passes through unchanged', () => {
+  const paths = [{ cost: 42 }];
+  const result = filterPathsByCost(paths);
+  assert.equal(result.length, 1);
+  assert.deepEqual(result, paths);
+});
+
+test('filterPathsByCost: empty input returns empty', () => {
+  const result = filterPathsByCost([]);
+  assert.deepEqual(result, []);
+});

@@ -14,6 +14,8 @@ const MECAB_VENDOR = 'vendor/mecab-ko/';
 const MECAB_FILES = ['sys.dic.gz', 'matrix.bin.gz', 'entries.bin.gz'];
 const MECAB_WASM = 'mecab_ko_wasm_bg.wasm';
 const NBEST_N = 5;
+// 5000 ~ paths 10^21x less likely than best; tuned from real samples — see DEV doc
+const COST_DELTA_MAX = 5000;
 const KRDICT_PARALLEL_CAP = 5;
 
 const cache = createCache(chromeStorageAdapter(chrome.storage.local));
@@ -131,6 +133,22 @@ function normalizeToken(t) {
   };
 }
 
+function filterPathsByCost(paths) {
+  if (paths.length <= 1) return paths;
+  try {
+    const baseCost = paths[0].cost;
+    const filtered = paths.filter((p, i) => i === 0 || (p.cost - baseCost) <= COST_DELTA_MAX);
+    if (LWS_NBEST_DIAG && filtered.length < paths.length) {
+      const dropped = paths.length - filtered.length;
+      console.log(`[lws-nbest] cost filter: dropped ${dropped}/${paths.length} paths (delta cap ${COST_DELTA_MAX})`);
+    }
+    return filtered;
+  } catch (err) {
+    console.warn('[lws-nbest] filterPathsByCost failed unexpectedly, returning original paths:', err);
+    return paths;
+  }
+}
+
 async function tokenizeSurfaceNbest(surface) {
   // Best-effort: if mecab fails, return empty paths — caller falls back to
   // surface-only candidates and the popup just hides the decomposition row.
@@ -209,7 +227,8 @@ async function handleLookup(surface) {
   const cached = await cache.get(surface);
   if (cached) return cached;
 
-  const [paths] = await Promise.all([tokenizeSurfaceNbest(surface), ensureSettings()]);
+  const [rawPaths] = await Promise.all([tokenizeSurfaceNbest(surface), ensureSettings()]);
+  const paths = filterPathsByCost(rawPaths);
   // 1-best path's tokens are what the popup's decomposition row renders;
   // n-best feeds candidate generation only.
   const tokens = paths.length > 0 ? paths[0].tokens : null;
