@@ -23,7 +23,7 @@
   if (window.__lwsYtHookInstalled) return;
   window.__lwsYtHookInstalled = true;
 
-  const LWS_YT_ASR_DIAG = true;
+  const LWS_YT_ASR_DIAG = false;
   const TARGET = '/api/timedtext';
 
   function post(url, status, body) {

@@ -48,7 +48,7 @@
  */
 
 const LWS_YT_DIAG = false;
-const LWS_YT_ASR_DIAG = true;
+const LWS_YT_ASR_DIAG = false;
 
 const SETTING_KEY = 'dualSubsYouTube';
 const DEFAULT_SECONDARY_KEY = 'secondaryLang';
