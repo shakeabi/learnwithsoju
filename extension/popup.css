@@ -188,3 +188,30 @@ header .brand {
   pointer-events: none;
   cursor: default;
 }
+
+.kofi-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  width: 100%;
+  height: 46px;
+  background: #ff5e5b;
+  color: #ffffff;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: filter 0.12s ease;
+}
+
+.kofi-banner:hover {
+  filter: brightness(1.08);
+}
+
+.kofi-banner--disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: default;
+}

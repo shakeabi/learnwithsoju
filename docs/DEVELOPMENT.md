@@ -428,9 +428,13 @@ because content scripts can't see page expandos like
 | isolated → main             | `{ __lwsYtCmd: 'tracklist', reqId }`                           | `youtube-adapter.js` | `youtube-page-hook.js`      |
 | isolated → main             | `{ __lwsYtCmd: 'player-response-tracks', reqId }`              | `youtube-adapter.js` | `youtube-page-hook.js`      |
 | isolated → main             | `{ __lwsYtCmd: 'load-track', reqId, lang: 'ko' \| 'en' \| ... }` | `youtube-adapter.js` | `youtube-page-hook.js`      |
+| isolated → main             | `{ __lwsYtCmd: 'get-track', reqId }`                           | `youtube-adapter.js` | `youtube-page-hook.js`      |
+| isolated → main             | `{ __lwsYtCmd: 'clear-track', reqId }`                         | `youtube-adapter.js` | `youtube-page-hook.js`      |
 | main → isolated             | `{ __lwsYtReply: 'tracklist', reqId, tracks }`                 | hook                 | `awaitHookReply` in adapter |
 | main → isolated             | `{ __lwsYtReply: 'player-response-tracks', reqId, tracks }`    | hook                 | `awaitHookReply` in adapter |
 | main → isolated             | `{ __lwsYtReply: 'load-track', reqId, ok, error? }`            | hook                 | adapter (fire-and-forget)   |
+| main → isolated             | `{ __lwsYtReply: 'get-track', reqId, ok, track, error? }`      | hook                 | `readCurrentTrack` in adapter |
+| main → isolated             | `{ __lwsYtReply: 'clear-track', reqId, ok, error? }`           | hook                 | adapter (fire-and-forget)   |
 | main → isolated (broadcast) | `{ __lwsYtCaption: true, url, status, body }`                  | hook (XHR/fetch tap) | `captureCaption` in adapter |
 
 
@@ -698,23 +702,47 @@ Files: `content.js`, `site-configs.js`, `youtube-adapter.js`,
      defaults to `'en'`.
   5. `pickPrimarySource(tracklist)` and `pickSecondarySource` —
     see §10 for the fallback chains.
-  6. For each unique base track involved, `captureBaseTrack(lang)`:
+  6. **Snapshot CC state** via `readCurrentTrack()` (posts
+    `{__lwsYtCmd:'get-track'}`). This is the user's pre-capture
+     choice — `{}` for CC off, `{languageCode, kind}` for a selected
+     track. We save it so we can restore it after the next step.
+  7. For each unique base track involved, `captureBaseTrack(lang)`:
     posts `{__lwsYtCmd:'load-track', lang}`, then waits for a
      `__lwsYtCaption` postMessage whose URL has `lang=…` and no
      `tlang=` (signaling it's the original, not an auto-translation).
-  7. `materializeLines` — for each source, either parse the captured
+  8. **Restore CC state** via `restoreTrack(initialTrack)`. If the
+    user had CC off, we post `{__lwsYtCmd:'clear-track'}` to put it
+     back off. If they had a track selected, we re-`load-track` that
+     one. We deliberately do NOT keep the player parked on KO — the
+     CC button is the user's master switch (see step 10).
+  9. `materializeLines` — for each source, either parse the captured
     body directly (`parseJson3` or `parseSrv1Xml`), or refetch the
      captured URL with `&tlang=<target>` appended. The signed
      `sparams` don't include `lang`/`tlang`, so YouTube's signature
      still validates the second URL.
-  8. Mount the overlay on `.html5-video-player` (the player root —
+  10. Mount the overlay on `.html5-video-player` (the player root —
     NOT `.html5-video-container`, which has wrong positioning).
-  9. Inject a `<style>#lws-hide-yt-captions { .ytp-caption-window-container { display: none !important; }}</style>` to hide the native captions.
-  10. Attach `timeupdate` / `seeking` / `seeked` listeners on the
+     The overlay starts hidden (`display:none`) and only becomes
+     visible when the CC observer (below) classifies the state as
+     `CC_ON_KO`.
+  11. **CC observer**: a 500 ms `setInterval` polls
+    `readCurrentTrack()` and classifies the result into a 3-state
+     machine — `CC_OFF`, `CC_ON_KO`, `CC_ON_OTHER`. On transitions:
+     - `CC_OFF` / `CC_ON_OTHER` → overlay hidden, native-caption
+       hider stylesheet removed (so YouTube's own caption window is
+       free to render whatever the user selected).
+     - `CC_ON_KO` → overlay shown, native-caption hider stylesheet
+       injected, and the time-sync loop attaches.
+     This makes YouTube's CC button the user's master toggle: click
+     CC → our overlay appears (if their selected track is Korean);
+     click again → it hides; gear → English → overlay hides and EN
+     native captions take over.
+  12. Attach `timeupdate` / `seeking` / `seeked` listeners on the
     video element. Each tick does a binary search over the lines
      array (`findLineIdx`) and updates the KO and EN `<div>`s.
-5. Teardown: returned closure removes listeners, detaches the overlay,
-  detaches the style tag. Called by `deactivate` on navigation away,
+5. Teardown: returned closure clears the CC poll interval, removes
+  listeners, detaches the overlay, detaches the style tag (if
+   currently mounted). Called by `deactivate` on navigation away,
    on settings change, or on per-video override change.
 
 ### 6.9 Toolbar popup → YouTube per-video override
@@ -1277,6 +1305,18 @@ the visible video area. Cost a bit of debugging to figure out.
 - `findLineIdx(lines, t)` is a binary search — for a long video with
 thousands of subtitle lines this matters; a linear scan on every
 `timeupdate` (which fires ~250 ms) would burn CPU.
+- **CC-bound visibility**: the overlay's `display:none` ↔ visible is
+driven by a 500 ms CC observer that polls `get-track` and classifies
+the player's current selection. There used to be a `triggerLoadTrack(ko)`
+at the end of the capture pipeline that force-selected Korean — that
+made YouTube's CC button useless as an off switch (the next poll
+re-engaged KO). Removed: now `restoreTrack(initialTrack)` puts the
+player back to whatever the user had before the capture flips. The
+user's CC choices (off / KO / EN / whatever) are authoritative; the
+overlay is just a mirror.
+- `readCurrentTrack()` is fail-open — if `get-track` errors out or
+times out, it returns `null` (treated as `CC_OFF`). Better the user
+sees no overlay than a stuck-on overlay they can't dismiss.
 
 ### 7.11 `youtube-page-hook.js`
 
@@ -1297,6 +1337,15 @@ Message protocol:
    `player.setOption('captions', 'track', { languageCode: lang })`. The
    clear-then-set pattern forces a fresh `/api/timedtext` fetch even
    when the player thinks it already has the target track loaded.
+5. `__lwsYtCmd: 'get-track'` — request. Hook returns
+  `player.getOption('captions','track')` — `{}` when CC is off, a
+   populated track object when CC is on. The adapter uses this for
+   its CC-bound visibility state machine (see §7.10).
+6. `__lwsYtCmd: 'clear-track'` — request. Hook calls
+  `player.setOption('captions', 'track', {})` once. Used by the
+   adapter to restore CC-off after the capture pipeline forced tracks
+   to fetch caption bodies; without this the user would find CC
+   silently enabled on every video they opened.
 
 There used to be an `audio-info` command that returned the inferred
 audio language from `getCurrentPlayerResponse()` — removed because
@@ -1343,6 +1392,10 @@ icon. Four sections:
   renders an active `<a>` for that key, an empty string renders a
   greyed `link-icon--disabled` placeholder. To enable GitHub or surface
   a Discord invite, set the URL in `LINKS`; no HTML/CSS edits needed.
+- Ko-fi support banner — a full-width red button below the links row.
+  Gated by `LINKS.kofi` in `popup.js`: empty string leaves it dimmed
+  and non-interactive (`kofi-banner--disabled`); setting a URL flips it
+  to an active link. No HTML/CSS edits needed to activate it.
 
 `popup.js` stays a settings/status shell — no Korean-text rendering
 of its own.

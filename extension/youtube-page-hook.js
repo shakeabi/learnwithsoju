@@ -132,6 +132,35 @@
         }
       } catch {}
       window.postMessage({ __lwsYtReply: 'player-response-tracks', reqId, tracks }, '*');
+    } else if (d.__lwsYtCmd === 'get-track') {
+      // Read the player's current caption track selection so the adapter
+      // can mirror YT's CC button state on its overlay. Returns `{}` when
+      // CC is off, `{languageCode, kind, ...}` when a track is loaded.
+      const player = getPlayer();
+      let track = null;
+      let ok = false;
+      if (player) {
+        try { track = player.getOption('captions', 'track'); ok = true; } catch (err) {
+          window.postMessage({ __lwsYtReply: 'get-track', reqId, ok: false, error: String(err && err.message || err) }, '*');
+          return;
+        }
+      }
+      window.postMessage({ __lwsYtReply: 'get-track', reqId, ok, track: track || null }, '*');
+    } else if (d.__lwsYtCmd === 'clear-track') {
+      // Turn off CC (equivalent to the user clicking the CC button when
+      // it's on). Used by the adapter to restore CC-off after its
+      // capture pipeline forced tracks via setOption.
+      const player = getPlayer();
+      if (!player) {
+        window.postMessage({ __lwsYtReply: 'clear-track', reqId, ok: false, error: 'no player' }, '*');
+        return;
+      }
+      try {
+        player.setOption('captions', 'track', {});
+        window.postMessage({ __lwsYtReply: 'clear-track', reqId, ok: true }, '*');
+      } catch (err) {
+        window.postMessage({ __lwsYtReply: 'clear-track', reqId, ok: false, error: String(err && err.message || err) }, '*');
+      }
     } else if (d.__lwsYtCmd === 'load-track' && typeof d.lang === 'string') {
       const player = getPlayer();
       if (!player) {

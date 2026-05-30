@@ -19,6 +19,18 @@
  *      aren't in the signed sparams, so the signature still validates).
  *   5. Hide YouTube's native caption window, mount overlay, time-sync.
  *
+ * CC-bound visibility
+ * -------------------
+ * Capture runs once per video, but the overlay's *visibility* tracks the
+ * user's CC button. We poll `player.getOption('captions','track')` and
+ * derive a three-state mode:
+ *   CC_OFF       → overlay hidden, native captions allowed to show
+ *   CC_ON_KO     → overlay shown, native captions hidden via CSS
+ *   CC_ON_OTHER  → overlay hidden, native captions allowed (user chose
+ *                  a non-Korean language; respect that choice)
+ * We deliberately do NOT force-select KO. The CC button + track-picker
+ * are the user's primary controls; we just mirror their state.
+ *
  * Lifecycle
  * ---------
  * setup() is called once by content.js at init. It wires up:
@@ -299,6 +311,12 @@ async function initForCurrentVideo() {
 
   await injectHookOnce();
 
+  // Snapshot the user's CC state BEFORE we touch the player, so we can
+  // restore it after the capture pipeline (which has to flip tracks via
+  // setOption to coax the player into fetching them). Without this the
+  // user would find CC silently enabled on every video.
+  const initialTrack = await readCurrentTrack();
+
   let tracklist;
   try {
     tracklist = await waitForTracklist();
@@ -349,9 +367,12 @@ async function initForCurrentVideo() {
     const cap = await captureBaseTrack(lang);
     if (cap) captures.set(lang, cap);
   }
-  // Restore KO display after switching tracks for capture (avoids the
-  // player flashing the secondary's text before we hide native captions).
-  if (baseLangs.size > 1) triggerLoadTrack(primary.baseTrack.languageCode);
+  // Restore the user's pre-capture CC choice. Empty object = CC off;
+  // populated = they had a track selected. Either way, we don't keep
+  // the player parked on whatever language the capture loop last
+  // touched — the user is the authority on what (if anything) the CC
+  // button is showing.
+  restoreTrack(initialTrack);
 
   const koLines = await materializeLines(primary, captures);
   if (koLines.length === 0) {
@@ -371,8 +392,12 @@ async function initForCurrentVideo() {
   log(`mounting overlay (${koLines.length} KO, ${enLines.length} EN) inside`, container.className);
 
   const overlay = buildOverlay();
+  overlay.style.display = 'none';
   container.appendChild(overlay);
-  const styleEl = hideNativeCaptions();
+  // styleEl is added/removed dynamically — only mounted while the
+  // overlay is visible, so when CC is off (or set to a non-KO lang)
+  // YouTube's own caption window stays free to render.
+  let styleEl = null;
 
   let lastKoIdx = -1;
   let lastEnIdx = -1;
@@ -402,9 +427,40 @@ async function initForCurrentVideo() {
   video.addEventListener('timeupdate', update);
   video.addEventListener('seeking', update);
   video.addEventListener('seeked', update);
-  update();
+
+  // State machine: CC_OFF | CC_ON_KO | CC_ON_OTHER. The poller below
+  // re-evaluates from the player's current track every tick. We start
+  // as null so the first tick always runs the transition path, even
+  // if the user happens to have CC pre-set to KO.
+  let lastMode = null;
+  function setOverlayVisible(visible) {
+    if (visible) {
+      overlay.style.display = '';
+      if (!styleEl) styleEl = hideNativeCaptions();
+      update();
+    } else {
+      overlay.style.display = 'none';
+      if (styleEl && styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
+      styleEl = null;
+    }
+  }
+  function classifyTrack(track) {
+    if (!track || typeof track !== 'object') return 'CC_OFF';
+    const code = track.languageCode;
+    if (!code) return 'CC_OFF';
+    return isLang({ languageCode: code }, 'ko') ? 'CC_ON_KO' : 'CC_ON_OTHER';
+  }
+  const ccPoll = setInterval(async () => {
+    const track = await readCurrentTrack();
+    const mode = classifyTrack(track);
+    if (mode === lastMode) return;
+    lastMode = mode;
+    log('CC state →', mode, track ? `(${track.languageCode || ''}${track.kind === 'asr' ? '/asr' : ''})` : '');
+    setOverlayVisible(mode === 'CC_ON_KO');
+  }, 500);
 
   return () => {
+    clearInterval(ccPoll);
     video.removeEventListener('timeupdate', update);
     video.removeEventListener('seeking', update);
     video.removeEventListener('seeked', update);
@@ -605,6 +661,34 @@ function triggerLoadTrack(lang, kind) {
   const payload = kind ? { lang, kind } : { lang };
   const reqId = sendHookCmd('load-track', payload);
   awaitHookReply('load-track', reqId, 1500).catch(() => {/* fire-and-forget */});
+}
+
+async function readCurrentTrack() {
+  // Returns the player's current caption-track object (or `{}` when CC
+  // is off). Fail-open: any error → null, which the caller treats as
+  // CC_OFF so the user sees no overlay rather than a stuck/broken one.
+  try {
+    const reply = await awaitHookReply('get-track', sendHookCmd('get-track'), 1500);
+    if (!reply || reply.ok === false) {
+      log('CC observer: get-track reply not ok:', reply && reply.error);
+      return null;
+    }
+    return reply.track || {};
+  } catch (err) {
+    log('CC observer: get-track failed:', err && err.message);
+    return null;
+  }
+}
+
+function restoreTrack(track) {
+  // Put the player back in the state the user had before the capture
+  // pipeline ran. Empty/null track → clear the selection (CC off).
+  if (!track || typeof track !== 'object' || !track.languageCode) {
+    const reqId = sendHookCmd('clear-track');
+    awaitHookReply('clear-track', reqId, 1500).catch(() => {/* fire-and-forget */});
+    return;
+  }
+  triggerLoadTrack(track.languageCode, track.kind);
 }
 
 function parseTimedText(body) {

@@ -3,6 +3,7 @@
 const LINKS = {
   github: '', // e.g. 'https://github.com/abishake/learnwithsoju'
   discord: '', // e.g. 'https://discord.gg/xxxxxxx'
+  kofi: '', // e.g. 'https://ko-fi.com/learnwithsoju'
 };
 
 const LINK_META = {
@@ -188,5 +189,23 @@ if (linksRow) {
     } catch (err) {
       console.warn('[lws] popup LINKS render skipped', key, ':', err);
     }
+  }
+}
+
+const kofiBanner = document.getElementById('kofi-banner');
+if (kofiBanner) {
+  try {
+    const kofiUrl = LINKS.kofi;
+    if (kofiUrl) {
+      kofiBanner.href = kofiUrl;
+      kofiBanner.target = '_blank';
+      kofiBanner.rel = 'noopener noreferrer';
+      kofiBanner.classList.remove('kofi-banner--disabled');
+      kofiBanner.removeAttribute('aria-disabled');
+      kofiBanner.title = 'Support on Ko-fi';
+    }
+    // Empty URL: leave default disabled state from HTML
+  } catch (err) {
+    console.warn('[lws] popup kofi banner render skipped:', err);
   }
 }
