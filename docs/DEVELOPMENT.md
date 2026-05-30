@@ -32,6 +32,7 @@ you only need a getting-started recipe, read
 | Mecab integration (fork story)         | [MECAB_INTEGRATION.md](MECAB_INTEGRATION.md)                 |
 | Third-party components                 | [THIRD-PARTY.md](THIRD-PARTY.md)                             |
 | Testing + dev workflow + gotchas       | [testing-and-development.md](testing-and-development.md)     |
+| Chrome Web Store + Mozilla AMO copy   | [store-listings/](store-listings/)                           |
 
 ---
 
