@@ -1766,7 +1766,6 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     }
     if (recompute) {
       const next = !hostDisabled;
-      console.log('[lws] content onChanged', { area, hostDisabled, was: enabled, now: next });
       if (next && !enabled) {
         enabled = true;
         scanRoot(document.body);

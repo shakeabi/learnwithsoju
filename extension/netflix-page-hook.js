@@ -525,7 +525,6 @@
   async function selectAndCapture(session, track, label, myGen) {
     const trackId = track && track.trackId;
     const langTag = track && track.bcp47;
-    console.log('[lws-nx-prime] selecting ' + label + ' (bcp47=' + langTag + ', trackId=' + String(trackId).slice(0, 40) + '…) for capture');
     let captureLanded = false;
     const captureP = waitForCapture((msg) => {
       const body = typeof msg.body === 'string' ? msg.body : '';
@@ -597,8 +596,6 @@
         postPrimeStatus('no-secondary');
         return;
       }
-
-      console.log('[lws-nx-prime] dance starting: KO=' + koTrack.bcp47 + '/' + koTrack.rawTrackType + ', secondary=' + secondaryTrack.bcp47 + '/' + secondaryTrack.rawTrackType);
 
       const koCaptured = await selectAndCapture(session, koTrack, 'ko', myGen);
       if (myGen !== primeGen) { postPrimeStatus('aborted', 'gen-stale-after-ko'); return; }
@@ -824,7 +821,6 @@
           // the open() override below, but the explicit post here
           // guarantees delivery even if response type prevents that.
           post(url, xhr.status, body);
-          console.log('[lws-nx-prime] fetched track lang=' + lang + ' status=' + xhr.status + ' bytes=' + body.length);
         } catch (err) {
           console.warn('[lws-nx-prime] xhr load handler failed for lang=' + lang + ':', err && err.message);
         }

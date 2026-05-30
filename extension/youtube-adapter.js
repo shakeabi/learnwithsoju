@@ -330,7 +330,6 @@ async function initForCurrentVideo() {
     log('tracklist never arrived:', err && err.message);
     return null;
   }
-  log('tracklist languages:', tracklist.map((t) => t.languageCode + (t.kind === 'asr' ? '(asr)' : '')));
   lastTracklist = tracklist;
   lastVideoId = currentVideoId();
 
@@ -347,20 +346,16 @@ async function initForCurrentVideo() {
   // toolbar popup) wins over the default in the options page.
   const secondaryLang = await resolveSecondaryLang(lastVideoId);
   lastSecondaryLang = secondaryLang;
-  log('secondary lang for this session:', secondaryLang);
 
   const primary = pickPrimarySource(tracklist);
   if (!primary) {
     log('no usable Korean source on this video');
     return null;
   }
-  log('primary source:', describeSource(primary));
 
   const secondary = (secondaryLang && secondaryLang !== 'off')
     ? pickSecondarySource(tracklist, secondaryLang)
     : null;
-  if (secondary) log('secondary source:', describeSource(secondary));
-  else log('secondary disabled or no track available');
 
   // Capture each unique base track exactly once — primary and secondary
   // can share a base (e.g. user pref is English and the video has no
@@ -390,7 +385,6 @@ async function initForCurrentVideo() {
     return null;
   }
   const enLines = secondary ? await materializeLines(secondary, captures) : [];
-  log(`materialized: ${koLines.length} primary lines, ${enLines.length} secondary lines`);
 
   // Mount the overlay on .html5-video-player (the player root) — that's
   // where YouTube's own caption window lives. Mounting on the inner
@@ -399,7 +393,6 @@ async function initForCurrentVideo() {
   // above the visible video area.
   const container = document.querySelector('.html5-video-player') || video.parentElement;
   if (!container) { log('no player root found'); return null; }
-  log(`mounting overlay (${koLines.length} KO, ${enLines.length} EN) inside`, container.className);
 
   const overlay = buildOverlay();
   overlay.style.display = 'none';
@@ -612,13 +605,11 @@ function describeSource(src) {
 }
 
 async function captureBaseTrack(lang, kind) {
-  log(`triggering load + capture for lang=${lang}${kind ? ' kind=' + kind : ''}`);
   const promise = captureCaption((d) =>
     isCaptionUrlMatchingLang(d.url, lang) && !d.url.includes('tlang='));
   triggerLoadTrack(lang, kind);
   try {
     const cap = await promise;
-    log(`  captured ${lang}: status=${cap.status} body=${cap.body.length}b`);
     return cap;
   } catch (err) {
     log(`  capture failed for ${lang}:`, err && err.message);

@@ -91,7 +91,6 @@ async function loadSiteSection() {
   const data = await chrome.storage.local.get(DISABLED_HOSTS_KEY);
   applyToggleFromList(data[DISABLED_HOSTS_KEY]);
   siteRow.hidden = false;
-  console.log('[lws] popup loadSiteSection', { host: currentHost, list: data[DISABLED_HOSTS_KEY], checked: siteToggle.checked });
 }
 
 siteToggle.addEventListener('change', async () => {
@@ -104,7 +103,6 @@ siteToggle.addEventListener('change', async () => {
   else set.add(currentHost);
   const next = Array.from(set).sort();
   await chrome.storage.local.set({ [DISABLED_HOSTS_KEY]: next });
-  console.log('[lws] popup wrote disabledHosts', { host: currentHost, wantsEnabled, next });
 });
 
 // Keep the toggle in sync if anything else changes disabledHosts while

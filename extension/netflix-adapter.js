@@ -502,15 +502,6 @@ async function rebuildOverlay() {
   const secondary = secondaryLang && secondaryLang !== 'off'
     ? tracksByLang.get(secondaryLang)
     : null;
-  // Verbose: tells us at mount time what's actually cached. If the
-  // user sees "secondary=(missing)" but expects EN, either the EN
-  // capture never arrived (Netflix served from cache without a
-  // fresh fetch, or the page hook missed it) or normalizeLang
-  // produced a different key for it. The full list at the end is
-  // the source of truth — match against secondaryLang to find it.
-  log(`rebuildOverlay: ko=${ko.captionedness}/${ko.lines.length}lines, ` +
-    `secondaryLang='${secondaryLang}' → ${secondary ? secondary.captionedness + '/' + secondary.lines.length + 'lines' : '(missing)'}` +
-    `, all cached langs=[${Array.from(tracksByLang.keys()).join(',')}]`);
 
   // Tear down any prior mount before remounting — clean state.
   teardownOverlay();
@@ -743,7 +734,6 @@ async function kickOffPrimeDance(myGen) {
       log('secondaryLang read failed for kickoff:', err && err.message);
     }
     if (myGen !== activeGeneration) return;
-    log('kicking off prime dance: koPref=ko, secondaryPref=' + (secondaryPref || '(default en)') + ', perTitleOverride=' + (perTitleOverride || '(none)'));
     try {
       window.postMessage({
         __lwsNxRunPrime: true,
@@ -759,8 +749,7 @@ async function kickOffPrimeDance(myGen) {
   }
 }
 
-function onPrimeStatus(status, detail) {
-  log('prime status:', status, detail != null ? detail : '');
+function onPrimeStatus(_status, _detail) {
   // Captures themselves arrive through __lwsNxCaption; rebuildOverlay
   // gates on tracksByLang having KO + (optionally) secondary. Nothing
   // to do here beyond logging — kept distinct so a future iteration
@@ -783,8 +772,6 @@ function onManifest(rawTracks) {
   if (!isWatchPage()) return;
   // Cache for use when the per-title override changes mid-session.
   lastManifestTracks = rawTracks;
-  console.log('[lws-nx-prime] manifest tracks:',
-    rawTracks.map((t) => ({ lang: t.language, original: t.originalLanguage, isCC: t.isCC, formats: Object.keys(t.urlsByFormat || {}) })));
   void primeFromManifest(rawTracks).then(() => {
     if (myGen !== activeGeneration) {
       console.log('[lws-nx-prime] generation changed during prime — discarding');
@@ -824,7 +811,6 @@ async function primeFromManifest(rawTracks) {
   }
 
   const chosenSecondaryLang = normalizeLang(secondaryTrack.language);
-  console.log(`[lws-nx-prime] picked KO (${koTrack.isCC ? 'CC' : 'plain'}, ${koTrack.originalLanguage}) + ${chosenSecondaryLang} (${secondaryTrack.isCC ? 'CC' : 'plain'}, ${secondaryTrack.originalLanguage})`);
 
   fetchTrackIfNeeded(koTrack, 'ko');
   fetchTrackIfNeeded(secondaryTrack, chosenSecondaryLang);
@@ -832,21 +818,17 @@ async function primeFromManifest(rawTracks) {
 
 function fetchTrackIfNeeded(track, normalizedLang) {
   if (primedLangs.has(normalizedLang)) {
-    console.log(`[lws-nx-prime] already primed '${normalizedLang}' this session — skip`);
     return;
   }
   if (tracksByLang.has(normalizedLang)) {
-    console.log(`[lws-nx-prime] '${normalizedLang}' already captured — skip`);
     primedLangs.add(normalizedLang);
     return;
   }
   const url = pickBestTrackUrl(track);
   if (!url) {
-    console.log(`[lws-nx-prime] '${normalizedLang}' has no usable URL — skip`);
     return;
   }
   primedLangs.add(normalizedLang);
-  console.log(`[lws-nx-prime] fetching '${normalizedLang}' from ${url.slice(0, 80)}…`);
   try {
     window.postMessage({ __lwsNxFetchCaption: true, url, lang: normalizedLang }, '*');
   } catch (err) {
