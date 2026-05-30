@@ -365,12 +365,16 @@ async function initForCurrentVideo() {
   // Capture each unique base track exactly once — primary and secondary
   // can share a base (e.g. user pref is English and the video has no
   // manual KO, so both pull from manual EN).
-  const baseLangs = new Set();
-  baseLangs.add(primary.baseTrack.languageCode);
-  if (secondary) baseLangs.add(secondary.baseTrack.languageCode);
+  // Key by languageCode; include kind so ASR tracks are requested correctly.
+  const baseTrackMap = new Map();
+  baseTrackMap.set(primary.baseTrack.languageCode, primary.baseTrack);
+  if (secondary) {
+    const sl = secondary.baseTrack.languageCode;
+    if (!baseTrackMap.has(sl)) baseTrackMap.set(sl, secondary.baseTrack);
+  }
   const captures = new Map();
-  for (const lang of baseLangs) {
-    const cap = await captureBaseTrack(lang);
+  for (const [lang, track] of baseTrackMap) {
+    const cap = await captureBaseTrack(lang, track.kind);
     if (cap) captures.set(lang, cap);
   }
   // Restore the user's pre-capture CC choice. Empty object = CC off;
@@ -607,11 +611,11 @@ function describeSource(src) {
     (src.translate ? ` → tlang=${src.target}` : '');
 }
 
-async function captureBaseTrack(lang) {
-  log(`triggering load + capture for lang=${lang}`);
+async function captureBaseTrack(lang, kind) {
+  log(`triggering load + capture for lang=${lang}${kind ? ' kind=' + kind : ''}`);
   const promise = captureCaption((d) =>
     isCaptionUrlMatchingLang(d.url, lang) && !d.url.includes('tlang='));
-  triggerLoadTrack(lang);
+  triggerLoadTrack(lang, kind);
   try {
     const cap = await promise;
     log(`  captured ${lang}: status=${cap.status} body=${cap.body.length}b`);
