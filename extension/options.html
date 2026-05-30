@@ -143,13 +143,19 @@
     <section class="card">
       <h2>Cache</h2>
       <p class="hint">
-        Lookup results are cached locally so the same word never hits the API twice.
-        Clear it if a definition looks stale or you want to free up storage.
+        Lookup results store the full tokenized+grouped output per hovered surface
+        form. Dict XMLs are raw API responses (expensive to refetch). Hanja meanings
+        are pulled from hangulhanja.com.
       </p>
-      <div class="actions">
-        <button type="button" id="clear-cache-btn">Clear cache</button>
-        <span id="cache-status" aria-live="polite"></span>
+      <div class="cache-buttons">
+        <button type="button" id="clear-lookup-btn">Clear lookup results</button>
+        <button type="button" id="clear-hanja-btn">Clear Hanja meanings</button>
+        <details class="cache-everything-details">
+          <summary>More options</summary>
+          <button type="button" id="clear-all-btn">Clear everything incl. dict</button>
+        </details>
       </div>
+      <span id="cache-status" aria-live="polite"></span>
     </section>
 
     <footer>

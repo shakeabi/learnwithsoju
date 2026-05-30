@@ -379,9 +379,38 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
   if (msg && msg.type === 'clearCache') {
-    Promise.all([cache.clear(), hanjaCache.clear(), krdictCache.clear(), opendictCache.clear()])
-      .then(() => { console.log('[lws] dict cache cleared'); sendResponse({ ok: true }); })
-      .catch((err) => sendResponse({ ok: false, error: String(err && err.message || err) }));
+    (async () => {
+      try {
+        const target = msg.target || 'all';
+        const cleared = {};
+        if (target === 'lookup' || target === 'all') { await cache.clear(); cleared.lookup = true; }
+        if (target === 'hanja' || target === 'all') { await hanjaCache.clear(); cleared.hanja = true; }
+        if (target === 'dict' || target === 'all') {
+          await krdictCache.clear();
+          await opendictCache.clear();
+          cleared.dict = true;
+        }
+        console.log('[lws] cache cleared', cleared);
+        sendResponse({ ok: true, cleared });
+      } catch (err) {
+        console.warn('[lws] clearCache failed:', err);
+        sendResponse({ ok: false, error: String(err && err.message || err) });
+      }
+    })();
+    return true;
+  }
+  if (msg && msg.type === 'cacheCounts') {
+    (async () => {
+      try {
+        const [lookupN, hanjaN, krN, odN] = await Promise.all([
+          cache.count(), hanjaCache.count(), krdictCache.count(), opendictCache.count(),
+        ]);
+        sendResponse({ ok: true, counts: { lookup: lookupN, hanja: hanjaN, krdict: krN, opendict: odN } });
+      } catch (err) {
+        console.warn('[lws] cacheCounts failed:', err);
+        sendResponse({ ok: false, error: err && err.message });
+      }
+    })();
     return true;
   }
   if (msg && msg.type === 'mecab-inspect') {

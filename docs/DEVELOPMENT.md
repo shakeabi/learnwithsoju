@@ -200,7 +200,7 @@ on-demand Hanja meanings service.
    │     secondary-lang dropdown) │    │  - secondary lang       │
    │                              │    │      Ask-AI provider    │
    │                              │    │      Ask-AI prompt tmpl │
-   │                              │    │  - clear cache          │
+   │                              │    │  - clear cache (×3)     │
    └──────────────────────────────┘    └─────────────────────────┘
 
 External services contacted at runtime (with user-supplied keys or no key):
@@ -271,8 +271,8 @@ learnwithsoju/
 │   ├── popup.html                      ← toolbar-action popup markup
 │   ├── popup.js                        ← toolbar popup logic (per-site disable toggle, generic adapter-section loader, content-script lws-site-info fallback for hostname)
 │   ├── popup.css                       ← styling for the toolbar popup (NOT the in-page hover popup)
-│   ├── options.html                    ← settings-page markup (API keys, behaviour, cache)
-│   ├── options.js                      ← settings-page logic (load/save, test key, clear cache)
+│   ├── options.html                    ← settings-page markup (API keys, behaviour, cache with 3 per-namespace clear buttons)
+│   ├── options.js                      ← settings-page logic (load/save, test key, per-namespace cache clear + live counts)
 │   ├── options.css                     ← styling for the settings page
 │   ├── notepad.html                    ← standalone extension page; paste Korean text, hover any word
 │   ├── notepad.js                      ← notepad page logic (commit textarea → display area; content.js's observer wraps the runs)
@@ -441,7 +441,8 @@ All from `content.js` (or from inside the popup's button-handlers).
 | `openOptions` | `{}`                  | `{ ok: true }`                                                                         | Sync; `chrome.runtime.openOptionsPage()`.                           |
 | `ping`        | `{}`                  | `{ ok: true }`                                                                         | Sync; used to wake the SW.                                          |
 | `warmup`      | `{}`                  | `{ ok: true }`                                                                         | Sync response; fires `ensureMecab()` + `ensureSettings()` in the background. Sent from `content.js` init() so first hover doesn't pay the dict-fetch+inflate stall. |
-| `clearCache`  | `{}`                  | `{ ok: true }` or `{ ok: false, error }`                                               | Async. Clears all four namespaces: `lookup:`, `hanja:`, `krdict:`, `opendict:`. |
+| `clearCache`  | `{ target?: 'lookup' \| 'hanja' \| 'dict' \| 'all' }` | `{ ok: true, cleared: {...} }` or `{ ok: false, error }` | Async. `target` defaults to `'all'` (backward-compatible). `'lookup'` clears `lookup:` only; `'hanja'` clears `hanja:` only; `'dict'` clears `krdict:` + `opendict:`; `'all'` clears all four. |
+| `cacheCounts` | `{}`                  | `{ ok: true, counts: { lookup: N, hanja: N, krdict: N, opendict: N } }` or `{ ok: false, error }` | Async. Returns L2 entry count per namespace by scanning `chrome.storage.local` keys. Used by the options page to populate the live `(~N)` suffix on each clear button. |
 
 
 ### `chrome.tabs.sendMessage` — popup module → content (then content → adapter)

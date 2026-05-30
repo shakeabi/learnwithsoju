@@ -81,11 +81,25 @@ export function createCache(storage, opts = {}) {
     }
   }
 
+  async function count() {
+    try {
+      const all = await storage.get(null);
+      let n = 0;
+      for (const k of Object.keys(all)) {
+        if (k.startsWith(prefix)) n++;
+      }
+      return n;
+    } catch (err) {
+      console.warn('[lws] cache.count failed:', prefix, err);
+      return null;
+    }
+  }
+
   function l1Size() {
     return l1.size;
   }
 
-  return { get, set, clear, l1Size };
+  return { get, set, clear, count, l1Size };
 }
 
 /**

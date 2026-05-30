@@ -144,6 +144,7 @@ async function load() {
   await populateAiProviderSelect(data[KEYS.ASK_AI_PROVIDER]);
   const v = chrome.runtime.getManifest().version;
   versionLine.textContent = `v${v}`;
+  await refreshCacheCounts();
 }
 
 async function save() {
@@ -240,36 +241,101 @@ if (resetAskAiPromptBtn) {
   });
 }
 
-const clearCacheBtn = document.getElementById('clear-cache-btn');
 const cacheStatus = document.getElementById('cache-status');
-if (clearCacheBtn) {
-  clearCacheBtn.addEventListener('click', async () => {
-    clearCacheBtn.disabled = true;
-    cacheStatus.textContent = 'Clearing…';
-    cacheStatus.className = '';
+const clearLookupBtn = document.getElementById('clear-lookup-btn');
+const clearHanjaBtn = document.getElementById('clear-hanja-btn');
+const clearAllBtn = document.getElementById('clear-all-btn');
+
+const CACHE_BTN_LABELS = {
+  lookup: 'Clear lookup results',
+  hanja: 'Clear Hanja meanings',
+  all: 'Clear everything incl. dict',
+};
+
+const CACHE_BTN_SUCCESS = {
+  lookup: 'Lookup cache cleared.',
+  hanja: 'Hanja cache cleared.',
+  all: 'All caches cleared.',
+};
+
+function setCacheStatus(text, kind) {
+  if (!cacheStatus) return;
+  cacheStatus.textContent = text;
+  cacheStatus.className = kind || '';
+  if (text && kind === 'ok') {
+    setTimeout(() => {
+      if (cacheStatus.textContent === text) {
+        cacheStatus.textContent = '';
+        cacheStatus.className = '';
+      }
+    }, 3000);
+  }
+}
+
+function applyCountsToButtons(counts) {
+  if (!counts) return;
+  const lookupN = counts.lookup;
+  const hanjaN = counts.hanja;
+  const allN = (counts.lookup ?? 0) + (counts.hanja ?? 0) + (counts.krdict ?? 0) + (counts.opendict ?? 0);
+
+  if (clearLookupBtn) {
+    clearLookupBtn.textContent = lookupN != null
+      ? `${CACHE_BTN_LABELS.lookup} (~${lookupN})`
+      : CACHE_BTN_LABELS.lookup;
+  }
+  if (clearHanjaBtn) {
+    clearHanjaBtn.textContent = hanjaN != null
+      ? `${CACHE_BTN_LABELS.hanja} (~${hanjaN})`
+      : CACHE_BTN_LABELS.hanja;
+  }
+  if (clearAllBtn) {
+    clearAllBtn.textContent = allN != null
+      ? `${CACHE_BTN_LABELS.all} (~${allN})`
+      : CACHE_BTN_LABELS.all;
+  }
+}
+
+async function refreshCacheCounts() {
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'cacheCounts' });
+    if (res && res.ok && res.counts) {
+      applyCountsToButtons(res.counts);
+    }
+  } catch (err) {
+    console.warn('[lws] options: cacheCounts failed:', err);
+  }
+}
+
+function makeCacheClearHandler(btn, target) {
+  return async () => {
+    if (!btn) return;
+    btn.disabled = true;
+    if (clearLookupBtn) clearLookupBtn.disabled = true;
+    if (clearHanjaBtn) clearHanjaBtn.disabled = true;
+    if (clearAllBtn) clearAllBtn.disabled = true;
+    setCacheStatus('Clearing…', '');
     try {
-      const res = await chrome.runtime.sendMessage({ type: 'clearCache' });
+      const res = await chrome.runtime.sendMessage({ type: 'clearCache', target });
       if (res && res.ok) {
-        cacheStatus.textContent = 'Cache cleared.';
-        cacheStatus.className = 'ok';
+        setCacheStatus(CACHE_BTN_SUCCESS[target], 'ok');
       } else {
-        cacheStatus.textContent = `Error: ${res && res.error || 'unknown'}`;
-        cacheStatus.className = 'err';
+        setCacheStatus(`Error: ${res && res.error || 'unknown'}`, 'err');
       }
     } catch (err) {
-      cacheStatus.textContent = `Error: ${err.message || err}`;
-      cacheStatus.className = 'err';
+      console.warn('[lws] options: clearCache failed:', err);
+      setCacheStatus(`Error: ${err.message || err}`, 'err');
     } finally {
-      clearCacheBtn.disabled = false;
-      setTimeout(() => {
-        if (cacheStatus.textContent.startsWith('Cache cleared')) {
-          cacheStatus.textContent = '';
-          cacheStatus.className = '';
-        }
-      }, 3000);
+      if (clearLookupBtn) clearLookupBtn.disabled = false;
+      if (clearHanjaBtn) clearHanjaBtn.disabled = false;
+      if (clearAllBtn) clearAllBtn.disabled = false;
+      await refreshCacheCounts();
     }
-  });
+  };
 }
+
+if (clearLookupBtn) clearLookupBtn.addEventListener('click', makeCacheClearHandler(clearLookupBtn, 'lookup'));
+if (clearHanjaBtn) clearHanjaBtn.addEventListener('click', makeCacheClearHandler(clearHanjaBtn, 'hanja'));
+if (clearAllBtn) clearAllBtn.addEventListener('click', makeCacheClearHandler(clearAllBtn, 'all'));
 
 const inspectorLink = document.getElementById('morpheme-inspector-link');
 if (inspectorLink) {
