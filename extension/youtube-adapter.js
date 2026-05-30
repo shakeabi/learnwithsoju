@@ -48,6 +48,7 @@
  */
 
 const LWS_YT_DIAG = false;
+const LWS_YT_ASR_DIAG = true;
 
 const SETTING_KEY = 'dualSubsYouTube';
 const DEFAULT_SECONDARY_KEY = 'secondaryLang';
@@ -380,6 +381,9 @@ async function initForCurrentVideo() {
   restoreTrack(initialTrack);
 
   const koLines = await materializeLines(primary, captures);
+  if (LWS_YT_ASR_DIAG) {
+    console.log('[lws-yt-asr] after translate: ' + koLines.length + ' lines (primary KO, translate=' + primary.translate + ')');
+  }
   if (koLines.length === 0) {
     log('primary KO produced 0 lines after parse/translate');
     return null;
@@ -610,6 +614,20 @@ async function captureBaseTrack(lang, kind) {
   triggerLoadTrack(lang, kind);
   try {
     const cap = await promise;
+    if (LWS_YT_ASR_DIAG && lang === 'ko') {
+      const body = cap && cap.body != null ? String(cap.body) : '';
+      const isAsrKind = kind === 'asr';
+      const bytes = body.length;
+      console.log('[lws-yt-asr] captured KO body kind=' + (isAsrKind ? 'asr' : 'manual') + ' bytes=' + bytes);
+      if (bytes === 0) {
+        console.log('[lws-yt-asr]   (empty body — 0 bytes)');
+      } else if (body.trimStart().startsWith('{') || body.trimStart().startsWith('[')) {
+        console.log('[lws-yt-asr]   JSON head: ' + body.slice(0, 800));
+      } else {
+        console.log('[lws-yt-asr]   head: ' + body.slice(0, 500));
+        console.log('[lws-yt-asr]   tail: ' + body.slice(-200));
+      }
+    }
     return cap;
   } catch (err) {
     log(`  capture failed for ${lang}:`, err && err.message);
@@ -620,8 +638,13 @@ async function captureBaseTrack(lang, kind) {
 async function materializeLines(source, captures) {
   const baseCap = captures.get(source.baseTrack.languageCode);
   if (!baseCap) return [];
+  const isKo = source.baseTrack.languageCode === 'ko' || source.target === 'ko';
   if (!source.translate) {
-    return parseTimedText(baseCap.body);
+    const parsed = parseTimedText(baseCap.body);
+    if (LWS_YT_ASR_DIAG && isKo) {
+      console.log('[lws-yt-asr] after parse: ' + parsed.length + ' lines; first[0]=' + JSON.stringify(parsed[0]) + ', first[1]=' + JSON.stringify(parsed[1]) + ', first[2]=' + JSON.stringify(parsed[2]));
+    }
+    return parsed;
   }
   // Auto-translate by refetching with &tlang=<target>. lang/tlang aren't
   // in the signed sparams so the signature still validates.
@@ -633,7 +656,11 @@ async function materializeLines(source, captures) {
       log(`tlang=${source.target} fetch HTTP ${r.status}`);
       return [];
     }
-    return parseTimedText(await r.text());
+    const translated = parseTimedText(await r.text());
+    if (LWS_YT_ASR_DIAG && isKo) {
+      console.log('[lws-yt-asr] after parse (tlang=' + source.target + '): ' + translated.length + ' lines; first[0]=' + JSON.stringify(translated[0]) + ', first[1]=' + JSON.stringify(translated[1]) + ', first[2]=' + JSON.stringify(translated[2]));
+    }
+    return translated;
   } catch (err) {
     log(`tlang=${source.target} fetch threw:`, err && err.message);
     return [];

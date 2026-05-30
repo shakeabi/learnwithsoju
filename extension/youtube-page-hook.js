@@ -23,9 +23,27 @@
   if (window.__lwsYtHookInstalled) return;
   window.__lwsYtHookInstalled = true;
 
+  const LWS_YT_ASR_DIAG = true;
   const TARGET = '/api/timedtext';
 
   function post(url, status, body) {
+    if (LWS_YT_ASR_DIAG) {
+      try {
+        const qs = {};
+        const qStart = url.indexOf('?');
+        if (qStart !== -1) {
+          url.slice(qStart + 1).split('&').forEach((pair) => {
+            const eq = pair.indexOf('=');
+            if (eq === -1) return;
+            const k = decodeURIComponent(pair.slice(0, eq));
+            const v = decodeURIComponent(pair.slice(eq + 1));
+            if (['lang', 'kind', 'fmt', 'tlang'].includes(k)) qs[k] = v;
+          });
+        }
+        const bodyLen = body != null ? String(body).length : 0;
+        console.log('[lws-yt-asr] page-hook fetch returned: status=' + status + ' bytes=' + bodyLen + ' url-qs=' + JSON.stringify(qs));
+      } catch (_) {}
+    }
     window.postMessage({
       __lwsYtCaption: true,
       url,
