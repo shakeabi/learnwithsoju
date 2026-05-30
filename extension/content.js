@@ -922,16 +922,32 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     return arr[section.itemIdx] || null;
   }
 
+  function entryIdentity(e) {
+    try {
+      const def = (e.senses && e.senses[0] && e.senses[0].definition) || '';
+      return `${e.word || ''}|${e.pos || ''}|${def.slice(0, 80)}`;
+    } catch (err) {
+      console.warn('[lws] entryIdentity: could not compute identity for entry', err);
+      return null;
+    }
+  }
+
   function materializeGroup(payload, group) {
     if (!group || !Array.isArray(group.sections)) return { word: group ? group.word : '', entries: [] };
     const entries = [];
+    const seen = new Set();
     for (const s of group.sections) {
       if (s.source === 'synthetic-nnp') {
         entries.push({ entry: s, source: 'synthetic-nnp' });
         continue;
       }
       const e = entryForSection(payload, s);
-      if (e) entries.push({ entry: e, source: s.source });
+      if (!e) continue;
+      const id = entryIdentity(e);
+      if (id === null || !seen.has(id)) {
+        entries.push({ entry: e, source: s.source });
+        if (id !== null) seen.add(id);
+      }
     }
     return { word: group.word, entries };
   }

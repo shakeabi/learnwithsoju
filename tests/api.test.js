@@ -11,6 +11,7 @@ import {
   extractItemWords,
   groupByWord,
   pickTabsAndUnrelated,
+  entryIdentity,
 } from '../extension/core/api.js';
 
 test('buildKrdictUrl: includes required params', () => {
@@ -277,4 +278,42 @@ test('pickTabsAndUnrelated: query with no new word skips, picks no tab', () => {
   // Query 1's 먹다 folds into the existing 먹다 tab (cross-query consolidation).
   assert.equal(result.tabs[0].sections.length, 2);
   assert.deepEqual(result.unrelated.map((u) => u.word), ['먹이']);
+});
+
+// entryIdentity dedup helper tests
+
+function makeEntry(word, pos, firstDef) {
+  return { word, pos, senses: [{ definition: firstDef, translations: [], examples: [] }] };
+}
+
+test('entryIdentity: same word/pos/def produces the same key', () => {
+  const a = makeEntry('냉정하다', '형용사', 'cool and calm');
+  const b = makeEntry('냉정하다', '형용사', 'cool and calm');
+  assert.equal(entryIdentity(a), entryIdentity(b));
+});
+
+test('entryIdentity: same word, different pos produces different keys', () => {
+  const noun = makeEntry('반', '명사', 'half');
+  const anotherNoun = makeEntry('반', '명사', 'a class');
+  assert.notEqual(entryIdentity(noun), entryIdentity(anotherNoun));
+});
+
+test('entryIdentity: same word, same pos, different first definition produces different keys', () => {
+  const a = makeEntry('살', '명사', 'flesh; body fat');
+  const b = makeEntry('살', '명사', 'age counted in years');
+  assert.notEqual(entryIdentity(a), entryIdentity(b));
+});
+
+test('entryIdentity: malformed entry (no senses) returns a non-null key derived from word+pos', () => {
+  const e = { word: '가다', pos: '동사' };
+  const id = entryIdentity(e);
+  assert.equal(typeof id, 'string');
+  assert.match(id, /가다/);
+});
+
+test('entryIdentity: def snippet is capped at 80 chars so two entries with the same 80-char prefix share a key', () => {
+  const longDef = 'a'.repeat(100);
+  const a = makeEntry('테스트', '명사', longDef + 'EXTRA_A');
+  const b = makeEntry('테스트', '명사', longDef + 'EXTRA_B');
+  assert.equal(entryIdentity(a), entryIdentity(b));
 });

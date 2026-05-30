@@ -234,6 +234,31 @@ export function pickTabsAndUnrelated({ krQueries, krWordsPerQuery, odQuery, odWo
 }
 
 /**
+ * Compute a stable identity key for a parsed KRDict/OpenDict entry so that
+ * duplicate entries returned by multiple queries can be detected and collapsed.
+ *
+ * Key form: `"${word}|${pos}|${firstDefSnippet}"` where the snippet is the
+ * first 80 characters of the first sense's definition. This distinguishes:
+ *   - Same word, different POS  → different key → both kept.
+ *   - Same word, same POS, different first sense → different key → both kept.
+ *   - Same word, same POS, same first sense → same key → duplicate dropped.
+ *
+ * Returns null if the key cannot be computed (caller should treat the entry as
+ * unique and log the anomaly rather than silently dropping it).
+ *
+ * @param {{ word?: string, pos?: string, senses?: { definition?: string }[] }} entry
+ * @returns {string | null}
+ */
+export function entryIdentity(entry) {
+  try {
+    const def = (entry.senses && entry.senses[0] && entry.senses[0].definition) || '';
+    return `${entry.word || ''}|${entry.pos || ''}|${def.slice(0, 80)}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Extract the (error_code, message) pair from an XML error response.
  * Returns null if the XML is not an error.
  *
