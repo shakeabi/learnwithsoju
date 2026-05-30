@@ -26,6 +26,8 @@ you only need a getting-started recipe, read
 | Caching layers + storage keys          | [storage-and-caching.md](storage-and-caching.md)             |
 | Messages between components            | [message-flows.md](message-flows.md)                         |
 | YouTube + Netflix dual-subs internals  | [site-adapters.md](site-adapters.md)                         |
+| Adding support for a new streaming site | [adding-a-site-adapter.md](adding-a-site-adapter.md)        |
+| Adding a lemmatizer guard              | [lemmatizer-guards.md](lemmatizer-guards.md)                 |
 | Popup / options / notepad / inspector  | [extension-surfaces.md](extension-surfaces.md)               |
 | Mecab integration (fork story)         | [MECAB_INTEGRATION.md](MECAB_INTEGRATION.md)                 |
 | Third-party components                 | [THIRD-PARTY.md](THIRD-PARTY.md)                             |
