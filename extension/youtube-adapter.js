@@ -711,6 +711,7 @@ function buildOverlay() {
     padding: '2px 10px',
     background: lineBg,
     borderRadius: '2px',
+    display: 'none',
   });
   wrap.appendChild(ko);
   const en = document.createElement('div');
@@ -724,6 +725,7 @@ function buildOverlay() {
     padding: '2px 10px',
     background: lineBg,
     borderRadius: '2px',
+    display: 'none',
     fontWeight: '400',
   });
   wrap.appendChild(en);
