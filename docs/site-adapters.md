@@ -10,7 +10,8 @@ Related reading:
 - [message-flows.md](message-flows.md) — adapter ↔ page-hook
   postMessage protocol
 - [extension-surfaces.md](extension-surfaces.md) — the per-site
-  toolbar-popup sections (`youtube-popup.js`, `netflix-popup.js`)
+  toolbar-popup sections (`adapters/youtube/popup.js`,
+  `adapters/netflix/popup.js`)
 - [storage-and-caching.md](storage-and-caching.md) — `dualSubsOverrides`
   / `dualSubsOverridesNetflix` per-video/title override maps
 
@@ -19,8 +20,8 @@ Related reading:
 ## YouTube
 
 The most intricate code path in the extension. Files involved:
-`content.js`, `site-configs.js`, `youtube-adapter.js`,
-`youtube-page-hook.js`, `youtube-popup.js`.
+`content.js`, `core/site-configs.js`, `adapters/youtube/adapter.js`,
+`adapters/youtube/page-hook.js`, `adapters/youtube/popup.js`.
 
 ### Why a page-world hook is needed
 
@@ -45,20 +46,20 @@ player generated for itself. So we have to:
 Steps 1 and 2 both require access to page-world globals
 (`html5VideoPlayer.setOption`, intercepting `window.fetch` /
 `XMLHttpRequest.prototype.open`). Content scripts can't reach those,
-so we inject `youtube-page-hook.js` as a `<script src>` tag and
+so we inject `adapters/youtube/page-hook.js` as a `<script src>` tag and
 communicate over `window.postMessage`.
 
 ### The activate sequence
 
 1. `content.js`'s `init` resolves `siteConfig` for the current
    hostname; for `youtube.com` this returns the YouTube config with
-   `adapter: 'youtube-adapter.js'`.
+   `adapter: 'adapters/youtube/adapter.js'`.
 2. After scanning the page and setting up handlers, `init` dynamic-
    imports the adapter and calls `setup({ unwrap, rescan })` — the
    two callbacks let the adapter ask content.js to strip and re-
    apply `.lws-word` wrapping around SPA navigations (see
    "Hard reload on video_id change" below).
-3. `youtube-adapter.js`'s `setup(api)`:
+3. `adapters/youtube/adapter.js`'s `setup(api)`:
    1. Stashes `api.unwrap` / `api.rescan` (no-ops if missing).
    2. Registers `chrome.storage.onChanged` listener.
    3. Registers `chrome.runtime.onMessage` for `lws-yt-popup-info`.
@@ -66,7 +67,7 @@ communicate over `window.postMessage`.
       unwrap) and `yt-navigate-finish` → `handleNavFinish` (after
       250 ms: activate + rescan).
    5. `injectHookOnce()` — appends a
-      `<script src=chrome-extension://.../youtube-page-hook.js>` tag
+      `<script src=chrome-extension://.../adapters/youtube/page-hook.js>` tag
       to `document.head`. The hook's IIFE checks
       `window.__lwsYtHookInstalled` to be idempotent.
    6. `activate()` — bumps `activeGeneration`, tears down any
@@ -232,7 +233,7 @@ the user may have had on.
 
 ### Per-video override (toolbar popup)
 
-See `youtube-popup.js` in [extension-surfaces.md](extension-surfaces.md).
+See `adapters/youtube/popup.js` in [extension-surfaces.md](extension-surfaces.md).
 Briefly: the popup writes the user's selection to
 `chrome.storage.local.dualSubsOverrides` keyed by videoId; the
 adapter's `onChanged` listener picks it up and re-activates.
@@ -278,8 +279,9 @@ provided KO simply has no KO entry and skips correctly.
 ## Netflix
 
 Netflix is partway through Phase 2 (dual-subs overlay). Files
-involved: `content.js`, `site-configs.js`, `netflix-adapter.js`,
-`netflix-page-hook.js`, `netflix-popup.js`.
+involved: `content.js`, `core/site-configs.js`,
+`adapters/netflix/adapter.js`, `adapters/netflix/page-hook.js`,
+`adapters/netflix/popup.js`.
 
 ### The track-select dance (auto-prime)
 
@@ -290,8 +292,8 @@ metadata flags (`isNoneTrack`, `isForcedNarrative`, `isImageBased`)
 — but **no fetchable URLs**. To force Netflix to download a track's
 TTML, you have to actually `setTextTrack` it.
 
-The dance (in `netflix-page-hook.js`, kicked off from the adapter's
-`activate()`):
+The dance (in `adapters/netflix/page-hook.js`, kicked off from the
+adapter's `activate()`):
 
 1. Snapshot the user's currently-selected text track.
 2. `setTextTrack(koreanTrack)` — Netflix fetches its TTML; our
@@ -334,7 +336,7 @@ so manifests with region-suffixed lang codes don't slip through.
 ### Per-language cache (`tracksByLang`)
 
 Captured TTML is parsed in the isolated world by
-`netflix-adapter.js`'s `parseTtml` (handles Netflix's IMSC1 tick-
+`adapters/netflix/adapter.js`'s `parseTtml` (handles Netflix's IMSC1 tick-
 based time format) and cached per language in a `tracksByLang` Map,
 keyed by normalized `xml:lang`. When both plain and CC variants of
 the same language arrive, the CC variant wins.
@@ -365,9 +367,9 @@ with both lines.
   three rounds of API discovery (commits `f9795ea`, `6523a55`,
   `d789702`, `a32052d`) confirmed how Netflix's player API exposes
   `getTextTrackList()` / `setTextTrack()`. The probe code remains
-  in `netflix-page-hook.js` gated off behind those flags — dormant
-  diagnostics in case Netflix shifts shape and we need to re-
-  discover.
+  in `adapters/netflix/page-hook.js` gated off behind those flags —
+  dormant diagnostics in case Netflix shifts shape and we need to
+  re-discover.
 
 ### `[lws-nx-prime]` console logs
 
@@ -391,7 +393,7 @@ immediately; flipping on calls activate.
 - **`sentenceContainer` must include your overlay's KO class**: if
   your adapter hides the host's native caption containers AND mounts
   its own overlay, the host's `sentenceContainer` selector in
-  `site-configs.js` MUST also list your overlay's KO container
+  `core/site-configs.js` MUST also list your overlay's KO container
   class. Without it, `closest(selector)` on a hovered `.lws-word`
   inside your overlay returns null, `extractSentence` falls back to
   its default block walk, AND `pauseVideoIfApplicable` silently
@@ -403,11 +405,11 @@ immediately; flipping on calls activate.
   user / host re-triggering before `initThing()` resolves. Bump a
   counter in every entry-and-exit, compare after each `await`, tear
   down your own work on supersession. See `activeGeneration` in
-  `youtube-adapter.js`.
+  `adapters/youtube/adapter.js`.
 - **Page-hook idempotence**. The hook IIFEs check
   `window.__lwsYtHookInstalled` / `window.__lwsNxHookInstalled` so
   re-injecting on SPA navs is a no-op.
-- **Per-host stylesheets in `site-configs.js`'s `stylesheet`
+- **Per-host stylesheets in `core/site-configs.js`'s `stylesheet`
   field**. Used to promote `.player-timedtext` above Netflix's
   player-controls overlay so the controls don't intercept hovers.
-  See `site-configs.js` for examples.
+  See `core/site-configs.js` for examples.

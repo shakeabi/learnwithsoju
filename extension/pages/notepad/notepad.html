@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <title>learnwithsoju — Notepad</title>
-  <link rel="stylesheet" href="options.css" />
+  <link rel="stylesheet" href="../options/options.css" />
   <!-- content.css supplies the `.lws-word` underline + cursor on the
        notepad target below; content.js's mutation observer wraps typed /
        pasted text into those spans so the hover popup machinery works here
        as on any webpage. notepad.js drives the live textarea → target sync
        (debounced 150 ms input event). -->
-  <link rel="stylesheet" href="content.css" />
+  <link rel="stylesheet" href="../../content.css" />
   <style>
     /* Plain block that holds the committed text. `pre-wrap` so the
      * paragraph structure from the paste survives — newlines become
@@ -55,6 +55,6 @@
        AI). It self-initialises, scans `document.body` for Korean,
        wraps `.lws-word` spans, and listens for clicks — same as on
        any other page. -->
-  <script src="content.js"></script>
+  <script src="../../content.js"></script>
 </body>
 </html>

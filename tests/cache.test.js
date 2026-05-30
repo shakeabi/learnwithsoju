@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCache } from '../extension/cache.js';
+import { createCache } from '../extension/core/cache.js';
 
 /** Build a fake chrome.storage.local-shaped adapter backed by a Map. */
 function fakeStorage() {

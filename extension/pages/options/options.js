@@ -100,7 +100,7 @@ function syncChatGptTemporaryRowVisibility() {
 async function populateAiProviderSelect(selectedValue) {
   if (!askAiProviderSelect) return;
   try {
-    const mod = await import('./ai-providers.js');
+    const mod = await import('../../core/ai-providers.js');
     const providers = mod.AI_PROVIDERS || {};
     const fallback = mod.DEFAULT_ASK_AI_PROVIDER || Object.keys(providers)[0];
     askAiProviderSelect.innerHTML = '';
@@ -339,7 +339,7 @@ if (clearAllBtn) clearAllBtn.addEventListener('click', makeCacheClearHandler(cle
 
 const inspectorLink = document.getElementById('morpheme-inspector-link');
 if (inspectorLink) {
-  inspectorLink.href = chrome.runtime.getURL('morpheme-inspector.html');
+  inspectorLink.href = chrome.runtime.getURL('pages/morpheme-inspector/morpheme-inspector.html');
   inspectorLink.rel = 'noopener noreferrer';
 }
 

@@ -24,7 +24,7 @@
     }
   },
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "pages/popup/popup.html",
     "default_title": "learnwithsoju",
     "default_icon": {
       "16": "icons/icon16.png",
@@ -32,7 +32,7 @@
       "128": "icons/icon128.png"
     }
   },
-  "options_page": "options.html",
+  "options_page": "pages/options/options.html",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -50,15 +50,15 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "popup-shadow.css",
-        "parsers.js",
-        "grammar-glosses.js",
-        "site-configs.js",
-        "ai-providers.js",
-        "youtube-adapter.js",
-        "youtube-page-hook.js",
-        "netflix-adapter.js",
-        "netflix-page-hook.js"
+        "core/popup-shadow.css",
+        "core/parsers.js",
+        "core/grammar-glosses.js",
+        "core/site-configs.js",
+        "core/ai-providers.js",
+        "adapters/youtube/adapter.js",
+        "adapters/youtube/page-hook.js",
+        "adapters/netflix/adapter.js",
+        "adapters/netflix/page-hook.js"
       ],
       "matches": ["<all_urls>"]
     }

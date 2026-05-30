@@ -75,7 +75,7 @@ Files changed in this repo:
   - `mecab_ko_wasm{.js,.d.ts,_bg.wasm,_bg.wasm.d.ts}` (built from our fork)
   - `sys.dic.gz`, `matrix.bin.gz`, `entries.bin.gz` (compiled mecab-ko-dic, gzip -9)
 - `extension/background.js` — imports `init`, `Mecab` from the vendored module; `ensureMecab()` lazy-init that fetches + gunzips dict files via Chrome's built-in `DecompressionStream`; `lemmasFor(surface)` calls `mecab.tokenize` then `lemmaCandidates`. Falls back gracefully to surface-only candidates if mecab fails to init.
-- `extension/lemmatizer.js` — rewritten to take mecab tokens. Walks tags by lead POS (`VV`/`VA`/`VX` → stem + 다, `NN*` → noun-as-lemma, particles/endings skipped); always includes surface as fallback. Pure function, fully unit-tested.
+- `extension/core/lemmatizer.js` — rewritten to take mecab tokens. Walks tags by lead POS (`VV`/`VA`/`VX` → stem + 다, `NN*` → noun-as-lemma, particles/endings skipped); always includes surface as fallback. Pure function, fully unit-tested.
 - `tests/lemmatizer.test.js` — rewritten for the new token-based signature. 15 cases covering verb stems, adjective stems, nouns, compound nouns, merged POS tags (`VV+EP`), particles/endings skipped, dedup, and the "stem already ends in 다" defensive case.
 - `docs/THIRD-PARTY.md` — added mecab-ko-wasm and mecab-ko-dic attribution.
 - `README.md` — features section and architecture diagram updated; Lemmatization section rewritten for the new approach.

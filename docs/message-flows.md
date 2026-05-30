@@ -36,16 +36,17 @@ listener keeps `sendResponse` open across the async boundary.
 
 ## `chrome.tabs.sendMessage` — popup module → content / adapter
 
-Each site's popup module (e.g. `youtube-popup.js`, `netflix-popup.js`)
-talks to its content-script-side adapter using a site-specific
-message type. The generic `popup.js` shell doesn't send these — only
-the dynamic-imported module does.
+Each site's popup module (e.g. `adapters/youtube/popup.js`,
+`adapters/netflix/popup.js`) talks to its content-script-side
+adapter using a site-specific message type. The generic
+`pages/popup/popup.js` shell doesn't send these — only the
+dynamic-imported module does.
 
-| `msg.type`           | From                | To                 | Response                                                                                                          |
-| -------------------- | ------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `lws-yt-popup-info`  | `youtube-popup.js`  | content script tab | `youtube-adapter.js`: `{ active, videoId, tracks: [{languageCode, languageName, kind, vssId}], secondaryLang }`   |
-| `lws-nx-popup-info`  | `netflix-popup.js`  | content script tab | `netflix-adapter.js`: `{ active, titleId, tracks: [{code, languageName, captionedness}], secondaryLang }`         |
-| `lws-site-info`      | `popup.js`          | content script tab | `content.js`: `{ host, protocol, href }` — fallback for when `chrome.tabs.query` returns an undefined `tab.url`   |
+| `msg.type`           | From                          | To                 | Response                                                                                                          |
+| -------------------- | ----------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `lws-yt-popup-info`  | `adapters/youtube/popup.js`   | content script tab | `adapters/youtube/adapter.js`: `{ active, videoId, tracks: [{languageCode, languageName, kind, vssId}], secondaryLang }`   |
+| `lws-nx-popup-info`  | `adapters/netflix/popup.js`   | content script tab | `adapters/netflix/adapter.js`: `{ active, titleId, tracks: [{code, languageName, captionedness}], secondaryLang }`         |
+| `lws-site-info`      | `pages/popup/popup.js`        | content script tab | `content.js`: `{ host, protocol, href }` — fallback for when `chrome.tabs.query` returns an undefined `tab.url`   |
 
 The adapter `onMessage` listeners intercept before `content.js`'s
 normal lookup paths see them. `lws-site-info` lets the popup avoid
@@ -61,16 +62,16 @@ Both adapters bridge into the page main world via injected
 `<script src>` hooks because content scripts can't see page expandos
 like `html5VideoPlayer.getOption` or `window.netflix.appContext`.
 
-### YouTube command channel (`youtube-page-hook.js`)
+### YouTube command channel (`adapters/youtube/page-hook.js`)
 
-| Direction                   | Shape                                                              | Sent by                | Handled by                  |
-| --------------------------- | ------------------------------------------------------------------ | ---------------------- | --------------------------- |
-| isolated → main             | `{ __lwsYtCmd: 'tracklist', reqId }`                               | `youtube-adapter.js`   | `youtube-page-hook.js`      |
-| isolated → main             | `{ __lwsYtCmd: 'player-response-tracks', reqId }`                  | `youtube-adapter.js`   | `youtube-page-hook.js`      |
-| isolated → main             | `{ __lwsYtCmd: 'load-track', reqId, lang }`                        | `youtube-adapter.js`   | `youtube-page-hook.js`      |
-| isolated → main             | `{ __lwsYtCmd: 'get-track', reqId }`                               | `youtube-adapter.js`   | `youtube-page-hook.js`      |
-| isolated → main             | `{ __lwsYtCmd: 'clear-track', reqId }`                             | `youtube-adapter.js`   | `youtube-page-hook.js`      |
-| isolated → main             | `{ __lwsYtCmd: 'video-id', reqId }`                                | `youtube-adapter.js`   | `youtube-page-hook.js`      |
+| Direction                   | Shape                                                              | Sent by                        | Handled by                       |
+| --------------------------- | ------------------------------------------------------------------ | ------------------------------ | -------------------------------- |
+| isolated → main             | `{ __lwsYtCmd: 'tracklist', reqId }`                               | `adapters/youtube/adapter.js`  | `adapters/youtube/page-hook.js`  |
+| isolated → main             | `{ __lwsYtCmd: 'player-response-tracks', reqId }`                  | `adapters/youtube/adapter.js`  | `adapters/youtube/page-hook.js`  |
+| isolated → main             | `{ __lwsYtCmd: 'load-track', reqId, lang }`                        | `adapters/youtube/adapter.js`  | `adapters/youtube/page-hook.js`  |
+| isolated → main             | `{ __lwsYtCmd: 'get-track', reqId }`                               | `adapters/youtube/adapter.js`  | `adapters/youtube/page-hook.js`  |
+| isolated → main             | `{ __lwsYtCmd: 'clear-track', reqId }`                             | `adapters/youtube/adapter.js`  | `adapters/youtube/page-hook.js`  |
+| isolated → main             | `{ __lwsYtCmd: 'video-id', reqId }`                                | `adapters/youtube/adapter.js`  | `adapters/youtube/page-hook.js`  |
 | main → isolated             | `{ __lwsYtReply: 'tracklist', reqId, tracks }`                     | hook                   | `awaitHookReply` in adapter |
 | main → isolated             | `{ __lwsYtReply: 'player-response-tracks', reqId, tracks }`        | hook                   | `awaitHookReply` in adapter |
 | main → isolated             | `{ __lwsYtReply: 'load-track', reqId, ok, error? }`                | hook                   | adapter (fire-and-forget)   |
@@ -90,7 +91,7 @@ favour of the simpler "is there even a Korean track in the
 tracklist?" gate — see the SPA-nav postmortem in
 [site-adapters.md](site-adapters.md).
 
-### Netflix command channel (`netflix-page-hook.js`)
+### Netflix command channel (`adapters/netflix/page-hook.js`)
 
 The Netflix hook is partly a passive sniffer (subtitle bodies arrive
 unsolicited via XHR/fetch monkey-patches) and partly an active
@@ -116,7 +117,7 @@ Netflix's manifest is MSL-encrypted, but the code stays in tree as a
 no-cost fallback. The `[lws-nx-prime]` console logs trace which path
 succeeded.
 
-Two diagnostic flags in `netflix-page-hook.js` (`LWS_NX_DIAG_PRIME`
+Two diagnostic flags in `adapters/netflix/page-hook.js` (`LWS_NX_DIAG_PRIME`
 and `LWS_NX_DIAG_API`) are gated off by default. The probe rounds
 they enable (commits `f9795ea`, `6523a55`, `d789702`) confirmed how
 Netflix's player API exposes `getTextTrackList()` /
@@ -139,15 +140,15 @@ as a broadcast bus for settings:
 | Key                            | Listener                          | What the listener does                                                                                                                                                                                   |
 | ------------------------------ | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `disabledHosts` (local)        | `content.js`                      | Toggle scanning + popup activity for this tab. On the disabled transition: hide the popup AND `unwrapAllWords()` to strip the `.lws-word` spans (dashed underline + cursor: help). Re-enabling re-scans. |
-| `disabledHosts` (local)        | `youtube-adapter.js`              | Calls `deactivate()` and then `activate()` (which re-checks `isEnabled()`) — so the dual-subs overlay actually unmounts on per-site disable.                                                              |
-| `disabledHosts` (local)        | `netflix-adapter.js`              | Same dance as YouTube.                                                                                                                                                                                   |
+| `disabledHosts` (local)        | `adapters/youtube/adapter.js`     | Calls `deactivate()` and then `activate()` (which re-checks `isEnabled()`) — so the dual-subs overlay actually unmounts on per-site disable.                                                              |
+| `disabledHosts` (local)        | `adapters/netflix/adapter.js`     | Same dance as YouTube.                                                                                                                                                                                   |
 | `defLang` (sync)               | `content.js`                      | `rerenderActivePopup()` if popup is showing.                                                                                                                                                             |
-| `dualSubsYouTube` (sync)       | `youtube-adapter.js`              | Re-activate / deactivate dual subs on the current page.                                                                                                                                                  |
-| `dualSubsNetflix` (sync)       | `netflix-adapter.js`              | Re-activate / deactivate dual subs on the current Netflix watch page.                                                                                                                                    |
-| `secondaryLang` (sync)         | `youtube-adapter.js`              | Re-activate so the new default applies.                                                                                                                                                                  |
-| `secondaryLang` (sync)         | `netflix-adapter.js`              | Re-kick the prime dance so the new default secondary gets fetched if needed; re-render.                                                                                                                  |
-| `dualSubsOverrides` (local)    | `youtube-adapter.js`              | Re-activate if the override changed for the current video.                                                                                                                                               |
-| `dualSubsOverridesNetflix` (local) | `netflix-adapter.js`          | Re-kick the prime dance (clears the per-session "already kicked off" flag) so the new secondary gets fetched if it isn't already in `tracksByLang`, then re-render the overlay. No activate/deactivate — captured tracks stay, only the choice of which one renders as line 2 changes. |
+| `dualSubsYouTube` (sync)       | `adapters/youtube/adapter.js`     | Re-activate / deactivate dual subs on the current page.                                                                                                                                                  |
+| `dualSubsNetflix` (sync)       | `adapters/netflix/adapter.js`     | Re-activate / deactivate dual subs on the current Netflix watch page.                                                                                                                                    |
+| `secondaryLang` (sync)         | `adapters/youtube/adapter.js`     | Re-activate so the new default applies.                                                                                                                                                                  |
+| `secondaryLang` (sync)         | `adapters/netflix/adapter.js`     | Re-kick the prime dance so the new default secondary gets fetched if needed; re-render.                                                                                                                  |
+| `dualSubsOverrides` (local)    | `adapters/youtube/adapter.js`     | Re-activate if the override changed for the current video.                                                                                                                                               |
+| `dualSubsOverridesNetflix` (local) | `adapters/netflix/adapter.js` | Re-kick the prime dance (clears the per-session "already kicked off" flag) so the new secondary gets fetched if it isn't already in `tracksByLang`, then re-render the overlay. No activate/deactivate — captured tracks stay, only the choice of which one renders as line 2 changes. |
 | `askAiPrompt` (sync)           | `content.js`                      | Swap the cached template; pill href is rebuilt on next render.                                                                                                                                            |
 | `askAiProvider` (sync)         | `content.js`                      | Swap the cached provider; pill href + tooltip rebuilt on next render.                                                                                                                                     |
 | `askAiChatGptTemporary` (sync) | `content.js`                      | Swap the cached flag; pill href appends `?temporary-chat=true` when true and provider is ChatGPT.                                                                                                         |

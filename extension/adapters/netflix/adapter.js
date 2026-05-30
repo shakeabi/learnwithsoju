@@ -9,7 +9,7 @@
  * your DevTools and know exactly which URLs to filter on and which
  * format(s) to parse.
  *
- * Structure intentionally mirrors `youtube-adapter.js` so the
+ * Structure intentionally mirrors `adapters/youtube/adapter.js` so the
  * Phase 2.2+ additions (parser, pickPrimarySource, mount overlay,
  * time-sync) slot in without restructuring:
  *
@@ -18,7 +18,7 @@
  *     yt-navigate-finish in a way that's stable across regions)
  *   - generation-token guarded activate/deactivate
  *   - host unwrap/rescan callbacks for `.lws-word` spans around nav
- *   - injectHookOnce() — append `<script src=…netflix-page-hook.js>`
+ *   - injectHookOnce() — append `<script src=…adapters/netflix/page-hook.js>`
  *
  * `isEnabled()` honors the same `disabledHosts` (chrome.storage.local)
  * key the per-site toggle and the YouTube adapter use; there's no
@@ -30,12 +30,12 @@
 const LWS_NX_DIAG_PRIME = false;
 function diag(...args) { if (LWS_NX_DIAG_PRIME) console.log('[lws-nx-diag]', ...args); }
 
-const HOOK_PATH = 'netflix-page-hook.js';
+const HOOK_PATH = 'adapters/netflix/page-hook.js';
 const DISABLED_HOSTS_KEY = 'disabledHosts';
 const DUAL_SUBS_NX_KEY = 'dualSubsNetflix';
 const DEFAULT_SECONDARY_KEY = 'secondaryLang';
 // Per-title override map, keyed by Netflix titleId. Written by
-// netflix-popup.js (Secondary Subs dropdown); read here via the
+// adapters/netflix/popup.js (Secondary Subs dropdown); read here via the
 // resolveSecondaryLang fallback chain. Separate from YouTube's
 // `dualSubsOverrides` so titleId/videoId namespaces can't collide.
 const PER_TITLE_OVERRIDE_KEY = 'dualSubsOverridesNetflix';

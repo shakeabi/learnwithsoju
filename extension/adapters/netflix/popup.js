@@ -1,9 +1,9 @@
 /**
  * Netflix section for the toolbar popup.
  *
- * Mirrors `youtube-popup.js` — loaded dynamically by `popup.js` when the
- * active tab matches the Netflix SITE_CONFIGS entry (see
- * extension/site-configs.js → `popupModule`). Owns all DOM under the
+ * Mirrors `adapters/youtube/popup.js` — loaded dynamically by `popup.js`
+ * when the active tab matches the Netflix SITE_CONFIGS entry (see
+ * extension/core/site-configs.js → `popupModule`). Owns all DOM under the
  * container it's handed; the popup shell stays generic.
  *
  * Difference vs YouTube: Netflix only fetches the user's currently-

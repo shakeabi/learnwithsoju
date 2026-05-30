@@ -98,7 +98,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     pl: 'Polish',
   };
 
-  const parsers = await import(chrome.runtime.getURL('parsers.js'));
+  const parsers = await import(chrome.runtime.getURL('core/parsers.js'));
   const {
     parseKrdictXml,
     parseOpendictXml,
@@ -113,13 +113,13 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     posExplanation,
   } = parsers;
 
-  const glosses = await import(chrome.runtime.getURL('grammar-glosses.js'));
+  const glosses = await import(chrome.runtime.getURL('core/grammar-glosses.js'));
   const { morphemeGloss, isContentMorpheme } = glosses;
 
-  const sites = await import(chrome.runtime.getURL('site-configs.js'));
+  const sites = await import(chrome.runtime.getURL('core/site-configs.js'));
   const { findSiteConfig } = sites;
 
-  const aiProvidersMod = await import(chrome.runtime.getURL('ai-providers.js'));
+  const aiProvidersMod = await import(chrome.runtime.getURL('core/ai-providers.js'));
   const { AI_PROVIDERS, DEFAULT_ASK_AI_PROVIDER } = aiProvidersMod;
   // Resolved once per content-script lifetime — frames don't navigate between
   // sites without a reload, which re-injects content.js.
@@ -322,7 +322,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     popupRoot = popupHost.attachShadow({ mode: 'open' });
     const styleLink = document.createElement('link');
     styleLink.rel = 'stylesheet';
-    styleLink.href = chrome.runtime.getURL('popup-shadow.css');
+    styleLink.href = chrome.runtime.getURL('core/popup-shadow.css');
     popupRoot.appendChild(styleLink);
     popupEl = document.createElement('div');
     popupEl.id = POPUP_ID;

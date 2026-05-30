@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lemmaCandidates, inflectStem } from '../extension/lemmatizer.js';
+import { lemmaCandidates, inflectStem } from '../extension/core/lemmatizer.js';
 
 // Helper to build a token list quickly. Mirrors the shape returned by
 // mecab-ko-wasm: { surface, pos, lemma?, features? }.

@@ -11,7 +11,7 @@ import {
   extractItemWords,
   groupByWord,
   pickTabsAndUnrelated,
-} from '../extension/api.js';
+} from '../extension/core/api.js';
 
 test('buildKrdictUrl: includes required params', () => {
   const url = new URL(buildKrdictUrl('먹다', 'TEST_KEY'));

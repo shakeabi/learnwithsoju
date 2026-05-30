@@ -60,7 +60,7 @@ const PER_VIDEO_OVERRIDE_KEY = 'dualSubsOverrides';
 const DISABLED_HOSTS_KEY = 'disabledHosts';
 const STYLE_ID = 'lws-hide-yt-captions';
 const OVERLAY_CLASS = 'lws-ytsubs-overlay';
-const HOOK_PATH = 'youtube-page-hook.js';
+const HOOK_PATH = 'adapters/youtube/page-hook.js';
 const CAPTURE_TIMEOUT_MS = 6000;
 
 let teardownFn = null;

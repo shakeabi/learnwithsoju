@@ -1,6 +1,6 @@
-import { lemmaCandidatesFromNbest } from './lemmatizer.js';
-import { buildKrdictUrl, buildOpendictUrl, looksEmpty, extractItemWords, pickTabsAndUnrelated } from './api.js';
-import { createCache, chromeStorageAdapter } from './cache.js';
+import { lemmaCandidatesFromNbest } from './core/lemmatizer.js';
+import { buildKrdictUrl, buildOpendictUrl, looksEmpty, extractItemWords, pickTabsAndUnrelated } from './core/api.js';
+import { createCache, chromeStorageAdapter } from './core/cache.js';
 import init, { Mecab } from './vendor/mecab-ko/mecab_ko_wasm.js';
 
 const LWS_NBEST_DIAG = true;

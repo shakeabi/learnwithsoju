@@ -1,6 +1,6 @@
 # Lemmatization
 
-`lemmatizer.js` is the single most accuracy-critical pure module in
+`core/lemmatizer.js` is the single most accuracy-critical pure module in
 the extension. The popup is only useful if the candidate it picks
 for KRDict is the form a human would look up — and human Korean
 speakers don't look up 예약해야 in the dictionary, they look up
@@ -204,7 +204,7 @@ guard (VV), 사 fires the guard (VV), 봐요 (multi-syllable) doesn't,
 
 ## Two pure-noun-compound rules, both load-bearing
 
-There are two rules in `lemmatizer.js` that interact with pure
+There are two rules in `core/lemmatizer.js` that interact with pure
 noun compounds:
 
 1. **Surface-first push** — if every token is in
@@ -229,7 +229,7 @@ case explicitly named for this (`'compound XSV verb in Inflect form:
 
 ## Proper-noun synthesis (NNP fallback)
 
-Lives in `background.js`, not `lemmatizer.js`, but conceptually
+Lives in `background.js`, not `core/lemmatizer.js`, but conceptually
 part of the candidate-resolution story. If both `tabs` and
 `unrelated` are empty after the parallel KRDict + OpenDict
 fallback, `synthesizeProperNounEntry` scans the 1-best token path

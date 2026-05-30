@@ -24,15 +24,15 @@ cache can grow past the 5 MB default.
 
 | Key                     | Type            | Default                    | Written by                              | Read by                                                                                       |
 | ----------------------- | --------------- | -------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `krdictApiKey`          | string          | `""`                       | `options.js`                            | `background.js` (mirrored as `krKey`, refreshed via `onChanged`)                              |
-| `opendictApiKey`        | string          | `""`                       | `options.js`                            | `background.js` (mirrored as `odKey`)                                                         |
+| `krdictApiKey`          | string          | `""`                       | `pages/options/options.js`              | `background.js` (mirrored as `krKey`, refreshed via `onChanged`)                              |
+| `opendictApiKey`        | string          | `""`                       | `pages/options/options.js`              | `background.js` (mirrored as `odKey`)                                                         |
 | `defLang`               | `'en' \| 'ko'`  | `'en'`                     | `content.js` (popup toggle)             | `content.js` (popup render)                                                                   |
-| `dualSubsYouTube`       | boolean         | `true`*                    | `options.js`                            | `youtube-adapter.js` (`onChanged` + `isEnabled()`)                                            |
-| `dualSubsNetflix`       | boolean         | `true`*                    | `options.js`                            | `netflix-adapter.js` (`onChanged` + `isEnabled()`)                                            |
-| `secondaryLang`         | string          | `'en'`                     | `options.js`                            | `youtube-adapter.js`, `netflix-adapter.js`, popup modules (default)                           |
-| `askAiPrompt`           | string          | unset → built-in default   | `options.js` (Advanced section)         | `content.js` (init + `onChanged` → `buildAskAiUrl`)                                           |
-| `askAiProvider`         | string          | `'chatgpt'`                | `options.js` (Advanced section)         | `content.js` (picks URL prefix from `ai-providers.js`)                                        |
-| `askAiChatGptTemporary` | boolean         | `false`                    | `options.js` (visible only when provider is ChatGPT) | `content.js` (appends `?temporary-chat=true` when checked)                       |
+| `dualSubsYouTube`       | boolean         | `true`*                    | `pages/options/options.js`              | `adapters/youtube/adapter.js` (`onChanged` + `isEnabled()`)                                   |
+| `dualSubsNetflix`       | boolean         | `true`*                    | `pages/options/options.js`              | `adapters/netflix/adapter.js` (`onChanged` + `isEnabled()`)                                   |
+| `secondaryLang`         | string          | `'en'`                     | `pages/options/options.js`              | `adapters/youtube/adapter.js`, `adapters/netflix/adapter.js`, popup modules (default)         |
+| `askAiPrompt`           | string          | unset → built-in default   | `pages/options/options.js` (Advanced section) | `content.js` (init + `onChanged` → `buildAskAiUrl`)                                     |
+| `askAiProvider`         | string          | `'chatgpt'`                | `pages/options/options.js` (Advanced section) | `content.js` (picks URL prefix from `core/ai-providers.js`)                             |
+| `askAiChatGptTemporary` | boolean         | `false`                    | `pages/options/options.js` (visible only when provider is ChatGPT) | `content.js` (appends `?temporary-chat=true` when checked)            |
 
 *`dualSubsYouTube` and `dualSubsNetflix` default to `true` in each
 adapter's `isEnabled()` — the setting is treated as "off only if
@@ -56,7 +56,7 @@ removes the key (the options page does this on blur), so the live
 default in code is what's used.
 
 `askAiProvider` is a key into the `AI_PROVIDERS` registry exported
-from `extension/ai-providers.js`. Each entry contributes
+from `extension/core/ai-providers.js`. Each entry contributes
 `{ name, urlPrefix }`. Adding a provider is one entry — the options-
 page dropdown is populated from the same registry, and `content.js`
 imports it via `chrome.runtime.getURL`.
@@ -71,9 +71,9 @@ imports it via `chrome.runtime.getURL`.
 | `hanja:<chars>`              | Hanja gloss array     | `background.js` (`hanjaCache.set`)               | `background.js`                                                    |
 | `krdict:<lemma>`             | `{ xml, cachedAt }`   | `background.js` (`krdictCache.set`)              | `background.js` (`fetchKrdictCached`)                              |
 | `opendict:<lemma>`           | `{ xml, cachedAt }`   | `background.js` (`opendictCache.set`)            | `background.js` (`fetchOpendictCached`)                            |
-| `dualSubsOverrides`          | `{ [videoId]: lang }` | `youtube-popup.js` (per-video radio)             | `youtube-adapter.js` (`onChanged` + `resolveSecondaryLang`)        |
-| `dualSubsOverridesNetflix`   | `{ [titleId]: lang }` | `netflix-popup.js` (per-title dropdown)          | `netflix-adapter.js` (`onChanged` + `resolveSecondaryLang`)        |
-| `disabledHosts`              | `string[]`            | `popup.js` (per-site toggle)                     | `content.js` init + `onChanged`; adapters' `isEnabled()`           |
+| `dualSubsOverrides`          | `{ [videoId]: lang }` | `adapters/youtube/popup.js` (per-video radio)    | `adapters/youtube/adapter.js` (`onChanged` + `resolveSecondaryLang`) |
+| `dualSubsOverridesNetflix`   | `{ [titleId]: lang }` | `adapters/netflix/popup.js` (per-title dropdown) | `adapters/netflix/adapter.js` (`onChanged` + `resolveSecondaryLang`) |
+| `disabledHosts`              | `string[]`            | `pages/popup/popup.js` (per-site toggle)         | `content.js` init + `onChanged`; adapters' `isEnabled()`           |
 
 ### Why `chrome.storage.local` (not `session`) for per-video overrides
 
@@ -96,7 +96,7 @@ with no quota concerns and writes through immediately.
 
 ## The four cache namespaces
 
-The `cache.js` module (`createCache(adapter, { namespace })`) is
+The `core/cache.js` module (`createCache(adapter, { namespace })`) is
 instantiated four times in the service worker:
 
 | Namespace    | Key                | Value shape                                                                                          | Populated when                                       |
@@ -138,7 +138,7 @@ any one cache does not touch the others.
 
 ## Two-tier cache: L1 + L2
 
-`cache.js` is a two-tier factory.
+`core/cache.js` is a two-tier factory.
 
 **L1 — in-memory LRU `Map`.** Default limit 500 entries. Access
 bumps recency (delete + re-insert). On full, the oldest insertion is
@@ -188,7 +188,7 @@ the page re-runs `cacheCounts` to refresh the labels. See
 
 ## In-memory mirrors in the SW
 
-Beyond the four `cache.js` instances, the service worker keeps a
+Beyond the four `core/cache.js` instances, the service worker keeps a
 tiny in-memory mirror of the two API keys (`krKey` / `odKey`),
 populated once from `chrome.storage.sync` via `ensureSettings()` and
 kept current via `storage.onChanged`. `handleLookup` reads the mirror

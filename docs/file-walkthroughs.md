@@ -1,6 +1,8 @@
 # Per-file walkthrough
 
-One section per file under `extension/`. Each lists purpose, public
+One section per file under `extension/` (now organized into
+`core/`, `adapters/<site>/`, and `pages/<page>/` subfolders, with
+`background.js` and `content.js` at the root). Each lists purpose, public
 API, module-level state, and the non-obvious invariants. For
 end-to-end flows that cross files, see
 [lookup-pipeline.md](lookup-pipeline.md),
@@ -31,11 +33,15 @@ MV3 manifest. Notable bits:
 - `content_scripts`: `content.js` + `content.css`, matches
   `<all_urls>`, `run_at: document_idle`, `all_frames: false`.
 - `web_accessible_resources`: every JS module that `content.js`
-  dynamic-imports (`parsers.js`, `grammar-glosses.js`,
-  `site-configs.js`, `ai-providers.js`, `youtube-adapter.js`,
-  `youtube-page-hook.js`, `netflix-adapter.js`,
-  `netflix-page-hook.js`), plus `popup-shadow.css`. Accessed via
+  dynamic-imports (`core/parsers.js`, `core/grammar-glosses.js`,
+  `core/site-configs.js`, `core/ai-providers.js`,
+  `adapters/youtube/adapter.js`, `adapters/youtube/page-hook.js`,
+  `adapters/netflix/adapter.js`, `adapters/netflix/page-hook.js`),
+  plus `core/popup-shadow.css`. Accessed via
   `chrome.runtime.getURL(...)`.
+- `action.default_popup: "pages/popup/popup.html"`,
+  `options_page: "pages/options/options.html"` — the toolbar popup
+  and the settings page live under `pages/`.
 
 ---
 
@@ -185,7 +191,7 @@ section per tab can be expanded at a time (tracked in
 
 `displayPosKoreanToEnglishMaybe(pos)` translates Sejong tags (NNG,
 VV, JKB, ...) into KRDict-style Korean POS labels (명사, 동사, 조사,
-...) so `posToShortform` from `parsers.js` produces the right
+...) so `posToShortform` from `core/parsers.js` produces the right
 shortform — that helper expects KRDict's POS vocabulary, not
 mecab's tagset.
 
@@ -253,7 +259,7 @@ Key points:
   parallel via `Promise.all`. Each query's full XML is kept at its
   own slot in `krXmls[]` (null on empty/error), aligned with
   `parallelQueue`.
-- `extractItemWords(xml)` (regex-based, in `api.js`) extracts one
+- `extractItemWords(xml)` (regex-based, in `core/api.js`) extracts one
   `<word>` per `<item>` per query. The per-query word arrays feed
   `pickTabsAndUnrelated`, which returns `{tabs, unrelated}`.
 - OpenDict fallback fires only when every KRDict query returned
@@ -277,7 +283,7 @@ morpheme-inspector page.
 
 ---
 
-## `lemmatizer.js`
+## `core/lemmatizer.js`
 
 Purpose: given mecab tokens and the original surface, produce an
 ordered list of dictionary-form candidates to try against KRDict.
@@ -311,7 +317,7 @@ Deep dive: [LEMMATIZATION.md](LEMMATIZATION.md).
 
 ---
 
-## `parsers.js`
+## `core/parsers.js`
 
 Purpose: KRDict and OpenDict XML → normalized entry objects, plus a
 batch of POS / Hanja / grade / outbound-link helpers. Pure module —
@@ -345,7 +351,7 @@ wrapping.
 
 ---
 
-## `api.js`
+## `core/api.js`
 
 Purpose: pure URL builders, response-shape sniffers, and the
 group-by-word algorithm. Zero dependencies on fetch, chrome.*, or
@@ -372,7 +378,7 @@ Exports:
 
 ---
 
-## `cache.js`
+## `core/cache.js`
 
 Purpose: two-tier (in-memory LRU + injected storage adapter) cache
 factory. Used four times in `background.js`. Full coverage in
@@ -388,7 +394,7 @@ Exports:
 
 ---
 
-## `grammar-glosses.js`
+## `core/grammar-glosses.js`
 
 Purpose: hand-curated table of short English glosses for the
 morphemes a learner sees over and over — particles, endings, common
@@ -407,7 +413,7 @@ Exports:
 
 ---
 
-## `site-configs.js`
+## `core/site-configs.js`
 
 Purpose: the single registry that makes the extension's video-site
 behavior modular. Registers YouTube and Netflix. Fields:
@@ -432,18 +438,19 @@ Exports: `SITE_CONFIGS` (array) and `findSiteConfig(hostname)`
 
 ---
 
-## `ai-providers.js`
+## `core/ai-providers.js`
 
 Registry of "Ask AI" pill targets. Two entries shipped:
 `chatgpt` (`https://chatgpt.com/?q=`) and `claude`
 (`https://claude.ai/new?q=`). Imported by both `content.js`
-(via `chrome.runtime.getURL`) and `options.js` (static import).
+(via `chrome.runtime.getURL`) and `pages/options/options.js`
+(dynamic import).
 Adding a provider is one entry — the options-page dropdown is
 populated from the same registry.
 
 ---
 
-## `youtube-adapter.js`
+## `adapters/youtube/adapter.js`
 
 Purpose: site adapter for YouTube. Runs in the isolated content
 world. Replaces native caption rendering with a dual-line overlay.
@@ -471,7 +478,7 @@ change discussion: [site-adapters.md](site-adapters.md).
 
 ---
 
-## `youtube-page-hook.js`
+## `adapters/youtube/page-hook.js`
 
 Purpose: runs in the page main world. Monkey-patches
 `XMLHttpRequest.prototype.open` and `window.fetch` to capture every
@@ -486,7 +493,7 @@ Full message protocol: [message-flows.md](message-flows.md).
 
 ---
 
-## `netflix-adapter.js`
+## `adapters/netflix/adapter.js`
 
 Purpose: site adapter for Netflix. Runs in the isolated content
 world. TTML parser + per-language cache (`tracksByLang`) + dual-
@@ -498,7 +505,7 @@ resolution: [site-adapters.md](site-adapters.md).
 
 ---
 
-## `netflix-page-hook.js`
+## `adapters/netflix/page-hook.js`
 
 Purpose: runs in the page main world. Two responsibilities:
 
@@ -520,7 +527,7 @@ Idempotent via `window.__lwsNxHookInstalled`.
 
 ---
 
-## `popup.html` / `popup.js` / `popup.css`
+## `pages/popup/popup.html` / `popup.js` / `popup.css`
 
 The toolbar action UI. Sections:
 
@@ -531,10 +538,11 @@ The toolbar action UI. Sections:
 - **Adapter section** — generic shell. `loadAdapterSection()`
   resolves the active tab's hostname against `findSiteConfig(...)`
   and dynamic-imports the matched config's `popupModule`. For
-  YouTube this is `youtube-popup.js`; for Netflix
-  `netflix-popup.js`.
+  YouTube this is `adapters/youtube/popup.js`; for Netflix
+  `adapters/netflix/popup.js`.
 - **Links row** — left-aligned inline-SVG icons: Notepad (opens
-  `notepad.html` via `chrome.runtime.getURL`), Settings (gear),
+  `pages/notepad/notepad.html` via `chrome.runtime.getURL`),
+  Settings (gear),
   plus external links (GitHub, Discord) gated by `LINKS` dict.
 - **Ko-fi support banner** — full-width red button below the links
   row. Gated by `LINKS.kofi`.
@@ -547,25 +555,25 @@ popup modules and the options/notepad/inspector pages.
 
 ---
 
-## `options.html` / `options.js` / `options.css`
+## `pages/options/options.html` / `options.js` / `options.css`
 
 See [extension-surfaces.md](extension-surfaces.md).
 
 ---
 
-## `notepad.html` / `notepad.js`
+## `pages/notepad/notepad.html` / `notepad.js`
 
 See [extension-surfaces.md](extension-surfaces.md).
 
 ---
 
-## `morpheme-inspector.html` / `.js` / `.css`
+## `pages/morpheme-inspector/morpheme-inspector.html` / `.js` / `.css`
 
 See [extension-surfaces.md](extension-surfaces.md).
 
 ---
 
-## `popup-shadow.css`
+## `core/popup-shadow.css`
 
 The stylesheet for the in-page hover popup. Lives in
 `web_accessible_resources` so it can be loaded into the shadow DOM.
@@ -582,7 +590,8 @@ popup scrolls with the page.
 ## `content.css`
 
 Tiny — `.lws-word { cursor: help; border-bottom: 1px dashed ... }`
-and the hover background. The popup itself is in `popup-shadow.css`.
+and the hover background. The popup itself is in
+`core/popup-shadow.css`.
 
 ---
 

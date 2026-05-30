@@ -125,7 +125,7 @@ async function loadAdapterSection() {
   if (site.protocol !== 'http:' && site.protocol !== 'https:') return;
   let findSiteConfig;
   try {
-    ({ findSiteConfig } = await import('./site-configs.js'));
+    ({ findSiteConfig } = await import('../../core/site-configs.js'));
   } catch {
     return;
   }
@@ -133,7 +133,7 @@ async function loadAdapterSection() {
   if (!cfg || !cfg.popupModule) return;
   let mod;
   try {
-    mod = await import(`./${cfg.popupModule}`);
+    mod = await import(`../../${cfg.popupModule}`);
   } catch {
     return;
   }
@@ -159,7 +159,7 @@ loadAdapterSection();
 // placeholder, a real URL renders an active link.
 const notepadLink = document.getElementById('notepad-link');
 if (notepadLink) {
-  notepadLink.href = chrome.runtime.getURL('notepad.html');
+  notepadLink.href = chrome.runtime.getURL('pages/notepad/notepad.html');
   notepadLink.target = '_blank';
   notepadLink.rel = 'noopener noreferrer';
 }

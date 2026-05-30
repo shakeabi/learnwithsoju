@@ -17,7 +17,7 @@ import {
   koreanVerbUrl,
   isVerbLikePos,
   posExplanation,
-} from '../extension/parsers.js';
+} from '../extension/core/parsers.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => readFileSync(join(__dirname, 'fixtures', name), 'utf8');

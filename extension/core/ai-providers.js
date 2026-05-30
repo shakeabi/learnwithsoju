@@ -11,10 +11,10 @@
  * the pill href) read this registry, so neither needs editing.
  *
  * Loaded from:
- *   - `content.js` via `import(chrome.runtime.getURL('ai-providers.js'))`
+ *   - `content.js` via `import(chrome.runtime.getURL('core/ai-providers.js'))`
  *     (content-script context can't use static relative imports).
- *   - `options.js` via static `import './ai-providers.js'` (extension
- *     page context — options.html declares the script with type=module).
+ *   - `pages/options/options.js` via dynamic `import('../../core/ai-providers.js')`
+ *     (extension page context).
  *
  * Add this file to `web_accessible_resources` in manifest.json so the
  * content script's runtime URL resolves.

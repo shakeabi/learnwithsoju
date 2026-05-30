@@ -13,7 +13,7 @@ Related reading:
 
 ---
 
-## Toolbar popup (`popup.html` / `popup.js` / `popup.css`)
+## Toolbar popup (`pages/popup/popup.html` / `popup.js` / `popup.css`)
 
 The panel that opens when the user clicks the extension's toolbar
 icon. Four sections, top to bottom:
@@ -33,14 +33,14 @@ is no global hover-dictionary toggle — for "off everywhere", use
 ### Per-site adapter section
 
 Generic shell. `loadAdapterSection()` resolves the active tab's
-hostname against `findSiteConfig(...)` from `site-configs.js`, and
-if the matched config declares a `popupModule`, dynamic-imports
+hostname against `findSiteConfig(...)` from `core/site-configs.js`,
+and if the matched config declares a `popupModule`, dynamic-imports
 that module and calls `renderSection({ tab, href, container })`.
 The module owns all DOM under `<section id="site-adapter-section">`
 and is responsible for `container.hidden = false`. Currently:
 
-- `youtube-popup.js` for `youtube.com`
-- `netflix-popup.js` for `netflix.com`
+- `adapters/youtube/popup.js` for `youtube.com`
+- `adapters/netflix/popup.js` for `netflix.com`
 
 ### Links row
 
@@ -48,7 +48,7 @@ Left-aligned inline-SVG icons at the bottom of the popup. Always-
 present icons baked into `popup.html`:
 
 - **Notepad** — `href` resolved at popup-open time via
-  `chrome.runtime.getURL('notepad.html')`.
+  `chrome.runtime.getURL('pages/notepad/notepad.html')`.
 - **Settings** — gear `<button>` wired to
   `chrome.runtime.openOptionsPage()`.
 
@@ -62,9 +62,9 @@ Full-width red button below the links row. Gated by `LINKS.kofi`:
 empty string leaves it dimmed and non-interactive; setting a URL
 flips it to an active link.
 
-### `youtube-popup.js`
+### `adapters/youtube/popup.js`
 
-Popup-side counterpart to `youtube-adapter.js`. Exports
+Popup-side counterpart to `adapters/youtube/adapter.js`. Exports
 `renderSection({ tab, href, container })`:
 
 1. Returns silently if the tab isn't on `/watch`.
@@ -82,9 +82,9 @@ Popup-side counterpart to `youtube-adapter.js`. Exports
    `onChanged` listener picks it up and re-activates without a
    direct message.
 
-### `netflix-popup.js`
+### `adapters/netflix/popup.js`
 
-Mirror of `youtube-popup.js` for Netflix. Exports `renderSection`:
+Mirror of `adapters/youtube/popup.js` for Netflix. Exports `renderSection`:
 
 1. Returns silently if the tab isn't on `/watch/*`.
 2. Sends `lws-nx-popup-info` to the active tab; the adapter
@@ -102,7 +102,7 @@ Mirror of `youtube-popup.js` for Netflix. Exports `renderSection`:
 
 ---
 
-## Options page (`options.html` / `options.js` / `options.css`)
+## Options page (`pages/options/options.html` / `options.js` / `options.css`)
 
 Linked from the popup (gear icon) and from `chrome://extensions`
 via the manifest's `options_page` field. Sections:
@@ -127,13 +127,14 @@ with `q=사람` and surfaces the error code or success.
   or the default text removes the key so the live default re-
   applies.
 - **AI provider** `<select>` populated dynamically from
-  `ai-providers.js` and bound to `askAiProvider` (sync). When the
+  `core/ai-providers.js` and bound to `askAiProvider` (sync). When the
   selected provider is ChatGPT, a "Use temporary (ephemeral)
   ChatGPT chats" checkbox appears (hidden otherwise) and is bound
   to `askAiChatGptTemporary` (sync); when checked, `buildAskAiUrl`
   appends `?temporary-chat=true`.
-- **Morpheme inspector link** — opens `morpheme-inspector.html` in
-  a new tab. `href` resolved via `chrome.runtime.getURL` at load.
+- **Morpheme inspector link** — opens
+  `pages/morpheme-inspector/morpheme-inspector.html` in a new tab.
+  `href` resolved via `chrome.runtime.getURL` at load.
 
 ### Cache
 
@@ -160,7 +161,7 @@ settings — paste-a-word lookup has moved to its own Notepad page
 
 ---
 
-## Notepad (`notepad.html` / `notepad.js`)
+## Notepad (`pages/notepad/notepad.html` / `notepad.js`)
 
 Standalone extension page reached from the toolbar popup's links
 row. Two cards:
@@ -198,7 +199,7 @@ everything.
 
 ---
 
-## Morpheme inspector (`morpheme-inspector.html` / `.js` / `.css`)
+## Morpheme inspector (`pages/morpheme-inspector/morpheme-inspector.html` / `.js` / `.css`)
 
 Developer / curious-learner tool reached from the options page's
 Advanced section. A single textarea drives a live analysis (200 ms

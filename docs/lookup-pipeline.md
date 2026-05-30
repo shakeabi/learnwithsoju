@@ -18,8 +18,9 @@ Related reading:
 
 ## End-to-end: hover → popup
 
-Files: `content.js`, `background.js`, `lemmatizer.js`, `parsers.js`,
-`grammar-glosses.js`, `api.js`, `cache.js`, `vendor/mecab-ko/`*.
+Files: `content.js`, `background.js`, `core/lemmatizer.js`,
+`core/parsers.js`, `core/grammar-glosses.js`, `core/api.js`,
+`core/cache.js`, `vendor/mecab-ko/`*.
 
 1. Mouse enters a `.lws-word` span. `delegateEnter` →
    `onWordEnter(target)`.
@@ -91,7 +92,7 @@ Files: `content.js`, `background.js`, `lemmatizer.js`, `parsers.js`,
       candidate order until one returns content. The `opendict:`
       cache is consulted first.
    7. **Per-query word extraction.** For each non-empty XML,
-      `extractItemWords(xml)` (regex, in `api.js` — no DOMParser
+      `extractItemWords(xml)` (regex, in `core/api.js` — no DOMParser
       in the service worker) reads the `<word>` of each `<item>` in
       document order. That per-query word list drives
       `pickTabsAndUnrelated`.
@@ -176,7 +177,7 @@ chunk containing a Hangul "core" is wrapped in a
 
 `background.js` runs the top-5 lemma candidates as parallel KRDict
 queries, then assembles the response into `{tabs, unrelated}` using
-`pickTabsAndUnrelated` (in `api.js`, pure, fully unit-tested). The
+`pickTabsAndUnrelated` (in `core/api.js`, pure, fully unit-tested). The
 content script renders one tab per `tabs[i].word`, each tab holding
 1+ sections (= one KRDict entry per section).
 

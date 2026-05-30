@@ -2,10 +2,10 @@
  * YouTube section for the toolbar popup.
  *
  * Loaded dynamically by popup.js when the active tab matches the YouTube
- * SITE_CONFIGS entry (extension/site-configs.js → popupModule). Owns all
- * DOM under the container it's handed; popup.js stays generic so adding
+ * SITE_CONFIGS entry (extension/core/site-configs.js → popupModule). Owns
+ * all DOM under the container it's handed; popup.js stays generic so adding
  * Netflix / Viki later is purely additive (new SITE_CONFIGS entry + its
- * own *-popup.js).
+ * own adapters/<site>/popup.js).
  *
  * Contract:
  *   export async function renderSection({ tab, container })

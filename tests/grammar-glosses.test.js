@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { morphemeGloss, isContentMorpheme } from '../extension/grammar-glosses.js';
+import { morphemeGloss, isContentMorpheme } from '../extension/core/grammar-glosses.js';
 
 test('morphemeGloss: form match takes priority over POS gloss', () => {
   assert.match(morphemeGloss('에서', 'JKB'), /from \/ at/);

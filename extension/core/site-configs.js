@@ -58,15 +58,15 @@
  *     match: /(^|\.)netflix\.com$/,
  *     sentenceContainer: '.netflix-caption-line, ...',
  *     findVideo: () => document.querySelector('video') || null,
- *     adapter: 'netflix-adapter.js',
- *     popupModule: 'netflix-popup.js',  // optional
+ *     adapter: 'adapters/netflix/adapter.js',
+ *     popupModule: 'adapters/netflix/popup.js',  // optional
  *   }
  *
- * Then drop `netflix-adapter.js` + `netflix-popup.js` next to the YT
- * pair and add them to `web_accessible_resources` in manifest.json (the
- * adapter needs WAR because content scripts dynamic-import from the
- * page world; the popup module does not, since popup.js runs in the
- * extension context).
+ * Then drop `adapters/netflix/adapter.js` + `adapters/netflix/popup.js`
+ * next to the YT pair and add them to `web_accessible_resources` in
+ * manifest.json (the adapter needs WAR because content scripts dynamic-
+ * import from the page world; the popup module does not, since popup.js
+ * runs in the extension context).
  *
  * `closest()` walks up from the hovered word, so when multiple comma-
  * separated selectors are given, the tightest matching ancestor wins.
@@ -98,10 +98,10 @@ export const SITE_CONFIGS = [
     // Dual-subtitle overlay (Korean + English). Replaces YouTube's native
     // caption rendering with our own time-synced div; English is the
     // manual track if available, else YouTube auto-translate from KO.
-    adapter: 'youtube-adapter.js',
+    adapter: 'adapters/youtube/adapter.js',
     // Toolbar-popup section: secondary-language picker for the current
-    // video. See extension/youtube-popup.js.
-    popupModule: 'youtube-popup.js',
+    // video. See extension/adapters/youtube/popup.js.
+    popupModule: 'adapters/youtube/popup.js',
   },
   {
     name: 'Netflix',
@@ -115,7 +115,7 @@ export const SITE_CONFIGS = [
     // closest() up from a hovered .lws-word lands on the line
     // container; we use its textContent as the sentence.
     //
-    // Once netflix-adapter.js mounts its own overlay (TTML parse +
+    // Once adapters/netflix/adapter.js mounts its own overlay (TTML parse +
     // dual lines), it hides Netflix's native caption containers and
     // its KO line lives in `.lws-nxsubs-ko`. That selector is FIRST
     // so a hovered word in the overlay matches it before walking up
@@ -162,10 +162,10 @@ export const SITE_CONFIGS = [
     // Phase 2.x is in progress the .lws-word z-index fix above is
     // still useful — until our own overlay is mounted, hovers still
     // target Netflix's native captions and need the lift.
-    adapter: 'netflix-adapter.js',
+    adapter: 'adapters/netflix/adapter.js',
     // Toolbar-popup section: secondary-language picker for the
-    // current Netflix title. See extension/netflix-popup.js.
-    popupModule: 'netflix-popup.js',
+    // current Netflix title. See extension/adapters/netflix/popup.js.
+    popupModule: 'adapters/netflix/popup.js',
   },
 ];
 
