@@ -46,6 +46,8 @@
  * goes through the hard-reload path instead.
  */
 
+const LWS_YT_DIAG = false;
+
 const SETTING_KEY = 'dualSubsYouTube';
 const DEFAULT_SECONDARY_KEY = 'secondaryLang';
 // chrome.storage.local because session storage is restricted to trusted
@@ -188,6 +190,11 @@ async function resolveSecondaryLang(videoId) {
 
 function log(...args) {
   console.log('[learnwithsoju/youtube]', ...args);
+}
+
+function diagLog(...args) {
+  if (!LWS_YT_DIAG) return;
+  try { console.log('[lws-yt-diag]', ...args); } catch {}
 }
 
 async function activate() {
@@ -392,6 +399,18 @@ async function initForCurrentVideo() {
   const overlay = buildOverlay();
   overlay.style.display = 'none';
   container.appendChild(overlay);
+  if (LWS_YT_DIAG) {
+    try {
+      const initDisplay = getComputedStyle(overlay).display;
+      const initVis = getComputedStyle(overlay).visibility;
+      const initOp = getComputedStyle(overlay).opacity;
+      const outerHtml = overlay.outerHTML.slice(0, 200);
+      diagLog(`overlay mounted — initial visibility=${initDisplay} / ${initVis} / ${initOp}, element=${outerHtml}`);
+      diagLog(`overlay computed CSS: display=${initDisplay} / visibility=${initVis} / opacity=${initOp}`);
+    } catch (diagErr) {
+      diagLog('overlay mount diag threw:', diagErr && diagErr.message);
+    }
+  }
   // styleEl is added/removed dynamically — only mounted while the
   // overlay is visible, so when CC is off (or set to a non-KO lang)
   // YouTube's own caption window stays free to render.
@@ -434,6 +453,35 @@ async function initForCurrentVideo() {
   // read failure doesn't hide the overlay the user opted into.
   let lastMode = null;
   function setOverlayVisible(visible) {
+    if (LWS_YT_DIAG) {
+      try {
+        const caller = new Error().stack.split('\n').slice(2, 4).join(' | ');
+        const beforeDisplay = getComputedStyle(overlay).display;
+        if (visible) {
+          overlay.style.display = '';
+          if (!styleEl) styleEl = hideNativeCaptions();
+          update();
+        } else {
+          overlay.style.display = 'none';
+          if (styleEl && styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
+          styleEl = null;
+        }
+        const afterDisplay = getComputedStyle(overlay).display;
+        diagLog(`setOverlayVisible(${visible}) — caller=${caller} before=${beforeDisplay} after=${afterDisplay}`);
+      } catch (diagErr) {
+        diagLog('setOverlayVisible diag threw:', diagErr && diagErr.message);
+        if (visible) {
+          overlay.style.display = '';
+          if (!styleEl) styleEl = hideNativeCaptions();
+          update();
+        } else {
+          overlay.style.display = 'none';
+          if (styleEl && styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
+          styleEl = null;
+        }
+      }
+      return;
+    }
     if (visible) {
       overlay.style.display = '';
       if (!styleEl) styleEl = hideNativeCaptions();
@@ -459,6 +507,7 @@ async function initForCurrentVideo() {
   async function evaluateCcState() {
     const track = await readCurrentTrack();
     const mode = classifyTrack(track);
+    diagLog(`state: ${lastMode} → ${mode} — getOption returned=${JSON.stringify(track === TRACK_UNKNOWN ? '(TRACK_UNKNOWN)' : track)}`);
     if (mode === lastMode) return;
     lastMode = mode;
     const desc = track === TRACK_UNKNOWN
@@ -471,8 +520,23 @@ async function initForCurrentVideo() {
   // hidden) on the same tick the mount completes, instead of waiting a
   // full 500 ms for the first poll. Fire-and-forget — any error inside
   // is already logged by readCurrentTrack.
-  void evaluateCcState();
-  const ccPoll = setInterval(() => { void evaluateCcState(); }, 500);
+  let firstPollDone = false;
+  const _origEvaluateCcState = evaluateCcState;
+  const evaluateCcStateWithDiag = LWS_YT_DIAG
+    ? async () => {
+      const track = await readCurrentTrack().catch(() => TRACK_UNKNOWN);
+      const classified = classifyTrack(track);
+      if (!firstPollDone) {
+        firstPollDone = true;
+        try {
+          diagLog(`first poll after mount: track=${JSON.stringify(track === TRACK_UNKNOWN ? '(TRACK_UNKNOWN)' : track)}, classified=${classified}`);
+        } catch {}
+      }
+      return _origEvaluateCcState();
+    }
+    : evaluateCcState;
+  void evaluateCcStateWithDiag();
+  const ccPoll = setInterval(() => { void evaluateCcStateWithDiag(); }, 500);
 
   return () => {
     clearInterval(ccPoll);
@@ -857,7 +921,10 @@ function buildOverlay() {
 
 function hideNativeCaptions() {
   const existing = document.getElementById(STYLE_ID);
-  if (existing) return existing;
+  if (existing) {
+    diagLog(`hide-captions CSS already present: id=${STYLE_ID}`);
+    return existing;
+  }
   const style = document.createElement('style');
   style.id = STYLE_ID;
   // Two rules in one stylesheet — both adapter-owned, both injected
@@ -882,5 +949,6 @@ function hideNativeCaptions() {
     }
   `;
   document.head.appendChild(style);
+  diagLog(`hide-captions CSS injected: id=${STYLE_ID}, content=${style.textContent.slice(0, 200)}`);
   return style;
 }
