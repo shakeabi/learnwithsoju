@@ -1580,21 +1580,20 @@ direct messaging from the options page.
 Standalone extension page reached from the toolbar popup's links row
 (§7.12). Two cards:
 
-- "Paste text" — a `<textarea>` with "Add to notepad" + "Clear"
-  buttons. Autofocused on landing so the user can paste immediately.
-  Ctrl/Cmd+Enter in the textarea is a shortcut for "Add" so the user
-  doesn't have to grab the mouse after every paste.
+- "Paste text" — a `<textarea>` autofocused on landing. There are no
+  Add/Clear buttons: `notepad.js` wires the textarea's `input` event to
+  set `target.textContent = input.value` with a 150 ms debounce, so
+  Korean words wrap and become hoverable within ~150 ms of the user
+  stopping typing.
 - "Hoverable text" — a target `<div>` with `white-space: pre-wrap` so
-  paragraph breaks from the paste survive. Clicking "Add" sets
-  `target.textContent = input.value`; content.js's mutation observer
-  then wraps each Korean run in a `.lws-word` span, and the regular
-  in-page hover popup machinery takes over — same dictionary popup
-  the user gets on any webpage. The target div carries the class
-  `lws-sentence-root`; `extractSentence` in content.js treats the
-  nearest `.lws-sentence-root` ancestor as the hard ceiling when
-  walking up the DOM, so the sentence context is scoped to the pasted
-  text only and never includes sibling instruction text in the same
-  card.
+  paragraph breaks from the paste survive. content.js's mutation observer
+  wraps each Korean run in a `.lws-word` span, and the regular in-page
+  hover popup machinery takes over — same dictionary popup the user gets
+  on any webpage. The target div carries the class `lws-sentence-root`;
+  `extractSentence` in content.js treats the nearest `.lws-sentence-root`
+  ancestor as the hard ceiling when walking up the DOM, so the sentence
+  context is scoped to the typed text only and never includes sibling
+  instruction text in the same card.
 
 The page links `content.css` (for the `.lws-word` underline) and
 loads `content.js` as a plain `<script src>` at the bottom — its

@@ -8,7 +8,9 @@
  *
  * `pos` carries Sejong POS tags, sometimes merged with `+` for fused
  * morphemes (e.g. `VV+EP`, `XSV+EF`). We split on `+` and look at the
- * leading tag to decide what role each morpheme plays.
+ * leading tag to decide what role each morpheme plays. See
+ * `grammar/grammar-glosses.md` for the full tag reference and constant-set
+ * membership table.
  *
  * The `features` field is the raw mecab-ko-dic CSV row:
  *   `pos,semantic,jongseong,reading,type,first_pos,last_pos,decomposition`
