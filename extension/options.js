@@ -271,4 +271,10 @@ if (clearCacheBtn) {
   });
 }
 
+const inspectorLink = document.getElementById('morpheme-inspector-link');
+if (inspectorLink) {
+  inspectorLink.href = chrome.runtime.getURL('morpheme-inspector.html');
+  inspectorLink.rel = 'noopener noreferrer';
+}
+
 load();

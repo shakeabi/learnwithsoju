@@ -279,6 +279,22 @@ async function handleLookup(surface) {
   return result;
 }
 
+function serializeToken(t) {
+  const feats = (t.features || '').split(',');
+  return {
+    surface: t.surface,
+    pos: t.pos,
+    features: t.features,
+    type: feats[4] || '',
+    firstPos: feats[5] || '',
+    lastPos: feats[6] || '',
+    decomp: feats[7] || '',
+    reading: t.reading || '',
+    start: t.start,
+    end: t.end,
+  };
+}
+
 function pickTopNDistinct(candidates, n) {
   const out = [];
   for (const c of candidates) {
@@ -366,6 +382,27 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     Promise.all([cache.clear(), hanjaCache.clear(), krdictCache.clear(), opendictCache.clear()])
       .then(() => { console.log('[lws] dict cache cleared'); sendResponse({ ok: true }); })
       .catch((err) => sendResponse({ ok: false, error: String(err && err.message || err) }));
+    return true;
+  }
+  if (msg && msg.type === 'mecab-inspect') {
+    (async () => {
+      try {
+        const text = String(msg.text || '').trim();
+        if (!text) { sendResponse({ singlePath: [], nbestPaths: [], candidates: [] }); return; }
+        await ensureMecab();
+        const mecab = mecabInstance;
+        const singlePath = mecab.tokenize(text).map(serializeToken);
+        const nbestRaw = mecab.tokenize_nbest(text, Number(msg.nbest) || 5);
+        const nbestPaths = Array.isArray(nbestRaw)
+          ? nbestRaw.map((p) => ({ cost: p.cost, tokens: (p.tokens || []).map(serializeToken) }))
+          : [];
+        const candidates = lemmaCandidatesFromNbest(nbestPaths, text);
+        sendResponse({ singlePath, nbestPaths, candidates });
+      } catch (err) {
+        console.warn('[lws] mecab-inspect failed:', err);
+        sendResponse({ error: err && err.message || String(err) });
+      }
+    })();
     return true;
   }
 });

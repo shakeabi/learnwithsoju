@@ -276,6 +276,9 @@ learnwithsoju/
 │   ├── options.css                     ← styling for the settings page
 │   ├── notepad.html                    ← standalone extension page; paste Korean text, hover any word
 │   ├── notepad.js                      ← notepad page logic (commit textarea → display area; content.js's observer wraps the runs)
+│   ├── morpheme-inspector.html         ← developer tool; tokenize Korean text and inspect every mecab field
+│   ├── morpheme-inspector.js           ← inspector page logic (debounced input → mecab-inspect message → three-section render)
+│   ├── morpheme-inspector.css          ← inspector-specific styles (token table, path cards, candidate chips)
 │   ├── icons/                          ← 16, 48, 128 px PNGs used by chrome://extensions and the toolbar
 │   └── vendor/
 │       └── mecab-ko/                   ← vendored analyzer artifacts (NOT a npm package — copied from a fork)
@@ -1629,6 +1632,16 @@ so no site adapter loads.
 No persistence — the paste is ephemeral, and a page refresh resets
 everything. (We may add a "saved snippets" feature later, but the MVP
 is deliberately stateless: one paste → hover → done.)
+
+### 7.13.2 `morpheme-inspector.html` / `morpheme-inspector.js`
+
+Developer/curious-learner tool reached from the options page's Advanced section. A single textarea drives a live analysis (200 ms debounce) that sends `{ type: 'mecab-inspect', text, nbest: 5 }` to the background service worker. The response carries three fields: `singlePath` (the 1-best tokenization), `nbestPaths` (up to 5 alternative paths with cost), and `candidates` (the flat deduplicated lemma list that `lemmaCandidatesFromNbest` would feed to KRDict). These are rendered as three cards:
+
+- **Single best path** — an HTML table with columns Surface, POS, Type, First pos, Last pos, Decomp, Reading, Full features. The features column is monospace and truncated with an ellipsis; hovering reveals the full CSV via `title`.
+- **N-best paths** — one collapsible `<details>` card per path. Path 0 is open by default; the rest are collapsed. Each card's body uses the same table layout as section 1.
+- **Lemma candidates** — the flat string list from `lemmaCandidatesFromNbest` rendered as accent-coloured chips; these are exactly the strings that would be queried against KRDict.
+
+The background `mecab-inspect` handler re-uses `ensureMecab()` (same lazy-init path as the lookup pipeline) and a new `serializeToken` helper that extracts the four sub-fields from the raw features CSV (type at index 4, first\_pos at 5, last\_pos at 6, decomp at 7). The page does not load `content.js` — it needs no hover popup machinery; it's a pure data inspector.
 
 ### 7.14 `popup-shadow.css`
 
