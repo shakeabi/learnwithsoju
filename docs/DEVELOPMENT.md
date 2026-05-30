@@ -34,7 +34,7 @@ any Korean word and a popup appears showing:
   structured prompt pre-filled — five sections: Quick Summary (meaning,
   lemma, POS, frequency, register), Translation, Breakdown table,
   About the word (common usages, similar words, natural alternatives,
-  common conjugated forms), and a Grammar deep-dive. The prompt
+  common conjugated forms), and a Grammar deep-dive that covers multi-word patterns (auxiliary chains, dependent-noun constructions) extending past the focus word. The prompt
   template is fully customizable
 
 On YouTube, the extension goes a step further: when the video has a
