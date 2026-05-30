@@ -58,15 +58,26 @@ extension:
     track is captured. The overlay shows KO alone if only Korean has
     been captured so far; once a secondary track arrives (e.g. the
     user toggles between KO and EN in Netflix's CC menu during the
-    session), the overlay re-renders with both lines.
+    session), the overlay re-renders with both lines,
+  - exposes a per-title Secondary Subs dropdown in the toolbar
+    popup (`netflix-popup.js`, mirrors YouTube's
+    `youtube-popup.js`): every non-Korean language captured so far
+    is listed (CC variants get a `(CC)` suffix). The selection is
+    persisted to `dualSubsOverridesNetflix` in `chrome.storage.local`
+    keyed by Netflix titleId, so each title remembers its own
+    secondary-line preference across reloads. The adapter's
+    `chrome.storage.onChanged` listener re-renders the overlay with
+    the new secondary on change (no activate/deactivate churn —
+    the captured tracks are still valid, only the choice of line 2
+    changed).
 
 Netflix only fetches the user's currently-selected subtitle track,
 not all of them, so dual-line display requires the user to have
-loaded both languages at some point in the session. Phase 2.3+ will
-look at programmatically priming a secondary fetch (likely via
-Netflix's internal player API once we identify a stable entry point)
-and Phase 2.4 will add `netflix-popup.js` for per-video
-secondary-language override.
+loaded both languages at some point in the session — the toolbar
+dropdown can only offer languages that have already been primed via
+Netflix's own CC menu. Programmatically priming a secondary fetch
+(likely via Netflix's internal player API once we identify a stable
+entry point) is parked for now.
 
 Per-site behaviour: the toolbar popup has a per-host disable toggle that
 takes effect immediately — dictionary popups stop firing, the dashed
@@ -206,6 +217,7 @@ learnwithsoju/
 │   ├── youtube-popup.js                ← popup-side YouTube section (secondary-language dropdown); dynamic-imported by popup.js
 │   ├── youtube-page-hook.js            ← page-main-world script; XHR/fetch hooks + tracklist/load-track command channel
 │   ├── netflix-adapter.js              ← content-script-side Netflix adapter (TTML parse, per-lang cache, dual-line overlay; secondary-track priming pending)
+│   ├── netflix-popup.js                ← popup-side Netflix section (secondary-language dropdown); dynamic-imported by popup.js
 │   ├── netflix-page-hook.js            ← page-main-world script; XHR/fetch hooks for Netflix subtitle URLs (TTML/DFXP/WebVTT)
 │   ├── cache.js                        ← two-tier (in-mem LRU + storage adapter) cache factory; namespaced (pure)
 │   ├── popup.html                      ← toolbar-action popup markup
@@ -321,6 +333,7 @@ picks it up via `chrome.runtime.getURL` import (the file is listed in
 | `lookup:<surface>`  | `LookupResponse`      | `background.js` (`cache.set`)          | `background.js` (`cache.get`)                           |
 | `hanja:<chars>`     | Hanja gloss array     | `background.js` (`hanjaCache.set`)     | `background.js`                                         |
 | `dualSubsOverrides` | `{ [videoId]: lang }` | `popup.js` (per-video radio selection) | `youtube-adapter.js` (onChanged + resolveSecondaryLang) |
+| `dualSubsOverridesNetflix` | `{ [titleId]: lang }` | `netflix-popup.js` (per-title dropdown) | `netflix-adapter.js` (onChanged + resolveSecondaryLang) |
 | `disabledHosts`     | `string[]`            | `popup.js` (per-site toggle)           | `content.js` init + onChanged listener                  |
 
 
@@ -431,6 +444,7 @@ broadcast bus for settings:
 | `dualSubsYouTube`       | `youtube-adapter.js`              | Re-activate / deactivate dual subs on the current page                                                                                                                                                   |
 | `secondaryLang`         | `youtube-adapter.js`              | Re-activate so the new default applies                                                                                                                                                                   |
 | `dualSubsOverrides`     | `youtube-adapter.js` (local area) | Re-activate if the override changed for the current video                                                                                                                                                |
+| `dualSubsOverridesNetflix` | `netflix-adapter.js` (local area) | Re-render the overlay with the new secondary if the override changed for the current titleId (no activate/deactivate — captured tracks stay)                                                       |
 
 
 This keeps the options page from having to know which tabs to message —

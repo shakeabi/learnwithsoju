@@ -30,6 +30,11 @@
 const HOOK_PATH = 'netflix-page-hook.js';
 const DISABLED_HOSTS_KEY = 'disabledHosts';
 const DEFAULT_SECONDARY_KEY = 'secondaryLang';
+// Per-title override map, keyed by Netflix titleId. Written by
+// netflix-popup.js (Secondary Subs dropdown); read here via the
+// resolveSecondaryLang fallback chain. Separate from YouTube's
+// `dualSubsOverrides` so titleId/videoId namespaces can't collide.
+const PER_TITLE_OVERRIDE_KEY = 'dualSubsOverridesNetflix';
 const OVERLAY_CLASS = 'lws-nxsubs-overlay';
 const NX_HIDE_STYLE_ID = 'lws-hide-nx-captions';
 
@@ -56,6 +61,10 @@ let hostRescan = () => {};
 // with whatever's available now.
 let tracksByLang = new Map();
 let overlayState = null; // { overlayEl, styleEl, update, video, listeners }
+// Most recent secondary language we picked for the overlay. Exposed
+// to the toolbar popup (lws-nx-popup-info) so the dropdown can
+// preselect what's actually rendering. Updated at every rebuild.
+let lastSecondaryLang = null;
 
 function log(...args) {
   console.log('[learnwithsoju/netflix]', ...args);
@@ -76,12 +85,48 @@ export async function setup(api = {}) {
   });
 
   // Per-site toggle change → reactivate. Mirrors YouTube; same
-  // chrome.storage.local key.
+  // chrome.storage.local key. The per-title override key gets a
+  // softer treatment: re-render the overlay with the new secondary
+  // (no tear-down/re-init of the whole adapter session — the
+  // captured tracks are still valid, just the choice of which one
+  // renders as line 2 changed).
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes[DISABLED_HOSTS_KEY]) {
+    if (area !== 'local') return;
+    if (changes[DISABLED_HOSTS_KEY]) {
       handleNavStart();
       handleNavFinish();
     }
+    if (changes[PER_TITLE_OVERRIDE_KEY]) {
+      const newMap = changes[PER_TITLE_OVERRIDE_KEY].newValue || {};
+      const oldMap = changes[PER_TITLE_OVERRIDE_KEY].oldValue || {};
+      const tid = currentTitleId();
+      if (tid && newMap[tid] !== oldMap[tid]) {
+        void rebuildOverlay();
+      }
+    }
+  });
+
+  // Toolbar popup ↔ adapter messages. Synchronous reply (return false)
+  // so we don't hold the response channel open — the popup just needs
+  // the snapshot we already have in memory.
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg && msg.type === 'lws-nx-popup-info') {
+      sendResponse({
+        active: Boolean(overlayState),
+        titleId: currentTitleId(),
+        tracks: Array.from(tracksByLang.entries()).map(([code, info]) => ({
+          languageCode: code,
+          // We don't have a localised display name — Netflix's TTML
+          // only carries xml:lang. The popup falls back to the code
+          // itself when languageName is the same as languageCode.
+          languageName: code,
+          captionedness: info.captionedness,
+        })),
+        secondaryLang: lastSecondaryLang,
+      });
+      return false;
+    }
+    return undefined;
   });
 
   // SPA navigation: Netflix's in-app navigation reuses the page
@@ -382,6 +427,7 @@ async function rebuildOverlay() {
   }
 
   const secondaryLang = await resolveSecondaryLang();
+  lastSecondaryLang = secondaryLang;
   const secondary = secondaryLang && secondaryLang !== 'off'
     ? tracksByLang.get(secondaryLang)
     : null;
@@ -558,12 +604,33 @@ function waitForVideoElement(timeoutMs) {
 }
 
 async function resolveSecondaryLang() {
-  try {
-    const d = await chrome.storage.sync.get(DEFAULT_SECONDARY_KEY);
-    return d[DEFAULT_SECONDARY_KEY] || 'en';
-  } catch {
-    return 'en';
-  }
+  // Per-title override (from the toolbar popup) wins over the sync
+  // default. Same shape as YouTube's resolveSecondaryLang — catch
+  // storage failures per call so a transient error on one side
+  // doesn't abort the whole resolution.
+  const tid = currentTitleId();
+  const [local, sync] = await Promise.all([
+    chrome.storage.local.get(PER_TITLE_OVERRIDE_KEY).catch((err) => {
+      log('local storage read failed:', err && err.message);
+      return {};
+    }),
+    chrome.storage.sync.get(DEFAULT_SECONDARY_KEY).catch((err) => {
+      log('sync storage read failed:', err && err.message);
+      return {};
+    }),
+  ]);
+  const overrides = (local && local[PER_TITLE_OVERRIDE_KEY]) || {};
+  if (tid && overrides[tid]) return overrides[tid];
+  return (sync && sync[DEFAULT_SECONDARY_KEY]) || 'en';
+}
+
+function currentTitleId() {
+  // Netflix watch URLs are `/watch/<numeric titleId>`, sometimes
+  // prefixed with a country segment (e.g. `/us-en/watch/123…`). On
+  // non-watch routes returns null — callers should handle that
+  // (we're not in a session that has captures anyway).
+  const m = /\/watch\/(\d+)/.exec(window.location.pathname);
+  return m ? m[1] : null;
 }
 
 /**

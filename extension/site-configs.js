@@ -163,8 +163,9 @@ export const SITE_CONFIGS = [
     // still useful — until our own overlay is mounted, hovers still
     // target Netflix's native captions and need the lift.
     adapter: 'netflix-adapter.js',
-    // No popupModule yet — will land alongside the overlay in 2.4
-    // for the per-video secondary-language picker.
+    // Toolbar-popup section: secondary-language picker for the
+    // current Netflix title. See extension/netflix-popup.js.
+    popupModule: 'netflix-popup.js',
   },
 ];
 
