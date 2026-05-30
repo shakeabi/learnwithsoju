@@ -66,7 +66,7 @@ A second API key for **OpenDict** (우리말샘) is optional — it's used as a 
 
 ## Tech stack
 
-Manifest V3, vanilla JS (no build step), local mecab-ko WASM for morphological analysis, KRDict + OpenDict for definitions, hangulhanja.com for Hanja breakdowns, optional Chrome Built-in AI for in-page grammar explanations.
+Manifest V3, vanilla JS (no build step), local mecab-ko WASM for morphological analysis, KRDict + OpenDict for definitions, hangulhanja.com for Hanja breakdowns.
 
 The contents of `extension/` are what get loaded into the browser — no bundler, no transpiler. `npm install` exists only for the Node test harness.
 

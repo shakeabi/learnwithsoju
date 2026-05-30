@@ -155,13 +155,6 @@ existing mecab warm-up code in `background.js` works unchanged.
 
 ## 6. Known differences between Chrome and Firefox builds
 
-- **Chrome Built-in AI (Gemini Nano)** — `extension/core/ai-lemmatizer.js`
-  uses `self.LanguageModel` / `self.ai.languageModel` (Chrome
-  Origin-Trial APIs). Firefox does not expose either. The detection
-  in `detectAvailability()` returns `'unsupported'` and the lookup
-  pipeline falls back to mecab automatically. The Chrome-AI toggle
-  in the options page can still be flipped on a Firefox profile, but
-  will report "unsupported" and silently fall back.
 - **Service-worker lifetime** — Chrome MV3 kills the SW after ~30s
   idle. Firefox 121+ uses the same idle-eviction model but with
   slightly different timing; Firefox 109–120 keeps the event page
