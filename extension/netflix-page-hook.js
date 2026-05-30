@@ -83,17 +83,51 @@
     }
   }
 
+  function walkShape(node, maxDepth, currentDepth = 0, path = '$') {
+    if (currentDepth >= maxDepth) return [{path, type: '...'}];
+    if (node === null || node === undefined) return [{path, type: String(node)}];
+    if (typeof node !== 'object') {
+      const v = typeof node === 'string' ? `"${node.slice(0, 60)}"` : String(node).slice(0, 60);
+      return [{path, type: typeof node, value: v}];
+    }
+    if (Array.isArray(node)) {
+      const out = [{path, type: `Array(${node.length})`}];
+      if (node.length > 0) out.push(...walkShape(node[0], maxDepth, currentDepth + 1, `${path}[0]`));
+      return out;
+    }
+    const out = [{path, type: 'Object', keys: Object.keys(node).slice(0, 30)}];
+    for (const k of Object.keys(node).slice(0, 30)) {
+      try {
+        out.push(...walkShape(node[k], maxDepth, currentDepth + 1, `${path}.${k}`));
+      } catch (e) {
+        out.push({path: `${path}.${k}`, type: 'threw', error: e.message});
+      }
+    }
+    return out;
+  }
+
   if (LWS_NX_DIAG_API) {
     const _apiPollStart = Date.now();
     const _apiPollId = setInterval(() => {
       try {
         if (probed) { clearInterval(_apiPollId); return; }
-        if (Date.now() - _apiPollStart > 30000) { clearInterval(_apiPollId); return; }
+        if (Date.now() - _apiPollStart > 30000) {
+          clearInterval(_apiPollId);
+          console.log('[lws-nx-api] gave up — no session ids after 30s');
+          return;
+        }
         const playerApp = window.netflix
           && window.netflix.appContext
           && window.netflix.appContext.state
           && window.netflix.appContext.state.playerApp;
         if (!playerApp) return;
+
+        let _vpCheck;
+        try { _vpCheck = playerApp.getAPI().videoPlayer; } catch { return; }
+        if (!_vpCheck || typeof _vpCheck.getAllPlayerSessionIds !== 'function') return;
+        let _idsCheck;
+        try { _idsCheck = _vpCheck.getAllPlayerSessionIds(); } catch { return; }
+        if (!Array.isArray(_idsCheck) || _idsCheck.length === 0) return;
 
         clearInterval(_apiPollId);
         probed = true;
@@ -134,7 +168,18 @@
           }
           if (!session) { console.log(`[lws-nx-api] session ${sid} is null/undefined`); continue; }
 
+          console.log(`[lws-nx-api] session ${sid} own keys:`, Object.keys(session));
           console.log(`[lws-nx-api] session ${sid} methods:`, listMethods(session));
+
+          const allOwnAndProto = [];
+          let _p = session;
+          while (_p && _p !== Object.prototype) {
+            for (const name of Object.getOwnPropertyNames(_p)) {
+              try { if (typeof session[name] !== 'function') allOwnAndProto.push(name); } catch {}
+            }
+            _p = Object.getPrototypeOf(_p);
+          }
+          console.log(`[lws-nx-api] session ${sid} all props:`, [...new Set(allOwnAndProto)].sort());
 
           safeProbeCall(`session ${sid} getTextTrackList()`, () => session.getTextTrackList && session.getTextTrackList());
           safeProbeCall(`session ${sid} getCurrentTextTrack()`, () => session.getCurrentTextTrack && session.getCurrentTextTrack());
@@ -153,6 +198,77 @@
               safeProbeCall(`session ${sid} ${m}()`, () => session[m]());
             }
           }
+
+          safeProbeCall(`getCurrentTextTrackBySessionId(${sid})`, () => videoPlayer.getCurrentTextTrackBySessionId && videoPlayer.getCurrentTextTrackBySessionId(sid));
+          safeProbeCall(`getCurrentAudioTrackBySessionId(${sid})`, () => videoPlayer.getCurrentAudioTrackBySessionId && videoPlayer.getCurrentAudioTrackBySessionId(sid));
+          safeProbeCall(`getTextTrackBySessionId(${sid})`, () => videoPlayer.getTextTrackBySessionId && videoPlayer.getTextTrackBySessionId(sid));
+          safeProbeCall(`getAudioTrackBySessionId(${sid})`, () => videoPlayer.getAudioTrackBySessionId && videoPlayer.getAudioTrackBySessionId(sid));
+          safeProbeCall(`getActiveVideoMetadata(${sid})`, () => videoPlayer.getActiveVideoMetadata && videoPlayer.getActiveVideoMetadata(sid));
+          safeProbeCall(`showTimedTextBySessionId(${sid}) no-arg`, () => videoPlayer.showTimedTextBySessionId && videoPlayer.showTimedTextBySessionId(sid));
+        }
+
+        try {
+          const store = playerApp.getStore();
+          const state = store.getState();
+          const stateKeys = Object.keys(state);
+          console.log('[lws-nx-api] store state keys:', stateKeys);
+
+          for (const k of stateKeys) {
+            try {
+              const sub = state[k];
+              if (sub && typeof sub === 'object' && !Array.isArray(sub)) {
+                console.log(`[lws-nx-api] store.${k} keys:`, Object.keys(sub).slice(0, 30));
+              } else {
+                console.log(`[lws-nx-api] store.${k}:`, typeof sub);
+              }
+            } catch (e) {
+              console.log(`[lws-nx-api] store.${k} access threw:`, e.message);
+            }
+          }
+
+          const interestingKeys = stateKeys.filter((k) => /player|playback|video|session|track/i.test(k));
+          console.log('[lws-nx-api] store interesting keys (player/playback/video/session/track):', interestingKeys);
+
+          const deepProbeKeys = [...new Set([
+            ...interestingKeys,
+            ...stateKeys.filter((k) => /^(videos|playbacks|videoplayers)$/i.test(k)),
+          ])];
+
+          for (const k of deepProbeKeys) {
+            try {
+              const walk = walkShape(state[k], 4, 0, `store.${k}`);
+              console.log(`[lws-nx-api] store shape [${k}]:`);
+              try { console.table(walk); } catch { console.log(walk); }
+
+              const findTrackObjects = (node, path2, depth) => {
+                if (!node || typeof node !== 'object' || depth > 6) return;
+                const keys = Array.isArray(node) ? [] : Object.keys(node);
+                const trackSignals = ['language', 'bcp47', 'trackType', 'ttDownloadables'];
+                if (keys.some((kk) => trackSignals.includes(kk))) {
+                  console.log(`[lws-nx-api] TRACK OBJECT at ${path2}:`, JSON.parse(JSON.stringify(node)));
+                  return;
+                }
+                for (const kk of keys.slice(0, 20)) {
+                  try { findTrackObjects(node[kk], `${path2}.${kk}`, depth + 1); } catch {}
+                }
+              };
+              findTrackObjects(state[k], `store.${k}`, 0);
+            } catch (e) {
+              console.log(`[lws-nx-api] store walk [${k}] threw:`, e.message);
+            }
+          }
+        } catch (e) {
+          console.log('[lws-nx-api] store probe threw:', e.message);
+        }
+
+        try {
+          const ac = playerApp.getActionCreators();
+          console.log('[lws-nx-api] action creators keys:', Object.keys(ac).slice(0, 50));
+          console.log('[lws-nx-api] action creators methods:', listMethods(ac));
+          const trackAc = Object.keys(ac).filter((k) => /track|subtitle|caption/i.test(k));
+          console.log('[lws-nx-api] action creators track/subtitle/caption matches:', trackAc);
+        } catch (e) {
+          console.log('[lws-nx-api] action creators probe threw:', e.message);
         }
       } catch (outerErr) {
         console.log('[lws-nx-api] probe outer error:', outerErr && outerErr.message);
