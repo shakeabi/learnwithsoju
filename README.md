@@ -48,6 +48,11 @@ Free, open-source, MV3 — runs entirely in your browser. The only network calls
 
 (Temporary add-ons unload when Firefox restarts. Permanent installation will be available once we publish on AMO.)
 
+For maintainers: `npm run build:firefox` produces a Firefox-ready .zip
+in `dist/`. See [`docs/firefox-build.md`](docs/firefox-build.md) for
+the AMO submission walkthrough and a field-by-field rundown of why
+one manifest works in both browsers.
+
 ## First 30 seconds
 
 1. **Get a free KRDict API key** from the [National Institute of Korean Language](https://krdict.korean.go.kr/eng/openApi/openApiRegister). Approval is usually instant.

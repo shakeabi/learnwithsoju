@@ -15,7 +15,10 @@
     "url": "https://github.com/abishake/learnwithsoju/issues"
   },
   "scripts": {
-    "test": "node --test 'tests/**/*.test.js'"
+    "test": "node --test 'tests/**/*.test.js'",
+    "build:chrome": "bash scripts/build-chrome.sh",
+    "build:firefox": "bash scripts/build-firefox.sh",
+    "build": "npm run build:chrome && npm run build:firefox"
   },
   "devDependencies": {
     "@xmldom/xmldom": "^0.9.5"
