@@ -926,6 +926,10 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     if (!group || !Array.isArray(group.sections)) return { word: group ? group.word : '', entries: [] };
     const entries = [];
     for (const s of group.sections) {
+      if (s.source === 'synthetic-nnp') {
+        entries.push({ entry: s, source: 'synthetic-nnp' });
+        continue;
+      }
       const e = entryForSection(payload, s);
       if (e) entries.push({ entry: e, source: s.source });
     }
@@ -1066,6 +1070,10 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       : 0;
     group.entries.forEach(({ entry, source }, sIdx) => {
       const isOpen = sIdx === openIdx;
+      if (source === 'synthetic-nnp') {
+        body.appendChild(buildSyntheticSectionNode(entry));
+        return;
+      }
       body.appendChild(buildSectionNode({
         entry,
         source,
@@ -1076,6 +1084,43 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       }));
     });
     return body;
+  }
+
+  function buildSyntheticSectionNode(entry) {
+    const section = document.createElement('div');
+    section.className = 'lws-entry lws-section lws-section-open lws-synthetic';
+
+    const headline = document.createElement('div');
+    headline.className = 'lws-headline';
+    const word = document.createElement('span');
+    word.className = 'lws-word-form';
+    word.textContent = entry.word || '';
+    headline.appendChild(word);
+    section.appendChild(headline);
+
+    const meta = document.createElement('div');
+    meta.className = 'lws-meta-row';
+    meta.appendChild(makeChip('고유명사', 'cyan', { title: 'Proper noun (name of a person, place, or thing)' }));
+    meta.appendChild(makeChip(`၊၊||၊ ${entry.pronunciation}`, 'soft'));
+    section.appendChild(meta);
+
+    const badge = document.createElement('div');
+    badge.className = 'lws-synthetic-badge';
+    badge.textContent = 'ℹ Proper noun';
+    section.appendChild(badge);
+
+    const senses = document.createElement('div');
+    senses.className = 'lws-senses';
+    const sense = document.createElement('div');
+    sense.className = 'lws-sense lws-synthetic-body';
+    const def = document.createElement('div');
+    def.className = 'lws-ko-def';
+    def.textContent = entry.definition;
+    sense.appendChild(def);
+    senses.appendChild(sense);
+    section.appendChild(senses);
+
+    return section;
   }
 
   // A section is one entry. Header shows word + chips (POS, pron, hanja) —

@@ -164,6 +164,28 @@ async function tokenizeSurfaceNbest(surface) {
   }
 }
 
+function synthesizeProperNounEntry(surface, tokens) {
+  if (!Array.isArray(tokens) || tokens.length === 0) return [];
+  const nnpToken = tokens.find((t) => {
+    const tag = (t.pos || '').split('+')[0];
+    return tag === 'NNP';
+  });
+  if (!nnpToken) return [];
+  const word = surface;
+  console.log(`[lws] synthesizing proper-noun entry for surface="${surface}" (NNP token="${nnpToken.surface}")`);
+  return [{
+    word,
+    sections: [{
+      source: 'synthetic-nnp',
+      word,
+      pos: '고유명사',
+      definition: `${word} — Proper noun (name of a person, place, or thing). No dictionary entry found.`,
+      pronunciation: word,
+      isSynthetic: true,
+    }],
+  }];
+}
+
 async function handleLookup(surface) {
   const cached = await cache.get(surface);
   if (cached) return cached;
@@ -255,6 +277,9 @@ async function handleLookup(surface) {
   if (queriesUsed.length === 0 && odQuery) queriesUsed.push(odQuery);
   const queryUsed = queriesUsed[0] || null;
 
+  const allEmpty = tabs.length === 0 && unrelated.length === 0;
+  const syntheticTabs = allEmpty ? synthesizeProperNounEntry(surface, tokens) : [];
+
   const result = {
     surface,
     lemma: queryUsed || candidates[0],
@@ -266,7 +291,7 @@ async function handleLookup(surface) {
     krXmls,
     odXml,
     odQuery,
-    tabs,
+    tabs: syntheticTabs.length > 0 ? syntheticTabs : tabs,
     unrelated,
     cachedAt: Date.now(),
   };

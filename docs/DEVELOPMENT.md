@@ -624,7 +624,17 @@ Files: `content.js`, `background.js`, `lemmatizer.js`, `parsers.js`,
     `pickTabsAndUnrelated`. The output is the `{tabs, unrelated}` plan —
     every `section` carries `{source, queryIdx, itemIdx}` so the content
     script can locate the matching parsed entry without re-grouping.
-  8. Build the response object — `surface`, `lemma`, `queryUsed`,
+  8. **Proper-noun synthesis (NNP fallback):** if both `tabs` and
+    `unrelated` are empty after steps 5–7, `synthesizeProperNounEntry`
+    scans the 1-best token path for any token whose leading Sejong tag
+    is `NNP` (proper noun). When found, a single synthetic tab is
+    injected with `source: 'synthetic-nnp'`, `pos: '고유명사'`, and a
+    canned definition telling the user it's a proper noun. The whole
+    surface is used as the entry word. If no NNP token exists (e.g. a
+    rare common noun with no dict entry), the result stays empty and
+    the existing empty-state renders normally. Synthetic results are
+    cached in `lookup:<surface>` like any real result.
+  9. Build the response object — `surface`, `lemma`, `queryUsed`,
     `queriesUsed`, `candidates`, `tokens`, `krQueries`, `krXmls[]`,
      `odXml`, `odQuery`, `tabs`, `unrelated`, `cachedAt`. Persist to
      cache and return.

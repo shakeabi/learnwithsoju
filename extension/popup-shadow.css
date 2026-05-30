@@ -833,3 +833,24 @@ button.lws-section-header[aria-expanded="true"] .lws-section-indicator {
   color: var(--muted);
   font-size: 13px;
 }
+
+/* Synthetic proper-noun fallback entry — shown when mecab tags a token NNP
+   but neither KRDict nor OpenDict has an entry. Muted background signals it's
+   inferred, not a real dictionary entry. */
+.lws-synthetic {
+  background: var(--soft);
+  border-radius: 8px;
+  border: 1px dashed var(--border-strong);
+}
+
+.lws-synthetic-badge {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.lws-synthetic-body {
+  font-style: italic;
+  color: var(--muted);
+}
