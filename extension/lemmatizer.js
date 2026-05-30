@@ -46,6 +46,10 @@
 const LWS_NBEST_DIAG = true;
 
 const VERB_LEAD_TAGS = new Set(['VV', 'VA', 'VX', 'VCN', 'VCP', 'XSV', 'XSA']);
+// Tags eligible for the ambiguous-ㄹ guard. VCP (copula) and VCN are
+// intentionally excluded: their lemma is always 이다 / 아니다, never the
+// surface form, so pushing surface+다 first would be wrong.
+const AMBIGUOUS_L_TAGS = new Set(['VV', 'VA']);
 const NOUN_LEAD_TAGS = new Set(['NNG', 'NNP', 'NR', 'NP', 'SL', 'SH', 'SN']);
 // Tags that can appear in the noun-phrase prefix before an XSV/XSA suffix.
 // Wider than NOUN_LEAD_TAGS — includes MM (관형사 / determiners like 한, 두,
@@ -174,15 +178,18 @@ export function lemmaCandidates(tokens, surface) {
       const stem = decompStem || t.lemma || tSurface || '';
       if (!stem) continue;
       if (VERB_LEAD_TAGS.has(tag)) {
-        // Ambiguous-ㄹ guard: when the decomposition's stem is a single
-        // syllable AND the surface is a different single syllable,
+        // Ambiguous-ㄹ guard (VV/VA only): when the decomposition's stem is a
+        // single syllable AND the surface is a different single syllable,
         // mecab-ko-dic has picked an unusual etymological analysis
         // (surface 가 → stem 갈 via phantom ㄹ-deletion, surface 사
         // → stem 살, etc.). The surface itself is the much more common
         // dictionary form in everyday text. Push surface+다 first;
         // keep the Inflect stem as a fallback so the rarer reading
         // still surfaces if the surface lemma isn't in KRDict.
-        if (decompStem && tSurface && decompStem !== tSurface
+        // Gated on AMBIGUOUS_L_TAGS so VCP/VCN are never affected —
+        // the copula's lemma is always 이다, not the surface form.
+        if (AMBIGUOUS_L_TAGS.has(tag) &&
+            decompStem && tSurface && decompStem !== tSurface
             && decompStem.length === 1 && tSurface.length === 1) {
           push(tSurface + '다');
           push(decompStem + '다');

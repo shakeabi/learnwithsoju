@@ -29,6 +29,7 @@ file group these into logical roles; this table gives the human meaning of each.
 | Constant             | Tags                                  | Role                                                                              |
 |----------------------|---------------------------------------|-----------------------------------------------------------------------------------|
 | `VERB_LEAD_TAGS`     | VV VA VX VCN VCP XSV XSA             | Build `<stem>다` per-token                                                        |
+| `AMBIGUOUS_L_TAGS`   | VV VA                                 | Subset of VERB_LEAD_TAGS eligible for the ambiguous-ㄹ guard (surface+다 before decomp-stem+다 when both are single-syllable and differ). VCP/VCN/VX/XSV/XSA excluded — their lemma is fixed (이다, 아니다, 하다, etc.), not the surface form. |
 | `NOUN_LEAD_TAGS`     | NNG NNP NR NP SL SH SN               | Use morpheme as-is per-token                                                      |
 | `COMPOUND_PREFIX_TAGS` | NNG NNP NNB NR NP MM XR XSN       | Accumulate as prefix before an XSV/XSA — wider than NOUN_LEAD_TAGS so 한잔하다 works |
 | `COMPOUND_DERIV_TAGS` | XSV XSA                             | Consume the accumulator and emit `<prefix><stem>다`                               |

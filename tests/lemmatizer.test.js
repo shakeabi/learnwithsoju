@@ -364,3 +364,22 @@ test('ambiguous-ㄹ guard does NOT fire when surface equals decomp stem', () => 
   assert.equal(candidates[0], '갈다');
   assert.ok(!candidates.includes('가다'));
 });
+
+test('ambiguous-ㄹ guard does NOT fire for VCP (copula): 그거였어요 → 이다 before 였다', () => {
+  // 그거였어요 path 2: 그거/NP + 였/VCP+EP + 어요/EF.
+  // The VCP token surface "였" has Inflect decomposition stem "이", which is
+  // a single syllable differing from the surface — exactly the pattern the
+  // guard used to match. Before the fix the guard fired and pushed "였다"
+  // before "이다". VCP's lemma is always 이다, never the surface form.
+  const tokens = [
+    tok('그거', 'NP', '그것', 'NP,*,F,그거,*,*,*,*'),
+    tok('였', 'VCP+EP', '였', 'VCP+EP,*,T,였,Inflect,VCP,EP,이/VCP/*+ㅓㅆ/EP/*'),
+    tok('어요', 'EF', '어요', 'EF,*,F,어요,*,*,*,*'),
+  ];
+  const candidates = lemmaCandidates(tokens, '그거였어요');
+  assert.ok(candidates.includes('이다'), 'should include 이다');
+  assert.ok(
+    !candidates.includes('였다') || candidates.indexOf('이다') < candidates.indexOf('였다'),
+    '이다 must appear before 였다 (or 였다 must not appear at all)',
+  );
+});

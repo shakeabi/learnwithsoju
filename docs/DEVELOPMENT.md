@@ -1173,6 +1173,7 @@ See §8 below for a deep dive on the rules. Key tag groups:
 | Constant               | Tags                        | Used to                                                                          |
 | ---------------------- | --------------------------- | -------------------------------------------------------------------------------- |
 | `VERB_LEAD_TAGS`       | VV VA VX VCN VCP XSV XSA    | Build `<stem>다` per-token                                                        |
+| `AMBIGUOUS_L_TAGS`     | VV VA                        | Subset of VERB_LEAD_TAGS eligible for the ambiguous-ㄹ guard; VCP/VCN/VX/XSV/XSA excluded because their lemma is fixed, not the surface form |
 | `NOUN_LEAD_TAGS`       | NNG NNP NR NP SL SH SN      | Use morpheme as-is per-token                                                     |
 | `COMPOUND_PREFIX_TAGS` | NNG NNP NNB NR NP MM XR XSN | Accumulate as prefix before an XSV/XSA — wider than NOUN_LEAD_TAGS so 한잔하다 works |
 | `COMPOUND_DERIV_TAGS`  | XSV XSA                     | Consume the accumulator and emit `<prefix><stem>다`                               |
@@ -1729,11 +1730,12 @@ The push order is:
   - Compute `decompStem = inflectStem(features)`, and
     `stem = decompStem || lemma || surface`.
   - If lead tag is in VERB_LEAD_TAGS:
-    - **Ambiguous-ㄹ guard** (see §8.3.5 below): when `decompStem` is
-      a single syllable AND `surface` is a *different* single syllable,
-      push `surface + '다'` first, then `decompStem + '다'` as a
-      fallback. Otherwise push `stem` (or `stem + '다'` if it doesn't
-      already end in 다).
+    - **Ambiguous-ㄹ guard** (see §8.3.5 below): when lead tag is in
+      AMBIGUOUS_L_TAGS (VV or VA) AND `decompStem` is a single syllable
+      AND `surface` is a *different* single syllable, push
+      `surface + '다'` first, then `decompStem + '다'` as a fallback.
+      VCP/VCN/VX/XSV/XSA always fall through to the normal path.
+      Otherwise push `stem` (or `stem + '다'` if it doesn't already end in 다).
   - If lead tag is in NOUN_LEAD_TAGS, push `stem` as-is.
   - Otherwise skip — particles, endings, and pure-suffix tokens aren't
   dictionary headwords on their own.
@@ -1786,10 +1788,10 @@ the underlying stem is `갈` (treating `가` as a contracted form of
 `갈`, the per-token loop pushes `갈다` ("to grind"), KRDict happily
 returns that — and the learner gets the wrong word.
 
-The guard: when `decompStem` is a single syllable AND `surface` is
-ALSO a single syllable AND they differ, the per-token loop pushes
-`surface + '다'` FIRST and keeps `decompStem + '다'` as a fallback.
-Rationale:
+The guard: when the lead tag is in `AMBIGUOUS_L_TAGS` (`{VV, VA}`)
+AND `decompStem` is a single syllable AND `surface` is ALSO a single
+syllable AND they differ, the per-token loop pushes `surface + '다'`
+FIRST and keeps `decompStem + '다'` as a fallback. Rationale:
 
 - For irregular conjugations the surface is multi-syllable (`봐요`,
   `해야`, `걸려`, `예뻐요`) — the guard's length check skips them.
@@ -1803,9 +1805,19 @@ Rationale:
   resolves correctly because mecab returns surface=`갈` with stem=`갈`
   — no length mismatch, guard doesn't fire, normal path.
 
-Tests in `tests/lemmatizer.test.js` cover the four cases: 가 fires
-the guard, 사 fires the guard, 봐요 (multi-syllable) doesn't, 갈
-with matching stem doesn't.
+**Why VCP/VCN are excluded from `AMBIGUOUS_L_TAGS`:** The copula 이다
+and negative copula 아니다 are the *only* valid lemmas for VCP and VCN
+tokens — the surface form is never the dictionary headword. For example,
+`그거였어요` parses to `였/VCP+EP` with Inflect decomp stem `이`.
+Surface=`였`, stem=`이` — both single syllables, different. The old
+guard (before scoping to VV/VA) fired and pushed `였다` before `이다`,
+producing a nonsense lemma. Gating on `AMBIGUOUS_L_TAGS` prevents the
+guard from ever touching VCP/VCN/VX/XSV/XSA tokens.
+
+Tests in `tests/lemmatizer.test.js` cover five cases: 가 fires the
+guard (VV), 사 fires the guard (VV), 봐요 (multi-syllable) doesn't,
+갈 with matching stem doesn't, and 였/VCP doesn't fire the guard
+(이다 appears before 였다 or 였다 is absent).
 
 ### 8.4 The Sejong POS tags the lemmatizer cares about
 
