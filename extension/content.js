@@ -4,6 +4,7 @@
   const POPUP_ID = 'lws-popup';
   const HOST_CLASS = 'lws-host';
   const WORD_CLASS = 'lws-word';
+  const GAP_CLASS = 'lws-gap';
   const HIDE_DELAY_MS = 120;
   const HOVER_DELAY_MS = 60;
   const LOOKUP_STATUS_DELAY_MS = 50;
@@ -222,7 +223,10 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     let match;
     while ((match = HANGUL_RE.exec(text)) !== null) {
       if (match.index > lastIndex) {
-        frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+        const gap = document.createElement('span');
+        gap.className = GAP_CLASS;
+        gap.textContent = text.slice(lastIndex, match.index);
+        frag.appendChild(gap);
       }
       const span = document.createElement('span');
       span.className = WORD_CLASS;
@@ -232,7 +236,10 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       lastIndex = match.index + match[0].length;
     }
     if (lastIndex < text.length) {
-      frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+      const gap = document.createElement('span');
+      gap.className = GAP_CLASS;
+      gap.textContent = text.slice(lastIndex);
+      frag.appendChild(gap);
     }
     textNode.parentNode.replaceChild(frag, textNode);
   }
@@ -283,7 +290,8 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   // `enabled`, so the replacement DOM activity during unwrap doesn't
   // re-wrap anything.
   function unwrapAllWords() {
-    const spans = document.querySelectorAll('span.' + WORD_CLASS);
+    const selector = 'span.' + WORD_CLASS + ', span.' + GAP_CLASS;
+    const spans = document.querySelectorAll(selector);
     for (const span of spans) {
       const parent = span.parentNode;
       if (!parent) continue;
@@ -1726,7 +1734,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
           if (added.nodeType === 3) {
             if (!isSkippableNode(added) && HANGUL_RE.test(added.nodeValue || '')) newNodes.push(added);
             HANGUL_RE.lastIndex = 0;
-          } else if (added.nodeType === 1 && !added.classList.contains(WORD_CLASS) && !added.classList.contains(HOST_CLASS)) {
+          } else if (added.nodeType === 1 && !added.classList.contains(WORD_CLASS) && !added.classList.contains(GAP_CLASS) && !added.classList.contains(HOST_CLASS)) {
             newNodes.push(...collectTextNodes(added));
           }
         }

@@ -544,7 +544,11 @@ Files: `content.js`.
   with the global Hangul regex
    `/[가-힣ᄀ-ᇿ㄰-㆏]+/g` and replaces every Hangul run with a
    `<span class="lws-word" data-surface="…">…</span>` inside a document
-   fragment, preserving the non-Hangul text in between.
+   fragment. Non-Hangul runs between matches (spaces, punctuation, …) are
+   emitted as `<span class="lws-gap">…</span>` rather than bare text nodes
+   so they carry the same `user-select: text` override and are not dropped
+   by Chrome's selection serializer when the host container has
+   `user-select: none` (see §6.3).
 6. `attachWordHandlers(document.body)` registers capture-phase
   `mouseenter` / `mouseleave` / `click` delegates.
 7. `setupMutationObserver()` watches `document.body` for newly added
@@ -638,9 +642,12 @@ element (linked subtitles, headline links), the user's click must
 still trigger that element's behavior — the lookup runs alongside, not
 instead. The page typically navigates away before the popup matters in
 that case; if it doesn't, both happen.
-- `.lws-word` itself sets `user-select: text` so drag-selecting across
-wrapped words works even when the host page sets `user-select: none`
-on the surrounding container.
+- `.lws-word` and `.lws-gap` both set `user-select: text` so
+drag-selecting across wrapped words — including the spaces between them
+— works even when the host page sets `user-select: none` on the
+surrounding container. (Bare text nodes cannot carry `user-select`,
+which is why gaps are wrapped in a span rather than emitted as raw text
+nodes.)
 
 ### 6.4 Sentence-word click: re-look-up without moving the popup
 

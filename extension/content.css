@@ -10,6 +10,15 @@
   -webkit-user-select: text;
 }
 
+/* Gap spans wrap non-Korean text between .lws-word spans (spaces,
+   punctuation, etc.). They carry the same user-select override so that
+   host-page user-select: none doesn't cause spaces to be dropped from
+   the clipboard when the user drag-selects across multiple words. */
+.lws-gap {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .lws-word:hover {
   background-color: rgba(120, 140, 200, 0.18);
   border-bottom-color: rgba(120, 140, 200, 0.85);
