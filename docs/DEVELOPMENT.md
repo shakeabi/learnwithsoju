@@ -69,7 +69,15 @@ extension:
     `chrome.storage.onChanged` listener re-renders the overlay with
     the new secondary on change (no activate/deactivate churn —
     the captured tracks are still valid, only the choice of line 2
-    changed).
+    changed),
+  - gates activation on the `dualSubsNetflix` toggle
+    (`chrome.storage.sync`) — matching the YouTube adapter's
+    `dualSubsYouTube` gate. When the toggle is off, `isEnabled()`
+    returns false and no overlay is mounted. The options page exposes
+    the toggle under Behaviour → "Dual subtitles on Netflix". The
+    `onChanged` listener reacts live: flipping off deactivates
+    immediately; flipping on calls activate (same pattern as
+    YouTube).
 
 Netflix only fetches the user's currently-selected subtitle track,
 not all of them, so dual-line display requires the user to have
@@ -293,16 +301,18 @@ can grow past the 5 MB default.
 | `opendictApiKey`  | string        | `""`                     | `options.js`                    | `background.js` (only when KRDict empty)                                                      |
 | `defLang`         | `'en' \| 'ko'` | `'en'`                   | `content.js` (popup toggle)     | `content.js` (popup render)                                                                   |
 | `dualSubsYouTube` | boolean       | `true`*                  | `options.js`                    | `youtube-adapter.js` (onChanged + isEnabled)                                                  |
-| `secondaryLang`   | string        | `'en'`                   | `options.js`                    | `youtube-adapter.js`, `popup.js` (default)                                                    |
+| `dualSubsNetflix` | boolean       | `true`*                  | `options.js`                    | `netflix-adapter.js` (onChanged + isEnabled)                                                  |
+| `secondaryLang`   | string        | `'en'`                   | `options.js`                    | `youtube-adapter.js`, `netflix-adapter.js`, `popup.js` (default)                              |
 | `askAiPrompt`     | string        | unset → built-in default | `options.js` (Advanced section) | `content.js` (init + onChanged → `buildAskAiUrl`)                                             |
 | `askAiProvider`   | string        | `'chatgpt'`              | `options.js` (Advanced section) | `content.js` (init + onChanged → `buildAskAiUrl` picks the URL prefix from `ai-providers.js`) |
 
 
-*`dualSubsYouTube` defaults to `true` in the adapter's `isEnabled()` —
-the setting is treated as "off only if explicitly set to `false`". The
-adapter's `isEnabled()` ALSO checks `disabledHosts` (local) and bails
-when the current hostname is in the list, so per-site disable tears
-down dual subs in addition to the dictionary. On fresh install,
+*`dualSubsYouTube` and `dualSubsNetflix` default to `true` in each
+adapter's `isEnabled()` — the setting is treated as "off only if
+explicitly set to `false`". Each adapter's `isEnabled()` ALSO checks
+`disabledHosts` (local) and bails when the current hostname is in the
+list, so per-site disable tears down dual subs in addition to the
+dictionary. On fresh install,
 `background.js` just opens the options page so the user can paste
 their KRDict key — there is no longer a global on/off switch (the
 old `enabled` key was removed; the only soft-disable is per-site via
@@ -443,6 +453,7 @@ broadcast bus for settings:
 | `disabledHosts` (local) | `youtube-adapter.js`              | Calls `deactivate()` and then `activate()` (which re-checks `isEnabled()`) — so the dual-subs overlay actually unmounts when the user disables on a YouTube page, not just the dictionary popup.         |
 | `defLang`               | `content.js`                      | `rerenderActivePopup()` if popup is showing                                                                                                                                                              |
 | `dualSubsYouTube`       | `youtube-adapter.js`              | Re-activate / deactivate dual subs on the current page                                                                                                                                                   |
+| `dualSubsNetflix`       | `netflix-adapter.js`              | Re-activate / deactivate dual subs on the current Netflix watch page                                                                                                                                     |
 | `secondaryLang`         | `youtube-adapter.js`              | Re-activate so the new default applies                                                                                                                                                                   |
 | `dualSubsOverrides`     | `youtube-adapter.js` (local area) | Re-activate if the override changed for the current video                                                                                                                                                |
 | `dualSubsOverridesNetflix` | `netflix-adapter.js` (local area) | Re-render the overlay with the new secondary if the override changed for the current titleId (no activate/deactivate — captured tracks stay)                                                       |
@@ -1363,7 +1374,7 @@ The settings page. Linked from the popup (gear icon in the links row) and from
 - API keys: KRDict (required) + OpenDict (optional, experimental).
   Both inputs are `type="password"`. A "Test KRDict key" button hits
   the real API with `q=사람` and surfaces the error code or success.
-- Behaviour: dual-subs toggle, default secondary language dropdown.
+- Behaviour: dual-subs toggle (YouTube), dual-subs toggle (Netflix), default secondary language dropdown.
 - Advanced (collapsible `<details>`, closed by default): "Ask AI"
   prompt template textarea + "Reset to default" button. Auto-saves
   to `askAiPrompt` (sync) on blur. Saving an empty value or the

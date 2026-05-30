@@ -29,6 +29,7 @@
 
 const HOOK_PATH = 'netflix-page-hook.js';
 const DISABLED_HOSTS_KEY = 'disabledHosts';
+const DUAL_SUBS_NX_KEY = 'dualSubsNetflix';
 const DEFAULT_SECONDARY_KEY = 'secondaryLang';
 // Per-title override map, keyed by Netflix titleId. Written by
 // netflix-popup.js (Secondary Subs dropdown); read here via the
@@ -91,6 +92,11 @@ export async function setup(api = {}) {
   // captured tracks are still valid, just the choice of which one
   // renders as line 2 changed).
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'sync' && changes[DUAL_SUBS_NX_KEY]) {
+      const next = changes[DUAL_SUBS_NX_KEY].newValue;
+      if (next === false) deactivate();
+      else { deactivate(); void activate(); }
+    }
     if (area !== 'local') return;
     if (changes[DISABLED_HOSTS_KEY]) {
       handleNavStart();
@@ -214,8 +220,18 @@ function isWatchPage() {
 }
 
 async function isEnabled() {
-  const data = await chrome.storage.local.get(DISABLED_HOSTS_KEY);
-  const list = Array.isArray(data[DISABLED_HOSTS_KEY]) ? data[DISABLED_HOSTS_KEY] : [];
+  const [sync, local] = await Promise.all([
+    chrome.storage.sync.get(DUAL_SUBS_NX_KEY).catch((err) => {
+      console.warn('[lws] netflix dualSubsNetflix read failed', err && err.message);
+      return {};
+    }),
+    chrome.storage.local.get(DISABLED_HOSTS_KEY).catch((err) => {
+      log('local disabledHosts read failed:', err && err.message);
+      return {};
+    }),
+  ]);
+  if (sync[DUAL_SUBS_NX_KEY] === false) return false;
+  const list = Array.isArray(local[DISABLED_HOSTS_KEY]) ? local[DISABLED_HOSTS_KEY] : [];
   const host = (window.location && window.location.hostname || '').toLowerCase();
   return !(host && list.includes(host));
 }

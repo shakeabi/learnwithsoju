@@ -2,6 +2,7 @@ const KEYS = {
   KRDICT_KEY: 'krdictApiKey',
   OPENDICT_KEY: 'opendictApiKey',
   DUAL_SUBS_YT: 'dualSubsYouTube',
+  DUAL_SUBS_NX: 'dualSubsNetflix',
   SECONDARY_LANG: 'secondaryLang',
   ASK_AI_PROMPT: 'askAiPrompt',
   ASK_AI_PROVIDER: 'askAiProvider',
@@ -31,6 +32,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
 const krInput = document.getElementById('krdict-key');
 const odInput = document.getElementById('opendict-key');
 const dualSubsToggle = document.getElementById('dualsubs-toggle');
+const dualSubsNxToggle = document.getElementById('dualsubs-toggle-netflix');
 const secondaryLangSelect = document.getElementById('secondary-lang');
 const askAiPromptInput = document.getElementById('ask-ai-prompt');
 const askAiProviderSelect = document.getElementById('ask-ai-provider');
@@ -92,6 +94,7 @@ async function load() {
     KEYS.KRDICT_KEY,
     KEYS.OPENDICT_KEY,
     KEYS.DUAL_SUBS_YT,
+    KEYS.DUAL_SUBS_NX,
     KEYS.SECONDARY_LANG,
     KEYS.ASK_AI_PROMPT,
     KEYS.ASK_AI_PROVIDER,
@@ -99,6 +102,7 @@ async function load() {
   krInput.value = data[KEYS.KRDICT_KEY] || '';
   odInput.value = data[KEYS.OPENDICT_KEY] || '';
   if (dualSubsToggle) dualSubsToggle.checked = data[KEYS.DUAL_SUBS_YT] !== false;
+  if (dualSubsNxToggle) dualSubsNxToggle.checked = data[KEYS.DUAL_SUBS_NX] !== false;
   if (secondaryLangSelect) secondaryLangSelect.value = data[KEYS.SECONDARY_LANG] || 'en';
   if (askAiPromptInput) {
     askAiPromptInput.value = typeof data[KEYS.ASK_AI_PROMPT] === 'string' && data[KEYS.ASK_AI_PROMPT]
@@ -158,6 +162,11 @@ testBtn.addEventListener('click', testKrdict);
 if (dualSubsToggle) {
   dualSubsToggle.addEventListener('change', () => {
     chrome.storage.sync.set({ [KEYS.DUAL_SUBS_YT]: dualSubsToggle.checked });
+  });
+}
+if (dualSubsNxToggle) {
+  dualSubsNxToggle.addEventListener('change', () => {
+    chrome.storage.sync.set({ [KEYS.DUAL_SUBS_NX]: dualSubsNxToggle.checked });
   });
 }
 if (secondaryLangSelect) {
