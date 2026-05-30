@@ -149,7 +149,6 @@ on-demand Hanja meanings service.
    │  - per-site adapter section  │    │  - API keys             │
    │    (e.g. youtube-popup.js    │    │  - dual subs on/off     │
    │     secondary-lang dropdown) │    │  - secondary lang       │
-   │  - status row                │    │  - Advanced (collapsed):│
    │                              │    │      Ask-AI provider    │
    │                              │    │      Ask-AI prompt tmpl │
    │                              │    │  - clear cache          │
@@ -1313,7 +1312,6 @@ icon. Four sections:
   sorted on every write so storage diffs stay small. There is no
   global hover-dictionary toggle here anymore — for "off everywhere",
   use `chrome://extensions`.
-- Status row (API key status / active).
 - Adapter section — generic shell. `loadAdapterSection()` resolves the
   active tab's hostname against `findSiteConfig(...)` from
   `site-configs.js`, and if the matched config declares a

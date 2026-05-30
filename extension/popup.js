@@ -18,7 +18,6 @@ const LINK_META = {
   },
 };
 
-const KRDICT_KEY = 'krdictApiKey';
 // Per-site disable lives in chrome.storage.local — sync is throttled
 // (write-quota, eventual-consistency w/ the cloud) and was dropping
 // per-site writes. Local is per-device, which matches the semantics:
@@ -28,23 +27,10 @@ const DISABLED_HOSTS_KEY = 'disabledHosts';
 const siteRow = document.getElementById('site-row');
 const siteToggle = document.getElementById('site-toggle');
 const siteHostEl = document.getElementById('site-host');
-const statusDot = document.getElementById('status-dot');
-const statusText = document.getElementById('status-text');
 const openOptionsBtn = document.getElementById('open-options-icon');
 const adapterSection = document.getElementById('site-adapter-section');
 
 let currentHost = '';
-
-async function load() {
-  const data = await chrome.storage.sync.get(KRDICT_KEY);
-  if (!data[KRDICT_KEY]) {
-    statusDot.className = 'dot warn';
-    statusText.textContent = 'API key not set';
-  } else {
-    statusDot.className = 'dot ok';
-    statusText.textContent = 'Active';
-  }
-}
 
 function applyToggleFromList(list) {
   const arr = Array.isArray(list) ? list : [];
@@ -165,7 +151,6 @@ openOptionsBtn.addEventListener('click', () => {
   window.close();
 });
 
-load();
 loadSiteSection();
 loadAdapterSection();
 
