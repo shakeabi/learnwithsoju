@@ -6,6 +6,16 @@
   const WORD_CLASS = 'lws-word';
   const HIDE_DELAY_MS = 120;
   const HOVER_DELAY_MS = 60;
+  const LOOKUP_STATUS_DELAY_MS = 50;
+
+  const LOOKUP_STAGE_LABELS = {
+    init: 'Initializing…',
+    morpheme: 'Analyzing morphemes…',
+    cache: 'Checking cache…',
+    krdict: 'Querying KRDict…',
+    opendict: 'Falling back to OpenDict…',
+    render: 'Rendering…',
+  };
   const SENTENCE_MAX_BEFORE = 80;
   const SENTENCE_MAX_AFTER = 80;
   const SENTENCE_BLOCK_TAGS = new Set([
@@ -155,6 +165,8 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   let hideTimer = null;
   let hoverTimer = null;
   let pendingRequestId = 0;
+  let activeLoadingStatusEl = null;
+  let lookupStatusTimers = [];
   let popupPinned = false;
   let popupPinnedSafetyTimer = null;
   // Video auto-pause/resume state. `pausedVideo` holds the element we
@@ -379,6 +391,8 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
 
   function hidePopup() {
     unpinPopup();
+    clearLookupStatusTimers();
+    activeLoadingStatusEl = null;
     if (popupEl) {
       popupEl.style.display = 'none';
       popupEl.innerHTML = '';
@@ -456,8 +470,43 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   function buildLoadingNode(surface) {
     const div = document.createElement('div');
     div.className = 'lws-popup-body lws-loading';
-    div.textContent = `Looking up ${surface}…`;
+    const wordEl = document.createElement('span');
+    wordEl.className = 'lws-loading-word';
+    wordEl.textContent = surface;
+    div.appendChild(wordEl);
+    const statusEl = document.createElement('span');
+    statusEl.className = 'lws-loading-status';
+    div.appendChild(statusEl);
+    activeLoadingStatusEl = statusEl;
     return div;
+  }
+
+  function setLookupStatus(key) {
+    const label = LOOKUP_STAGE_LABELS[key];
+    if (!label) {
+      console.warn('[lws] setLookupStatus: unknown stage key', key);
+    }
+    if (!activeLoadingStatusEl) return;
+    activeLoadingStatusEl.textContent = label || `Looking up…`;
+  }
+
+  function clearLookupStatusTimers() {
+    for (const t of lookupStatusTimers) clearTimeout(t);
+    lookupStatusTimers = [];
+  }
+
+  function scheduleLookupStatusSequence() {
+    clearLookupStatusTimers();
+    activeLoadingStatusEl = activeLoadingStatusEl || null;
+    lookupStatusTimers.push(setTimeout(() => {
+      setLookupStatus('cache');
+    }, LOOKUP_STATUS_DELAY_MS));
+    lookupStatusTimers.push(setTimeout(() => {
+      setLookupStatus('morpheme');
+    }, LOOKUP_STATUS_DELAY_MS + 150));
+    lookupStatusTimers.push(setTimeout(() => {
+      setLookupStatus('krdict');
+    }, LOOKUP_STATUS_DELAY_MS + 450));
   }
 
   function extractSentence(wordEl) {
@@ -1510,16 +1559,22 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       popupEl.style.minHeight = '';
       popupEl.style.minWidth = '';
     }
+    activeLoadingStatusEl = null;
     showPopup(anchor, buildLoadingNode(surface), { reposition });
+    scheduleLookupStatusSequence();
 
     let response;
     try {
       response = await chrome.runtime.sendMessage({ type: 'lookup', surface });
     } catch (err) {
+      clearLookupStatusTimers();
+      activeLoadingStatusEl = null;
       if (requestId !== pendingRequestId) return;
       showPopup(anchor, buildErrorNode('Extension is reloading. Hover again in a moment.'), { reposition });
       return;
     }
+    clearLookupStatusTimers();
+    activeLoadingStatusEl = null;
     if (requestId !== pendingRequestId) return;
     if (!response) {
       showPopup(anchor, buildErrorNode('No response from extension.'), { reposition });

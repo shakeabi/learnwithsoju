@@ -660,6 +660,19 @@ a.lws-hanja-row-char:hover {
 .lws-loading {
   color: var(--muted);
   font-style: italic;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lws-loading-word {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.lws-loading-status {
+  white-space: nowrap;
 }
 
 .lws-error {

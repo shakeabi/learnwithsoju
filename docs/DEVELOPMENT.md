@@ -537,6 +537,25 @@ Files: `content.js`, `background.js`, `lemmatizer.js`, `parsers.js`,
    state (`expandedExamples`, `expandedHanja`, `relatedExpanded`,
    `activeInsightTab`, popup min-size memos), then renders a loading
    placeholder via `showPopup(anchor, buildLoadingNode(surface))`.
+   The loading node shows the hovered word and a live status line that
+   advances through pipeline stages. Status is suppressed if the whole
+   lookup completes within 50 ms (cache hit — no flicker). Otherwise
+   the status label updates in place via `setLookupStatus(key)` as each
+   stage starts, using `LOOKUP_STAGE_LABELS`:
+
+   | Stage key  | Label                     | When shown                              |
+   |------------|---------------------------|-----------------------------------------|
+   | `init`     | `Initializing…`           | MeCab WASM still loading (first lookup) |
+   | `cache`    | `Checking cache…`         | Cache read in flight (after 50 ms)      |
+   | `morpheme` | `Analyzing morphemes…`    | MeCab tokenization running              |
+   | `krdict`   | `Querying KRDict…`        | KRDict network request in flight        |
+   | `opendict` | `Falling back to OpenDict…` | OpenDict fallback in flight           |
+   | `render`   | `Rendering…`              | Result received, building DOM           |
+
+   Since the pipeline runs as a single background message (no streaming),
+   content-side stage advancement is optimistic: `cache` fires at 50 ms,
+   `morpheme` at 200 ms, `krdict` at 500 ms — all timers are cancelled
+   the moment the response arrives.
 4. `chrome.runtime.sendMessage({ type: 'lookup', surface })` →
   `background.js` `handleLookup(surface)`:
   1. Cache hit? Return cached `LookupResponse` (still includes the
