@@ -172,15 +172,16 @@ on-demand Hanja meanings service.
       │   │  background.js (service worker) │       │ injects via
       │   │  ─────────────────────────────  │       │ <script src=…>
       │   │   mecab WASM (lazy)             │       ▼
-      │   │   two cache namespaces          │  ┌─────────────────────┐
-      │   │   (lookup:* and hanja:*)        │  │ youtube-page-hook.js│
-      │   │   parallel KRDict queries       │  │  (page main world)  │
-      │   │   handleLookup, handleHanja     │  │   XHR + fetch hooks │
-      │   └──┬────────────────┬─────────────┘  │   getOption tracklist│
-      │      │ HTTPS          │ HTTPS          │   setOption load    │
-      │      ▼                ▼                └──┬──────────────────┘
-      │   krdict.       opendict.                 │ window.postMessage
-      │   korean.go.kr  korean.go.kr              │   __lwsYtCmd
+      │   │   four cache namespaces         │  ┌─────────────────────┐
+      │   │   lookup:* hanja:* krdict:*    │  │ youtube-page-hook.js│
+      │   │   opendict:*                   │  │  (page main world)  │
+      │   │   parallel KRDict queries       │  │   XHR + fetch hooks │
+      │   │   handleLookup, handleHanja     │  │   getOption tracklist│
+      │   └──┬────────────────┬─────────────┘  │   setOption load    │
+      │      │ HTTPS          │ HTTPS          └──┬──────────────────┘
+      │      ▼                ▼                   │ window.postMessage
+      │   krdict.       opendict.                 │   __lwsYtCmd
+      │   korean.go.kr  korean.go.kr              │   __lwsYtCaption
       │      │                │                   │   __lwsYtCaption
       │      │                │                   │   __lwsYtReply
       │      ▼                ▼                   ▼
@@ -383,16 +384,19 @@ picks it up via `chrome.runtime.getURL` import (the file is listed in
 | ------------------- | --------------------- | -------------------------------------- | ------------------------------------------------------- |
 | `lookup:<surface>`  | `LookupResponse`      | `background.js` (`cache.set`)          | `background.js` (`cache.get`)                           |
 | `hanja:<chars>`     | Hanja gloss array     | `background.js` (`hanjaCache.set`)     | `background.js`                                         |
+| `krdict:<lemma>`    | `{ xml, cachedAt }`   | `background.js` (`krdictCache.set`)    | `background.js` (`krdictCache.get`)                     |
+| `opendict:<lemma>`  | `{ xml, cachedAt }`   | `background.js` (`opendictCache.set`)  | `background.js` (`opendictCache.get`)                   |
 | `dualSubsOverrides` | `{ [videoId]: lang }` | `popup.js` (per-video radio selection) | `youtube-adapter.js` (onChanged + resolveSecondaryLang) |
 | `dualSubsOverridesNetflix` | `{ [titleId]: lang }` | `netflix-popup.js` (per-title dropdown) | `netflix-adapter.js` (onChanged + resolveSecondaryLang) |
 | `disabledHosts`     | `string[]`            | `popup.js` (per-site toggle)           | `content.js` init + onChanged listener                  |
 
 
-`lookup:` and `hanja:` are namespaces enforced by `cache.js` (see §11) —
-the actual storage entries are keyed `lookup:먹다`, `hanja:豫約`, etc.
-The two namespaces share a single `chrome.storage.local` area but
-`cache.clear()` only deletes keys with its own prefix, so clearing the
-word cache does not blow away the Hanja cache and vice versa.
+`lookup:`, `hanja:`, `krdict:`, and `opendict:` are namespaces enforced
+by `cache.js` (see §11) — the actual storage entries are keyed
+`lookup:먹다`, `hanja:豫約`, `krdict:먹다`, `opendict:먹다`, etc.
+All four namespaces share a single `chrome.storage.local` area but
+`cache.clear()` only deletes keys with its own prefix, so clearing any
+one cache does not touch the others.
 
 ### Why `chrome.storage.local` (not `chrome.storage.session`) for per-video overrides
 
@@ -432,7 +436,7 @@ All from `content.js` (or from inside the popup's button-handlers).
 | `lookupHanja` | `{ chars: string }`   | `{ chars, hanjas: [{character, sino, summary}], cachedAt }` or `{ chars, error, ... }` | Async. Failures (5xx/429) are NOT cached so the next click retries. |
 | `openOptions` | `{}`                  | `{ ok: true }`                                                                         | Sync; `chrome.runtime.openOptionsPage()`.                           |
 | `ping`        | `{}`                  | `{ ok: true }`                                                                         | Sync; used to wake the SW.                                          |
-| `clearCache`  | `{}`                  | `{ ok: true }` or `{ ok: false, error }`                                               | Async. Clears BOTH `lookup:` and `hanja:` namespaces.               |
+| `clearCache`  | `{}`                  | `{ ok: true }` or `{ ok: false, error }`                                               | Async. Clears all four namespaces: `lookup:`, `hanja:`, `krdict:`, `opendict:`. |
 
 
 ### `chrome.tabs.sendMessage` — popup module → content (then content → adapter)
@@ -593,12 +597,16 @@ Files: `content.js`, `background.js`, `lemmatizer.js`, `parsers.js`,
   4. Read `krdictApiKey` from `chrome.storage.sync`. If missing,
     return `{ error: 'NO_API_KEY' }`.
   5. Pick the top 4 distinct candidates and fire `Promise.all` of
-    `fetchXml(buildKrdictUrl(q, key))` — see §9 for the partition
-     logic that depends on the order of these results.
+    `fetchKrdictCached(q, key)` — each call consults `krdictCache`
+     (keyed by lemma) before hitting the network; two surfaces that
+     lemmatize to the same lemma share the cached XML. See §9 for the
+     partition logic that depends on the order of these results.
   6. If none of the 4 returned anything, fall through to remaining
-    candidates sequentially.
+    candidates sequentially (each also goes through `fetchKrdictCached`).
   7. If `opendictApiKey` is set AND KRDict came back empty, try
-    OpenDict in candidate order until one returns content.
+    OpenDict via `fetchOpendictCached` in candidate order until one
+    returns content; `opendictCache` (keyed by lemma) is consulted
+    first so repeat lemma queries skip the network.
   8. Build the response object — `surface`, `lemma`, `queryUsed`,
     `queriesUsed`, `multiPrimary` flag, `tokens`, `krXmls[]`,
      `odXml`, `cachedAt`. Persist to cache and return.
@@ -1045,7 +1053,7 @@ background, not the other way.
 
 ### 7.3 `background.js`
 
-Purpose: service worker. Owns the mecab WASM analyzer, the two caches,
+Purpose: service worker. Owns the mecab WASM analyzer, the four caches,
 and the network-side dictionary requests.
 
 Module-level state:
@@ -1053,8 +1061,10 @@ Module-level state:
 
 | Binding             | Purpose                                                               |
 | ------------------- | --------------------------------------------------------------------- |
-| `cache`             | `createCache(adapter)` — `lookup:` namespace                          |
+| `cache`             | `createCache(adapter)` — `lookup:` namespace (surface-keyed)          |
 | `hanjaCache`        | `createCache(adapter, { namespace: 'hanja' })`                        |
+| `krdictCache`       | `createCache(adapter, { namespace: 'krdict' })` — lemma-keyed raw XML |
+| `opendictCache`     | `createCache(adapter, { namespace: 'opendict' })` — lemma-keyed raw XML |
 | `mecabInstance`     | `Mecab` instance once initialized, otherwise null                     |
 | `mecabReadyPromise` | In-flight init promise (so concurrent first-hovers don't double-init) |
 
@@ -1197,9 +1207,10 @@ envelope, or `null` if not an error response. Used by the options-page
 ### 7.7 `cache.js`
 
 Purpose: two-tier (in-memory LRU + injected storage adapter) cache
-factory. Used twice in `background.js` — once for KRDict responses
-(`lookup:` namespace), once for Hanja gloss responses (`hanja:`
-namespace).
+factory. Used four times in `background.js` — surface-keyed lookup
+responses (`lookup:` namespace), Hanja gloss responses (`hanja:`
+namespace), and per-lemma dict-response caches (`krdict:` and
+`opendict:` namespaces).
 
 Exports:
 
@@ -2117,9 +2128,15 @@ failed initial read was silently disabling CC the user may have had on.
 
 ## 11. Caching strategy
 
-The `cache.js` module is used twice in the SW — once for KRDict
-responses (`createCache(adapter)` — default `lookup:` namespace) and
-once for Hanja gloss responses (`createCache(adapter, { namespace: 'hanja' })`).
+The `cache.js` module is used four times in the SW: surface-keyed
+lookup responses (`lookup:` namespace), Hanja gloss responses
+(`hanja:` namespace), and two per-query dict-API caches that sit
+between `handleLookup` and the network — `krdict:` for KRDict XML and
+`opendict:` for OpenDict XML, both keyed by the exact lemma string
+sent to the API. Multiple surface forms that lemmatize to the same
+lemma share the cached XML, so a second hover on `먹었어요` after
+`먹었어` re-uses the `먹다` KRDict response already stored in
+`krdictCache` without firing another network request.
 
 ### 11.1 Two tiers
 
@@ -2133,29 +2150,40 @@ won't even need a storage read).
 
 **L2 — injected storage adapter.** In production, `chromeStorageAdapter(chrome.storage.local)`. Reads are awaited Promise-style; writes are
 fire-and-forget but awaited in tests. All keys are namespace-prefixed
-(`lookup:먹다`, `hanja:豫約`) so multiple cache instances can share
-one storage area.
+(`lookup:먹다`, `hanja:豫約`, `krdict:먹다`, `opendict:먹다`) so
+multiple cache instances can share one storage area.
 
 ### 11.2 Why namespaced
 
-The KRDict cache and the Hanja cache live in the same
-`chrome.storage.local` area but should be independent — clearing the
-word-lookup cache when a definition seems stale shouldn't blow away the
-Hanja gloss cache (which is tiny — hundreds of entries — and rarely
-needs clearing). `cache.clear()` only deletes keys with its own prefix.
+All four caches live in the same `chrome.storage.local` area but are
+independent — clearing the word-lookup cache when a definition seems
+stale shouldn't blow away the Hanja gloss cache (tiny, rarely stale)
+or the per-lemma dict caches. `cache.clear()` only deletes keys with
+its own prefix.
 
 ### 11.3 Cache keys
 
 
-| Cache      | Key                | Value                                                       |
-| ---------- | ------------------ | ----------------------------------------------------------- |
-| `lookup:`* | `surface` (raw)    | Full `LookupResponse` with the raw XMLs etc.                |
-| `hanja:*`  | concatenated Hanja | `{ chars, hanjas: [{character, sino, summary}], cachedAt }` |
+| Cache        | Key                | Value                                                       |
+| ------------ | ------------------ | ----------------------------------------------------------- |
+| `lookup:*`   | `surface` (raw)    | Full `LookupResponse` with the raw XMLs etc.                |
+| `hanja:*`    | concatenated Hanja | `{ chars, hanjas: [{character, sino, summary}], cachedAt }` |
+| `krdict:*`   | lemma (query sent) | `{ xml, cachedAt }` — raw KRDict XML response text          |
+| `opendict:*` | lemma (query sent) | `{ xml, cachedAt }` — raw OpenDict XML response text        |
 
 
-The KRDict response payload is keyed by **surface** (not lemma) —
-because the popup re-renders from `lastPayload` and needs to know what
-surface the user actually hovered, including its sentence context.
+The `lookup:` cache is keyed by **surface** (not lemma) — the popup
+re-renders from `lastPayload` and needs to know what surface the user
+actually hovered, including its sentence context.
+
+The `krdict:` and `opendict:` caches are keyed by the **exact lemma
+string** passed to the API. They sit between `handleLookup` and the
+network: before any `fetch` is issued, `fetchKrdictCached` /
+`fetchOpendictCached` check whether the lemma was already queried in
+this or a previous session. All responses are cached including
+empty/no-result ones — the goal is to avoid repeating the network
+call, not to filter results. Only thrown errors (network failure, 5xx)
+bypass the set path.
 
 The Hanja cache is keyed by the **concatenated Hanja characters** of one
 origin field — so `豫約` and `學校` are separate cache entries; the

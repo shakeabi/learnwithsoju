@@ -17,6 +17,11 @@ const cache = createCache(chromeStorageAdapter(chrome.storage.local));
 // lookups doesn't blow away the (small, ~hundreds of entries) hanja gloss
 // cache, and vice versa.
 const hanjaCache = createCache(chromeStorageAdapter(chrome.storage.local), { namespace: 'hanja' });
+// Per-query dict-response caches: keyed by the exact lemma string sent to the
+// API.  Two surfaces that lemmatize to the same lemma share these cached
+// responses, avoiding repeat network calls to the same endpoint.
+const krdictCache = createCache(chromeStorageAdapter(chrome.storage.local), { namespace: 'krdict' });
+const opendictCache = createCache(chromeStorageAdapter(chrome.storage.local), { namespace: 'opendict' });
 const HANJA_API = 'https://hangulhanja.com/api/search';
 
 let mecabInstance = null;
@@ -51,6 +56,38 @@ async function fetchXml(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.text();
+}
+
+async function fetchKrdictCached(query, key) {
+  try {
+    const hit = await krdictCache.get(query);
+    if (hit !== undefined) return hit.xml;
+  } catch (err) {
+    console.warn('[lws] krdictCache.get failed, fetching:', err);
+  }
+  const xml = await fetchXml(buildKrdictUrl(query, key));
+  try {
+    await krdictCache.set(query, { xml, cachedAt: Date.now() });
+  } catch (err) {
+    console.warn('[lws] krdictCache.set failed:', err);
+  }
+  return xml;
+}
+
+async function fetchOpendictCached(query, key) {
+  try {
+    const hit = await opendictCache.get(query);
+    if (hit !== undefined) return hit.xml;
+  } catch (err) {
+    console.warn('[lws] opendictCache.get failed, fetching:', err);
+  }
+  const xml = await fetchXml(buildOpendictUrl(query, key));
+  try {
+    await opendictCache.set(query, { xml, cachedAt: Date.now() });
+  } catch (err) {
+    console.warn('[lws] opendictCache.set failed:', err);
+  }
+  return xml;
 }
 
 async function tokenizeSurface(surface) {
@@ -100,7 +137,7 @@ async function handleLookup(surface) {
   const parallelQueue = pickTopNDistinct(candidates, 4);
   try {
     const responses = await Promise.all(
-      parallelQueue.map((q) => fetchXml(buildKrdictUrl(q, krKey)).catch(() => null)),
+      parallelQueue.map((q) => fetchKrdictCached(q, krKey).catch(() => null)),
     );
     for (let i = 0; i < parallelQueue.length; i++) {
       const xml = responses[i];
@@ -115,7 +152,7 @@ async function handleLookup(surface) {
     if (queriesUsed.length === 0) {
       for (const q of candidates) {
         if (parallelQueue.includes(q)) continue;
-        const xml = await fetchXml(buildKrdictUrl(q, krKey));
+        const xml = await fetchKrdictCached(q, krKey);
         if (!looksEmpty(xml)) {
           krXmls.push(xml);
           queriesUsed.push(q);
@@ -151,7 +188,7 @@ async function handleLookup(surface) {
   if (odKey && (queryUsed === null || looksEmpty(krXml))) {
     try {
       for (const q of candidates) {
-        const xml = await fetchXml(buildOpendictUrl(q, odKey));
+        const xml = await fetchOpendictCached(q, odKey);
         if (!looksEmpty(xml)) {
           odXml = xml;
           if (queryUsed === null) queryUsed = q;
@@ -263,8 +300,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
   if (msg && msg.type === 'clearCache') {
-    Promise.all([cache.clear(), hanjaCache.clear()])
-      .then(() => sendResponse({ ok: true }))
+    Promise.all([cache.clear(), hanjaCache.clear(), krdictCache.clear(), opendictCache.clear()])
+      .then(() => { console.log('[lws] dict cache cleared'); sendResponse({ ok: true }); })
       .catch((err) => sendResponse({ ok: false, error: String(err && err.message || err) }));
     return true;
   }
