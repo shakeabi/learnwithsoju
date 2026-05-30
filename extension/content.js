@@ -972,54 +972,65 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     }
 
     if (activeTabIdx >= tabs.length) activeTabIdx = 0;
-    if (tabs.length > 1) {
-      root.appendChild(buildTabBar(tabs));
+    if (tabs.length > 1 || (tabs.length === 1 && unrelated.length > 0)) {
+      root.appendChild(buildTabBar(tabs, unrelated));
+    }
+    if (unrelated.length > 0) {
+      root.appendChild(buildRelatedPanel(unrelated));
     }
     if (tabs.length > 0) {
       root.appendChild(buildTabBodyNode(tabs[activeTabIdx], activeTabIdx));
     }
 
-    if (unrelated.length > 0) {
-      root.appendChild(buildUnrelatedNode(unrelated));
-    }
-
     return root;
   }
 
-  function buildTabBar(tabs) {
-    const labels = computeTabLabels(tabs);
+  function buildTabBar(tabs, unrelated = []) {
     const bar = document.createElement('div');
     bar.className = 'lws-tabs';
     bar.setAttribute('role', 'tablist');
-    labels.forEach((label, i) => {
+    tabs.forEach((tab, i) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'lws-tab';
-      btn.textContent = label;
-      const firstEntry = tabs[i].entries[0] && tabs[i].entries[0].entry;
+      btn.className = 'lws-tab' + (i === activeTabIdx ? ' lws-tab-active' : '');
+      const wordSpan = document.createElement('span');
+      wordSpan.textContent = tab.word || '·';
+      btn.appendChild(wordSpan);
+      if (tab.entries.length > 1) {
+        const badge = document.createElement('span');
+        badge.className = 'lws-tab-count';
+        badge.textContent = String(tab.entries.length);
+        badge.setAttribute('aria-hidden', 'true');
+        btn.appendChild(badge);
+      }
+      const firstEntry = tab.entries[0] && tab.entries[0].entry;
       const fullPos = firstEntry ? displayPos(firstEntry.pos) : '';
-      const sectionCount = tabs[i].entries.length;
+      const sectionCount = tab.entries.length;
       const suffix = sectionCount > 1 ? ` — ${sectionCount} entries` : '';
       btn.title = fullPos
-        ? `${tabs[i].word} — ${fullPos}${suffix}`.trim()
-        : `${tabs[i].word}${suffix}`;
+        ? `${tab.word} — ${fullPos}${suffix}`.trim()
+        : `${tab.word}${suffix}`;
       btn.setAttribute('role', 'tab');
       btn.setAttribute('aria-selected', i === activeTabIdx ? 'true' : 'false');
       btn.dataset.idx = String(i);
       btn.addEventListener('click', () => onTabClick(i));
       bar.appendChild(btn);
     });
+    if (unrelated.length > 0) {
+      const total = unrelated.reduce((n, g) => n + g.entries.length, 0);
+      const pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'lws-related-pill' + (relatedExpanded ? ' lws-related-pill-open' : '');
+      pill.setAttribute('aria-expanded', relatedExpanded ? 'true' : 'false');
+      pill.textContent = relatedExpanded ? `+${total} related ▴` : `+${total} related ▾`;
+      pill.addEventListener('click', (e) => {
+        e.stopPropagation();
+        relatedExpanded = !relatedExpanded;
+        rerenderActivePopup();
+      });
+      bar.appendChild(pill);
+    }
     return bar;
-  }
-
-  function computeTabLabels(tabs) {
-    // Tab label is the headword. When a tab holds multiple sections we
-    // append a "·N" badge so the user can tell at a glance which tabs are
-    // multi-entry; single-section tabs stay clean.
-    return tabs.map((t) => {
-      const word = t.word || '·';
-      return t.entries.length > 1 ? `${word} ·${t.entries.length}` : word;
-    });
   }
 
   function onTabClick(idx) {
@@ -1143,50 +1154,31 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     return header;
   }
 
-  // Unrelated bucket: same per-entry layout as a tab body, but rendered
-  // below the active tab under a labeled, fully collapsible section. The
-  // outer container itself starts collapsed — KRDict's loose-match list
-  // is often noisy and we don't want to push the primary tabs offscreen.
-  function buildUnrelatedNode(unrelated) {
-    const wrap = document.createElement('div');
-    wrap.className = 'lws-unrelated';
-    const total = unrelated.reduce((n, g) => n + g.entries.length, 0);
-    const header = document.createElement('button');
-    header.type = 'button';
-    header.className = 'lws-unrelated-toggle';
-    header.setAttribute('aria-expanded', relatedExpanded ? 'true' : 'false');
-    header.textContent = relatedExpanded
-      ? `▾ Hide related (${total})`
-      : `▸ Show related (${total})`;
-    header.addEventListener('click', (e) => {
-      e.stopPropagation();
-      relatedExpanded = !relatedExpanded;
-      rerenderActivePopup();
-    });
-    wrap.appendChild(header);
-
-    if (relatedExpanded) {
-      const body = document.createElement('div');
-      body.className = 'lws-unrelated-body';
-      unrelated.forEach((group, gIdx) => {
-        const tabIdx = `u${gIdx}`;
-        group.entries.forEach(({ entry, source }, sIdx) => {
-          const key = `${tabIdx}:${sIdx}`;
-          const isOpen = sIdx === 0 || expandedSections.has(key);
-          body.appendChild(buildSectionNode({
-            entry,
-            source,
-            tabIdx,
-            sectionIdx: sIdx,
-            isOpen,
-            isFirst: sIdx === 0,
-            senseKeyPrefix: `${source}:u${gIdx}:${sIdx}`,
-          }));
-        });
+  // Related panel: sits between the tab strip and the main tab body.
+  // Toggled by the +N pill in the tab strip; only rendered when expanded.
+  // Collapsed = zero-height (display:none via CSS); expanded = shows the
+  // same per-section layout as a tab body for every unrelated group.
+  function buildRelatedPanel(unrelated) {
+    const panel = document.createElement('div');
+    panel.className = 'lws-related-panel' + (relatedExpanded ? ' lws-related-panel-open' : '');
+    if (!relatedExpanded) return panel;
+    unrelated.forEach((group, gIdx) => {
+      const tabIdx = `u${gIdx}`;
+      group.entries.forEach(({ entry, source }, sIdx) => {
+        const key = `${tabIdx}:${sIdx}`;
+        const isOpen = sIdx === 0 || expandedSections.has(key);
+        panel.appendChild(buildSectionNode({
+          entry,
+          source,
+          tabIdx,
+          sectionIdx: sIdx,
+          isOpen,
+          isFirst: sIdx === 0,
+          senseKeyPrefix: `${source}:u${gIdx}:${sIdx}`,
+        }));
       });
-      wrap.appendChild(body);
-    }
-    return wrap;
+    });
+    return panel;
   }
 
   function buildStripNode({ showLemmaChip, lemma }) {

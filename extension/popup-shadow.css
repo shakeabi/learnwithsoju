@@ -469,16 +469,21 @@ a.lws-hanja-row-char:hover {
 /* Entry tabs (only when KRDict returns >1 entry).
    Pill-style. Tabs wrap to additional rows naturally — no horizontal
    scrollbar, no overflow gymnastics. The popup grows in width up to its
-   max-width to keep tabs on one row when possible. */
+   max-width to keep tabs on one row when possible.
+   The tab strip also contains the +N related pill at the far end. */
 .lws-tabs {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   padding: 8px 14px 10px;
   border-bottom: 1px solid var(--border);
 }
 
 .lws-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   border: 0;
   background: transparent;
   color: var(--muted);
@@ -497,10 +502,76 @@ a.lws-hanja-row-char:hover {
   color: var(--fg);
 }
 
-.lws-tab[aria-selected="true"] {
+.lws-tab[aria-selected="true"],
+.lws-tab.lws-tab-active {
   background: var(--chip-amber-bg);
   color: var(--chip-amber-fg);
   font-weight: 500;
+}
+
+/* Count badge inside a tab button — only rendered when the tab holds >1 section */
+.lws-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  color: var(--muted);
+}
+
+.lws-tab[aria-selected="true"] .lws-tab-count,
+.lws-tab.lws-tab-active .lws-tab-count {
+  background: var(--chip-amber-fg);
+  color: var(--chip-amber-bg);
+}
+
+/* +N related pill — lives at the end of the tab strip, visually subdued */
+.lws-related-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 3px 10px;
+  cursor: pointer;
+  border-radius: 999px;
+  white-space: nowrap;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.lws-related-pill:hover {
+  background: var(--soft);
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+
+.lws-related-pill.lws-related-pill-open {
+  background: var(--soft);
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+
+/* Related panel — sits between the tab strip and main tab body.
+   Hidden when collapsed (empty); when expanded, shows grouped entries
+   with a bottom border separating it from the primary tab body. */
+.lws-related-panel {
+  display: none;
+}
+
+.lws-related-panel.lws-related-panel-open {
+  display: block;
+  border-bottom: 1px solid var(--border);
+  background: var(--soft);
 }
 
 /* Headword block — used both as a primary section and inside .lws-unrelated. */
@@ -644,32 +715,6 @@ button.lws-section-header[aria-expanded="true"] .lws-section-indicator {
   color: var(--chip-amber-fg);
 }
 
-/* "Related" bucket below the primary tabs. Collapsible: header always
-   visible, body only when expanded. Holds same-shape section nodes as the
-   main tab body — headword + chips + senses. */
-.lws-unrelated {
-  border-top: 1px solid var(--border);
-  margin-top: 4px;
-}
-.lws-unrelated-toggle {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  padding: 8px 16px;
-  cursor: pointer;
-  letter-spacing: 0.02em;
-}
-.lws-unrelated-toggle:hover,
-.lws-unrelated-toggle[aria-expanded="true"] {
-  color: var(--chip-amber-fg);
-}
-.lws-unrelated-body {
-  border-top: 1px dashed var(--border);
-}
 
 .lws-examples {
   margin: 4px 0 2px;
