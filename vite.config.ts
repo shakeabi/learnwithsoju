@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 // as they migrate (notepad, morpheme-inspector, popup, overlay).
 const inputs: Record<string, string> = {
   'pages/options/options': resolve(__dirname, 'src/pages/options/main.ts'),
+  'pages/notepad/notepad': resolve(__dirname, 'src/pages/notepad/main.ts'),
 };
 
 // Map of entry basename → output directory, derived once from `inputs`.
@@ -76,6 +77,13 @@ export default defineConfig({
           }
           return '[name][extname]';
         },
+        // Shared Svelte runtime is extracted by Rollup into a single chunk
+        // under shared/ — each page's main.js imports it via a relative
+        // path (`../../shared/disclose-version-<hash>.js`). Per-entry CSS
+        // stays inlined into each page's main.css because tokens.css uses
+        // `@import` rather than a JS `import` (see pages/*/styles/tokens.css
+        // for the why). The shared chunk's hash changes only when the
+        // Svelte runtime itself changes, so committed-output churn is low.
         manualChunks: undefined,
         inlineDynamicImports: false,
       },

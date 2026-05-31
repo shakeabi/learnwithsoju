@@ -3,51 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <title>learnwithsoju — Notepad</title>
-  <link rel="stylesheet" href="../options/options.css" />
+  <link rel="stylesheet" href="main.css" />
   <!-- content.css supplies the `.lws-word` underline + cursor on the
-       notepad target below; content.js's mutation observer wraps typed /
-       pasted text into those spans so the hover popup machinery works here
-       as on any webpage. notepad.js drives the live textarea → target sync
-       (debounced 150 ms input event). -->
+       hoverable target. content.js (loaded below) drives the mutation
+       observer that wraps each Korean run into a `.lws-word` span when
+       App.svelte writes new text into the target div. -->
   <link rel="stylesheet" href="../../content.css" />
-  <style>
-    /* Plain block that holds the committed text. `pre-wrap` so the
-     * paragraph structure from the paste survives — newlines become
-     * real line breaks; runs of spaces are preserved. Generous
-     * padding so the wrapped `.lws-word` spans have room for the
-     * dictionary popup's anchor. min-height keeps the empty state
-     * stable instead of collapsing to a 0-height line. */
-    .notepad-target {
-      white-space: pre-wrap;
-      font-size: 16px;
-      line-height: 1.7;
-      padding: 16px;
-      min-height: 100px;
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      background: var(--bg);
-    }
-  </style>
 </head>
 <body>
-  <main>
-    <header>
-      <h1>Notepad</h1>
-      <p class="subtitle">Paste Korean text and hover any word to look it up.</p>
-    </header>
-    <section class="card">
-      <label class="field">
-        <span class="label">Paste text</span>
-        <textarea id="notepad-input" rows="8" spellcheck="false" placeholder="Paste Korean text here — it becomes hoverable as you type."></textarea>
-      </label>
-    </section>
-    <section class="card">
-      <h2>Hoverable text</h2>
-      <p class="hint">Korean words below are hoverable — the same dictionary popup you get on any webpage.</p>
-      <div id="notepad-target" class="notepad-target lws-sentence-root" aria-live="polite"></div>
-    </section>
-  </main>
-  <script src="notepad.js"></script>
+  <div id="lws-notepad-root"></div>
+  <script type="module" src="./main.js"></script>
   <!-- content.js runs as a chrome content_script on every webpage; we
        also load it here so the notepad target can reuse its full
        hover-popup pipeline (mecab tokenization, KRDict fetch,

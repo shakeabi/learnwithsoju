@@ -82,11 +82,26 @@ Bundles land at:
 
 - `extension/pages/<surface>/main.js` + `main.css` for the 4 pages
 - `extension/overlay/main.js` + `main.css` for the in-page overlay
+- `extension/shared/disclose-version-<hash>.js` — Svelte runtime,
+  auto-extracted by Rollup once 2+ entries share it; each page's
+  main.js imports it relatively (`../../shared/...`). The hash changes
+  only when the Svelte runtime itself changes, so churn is low.
 
 These files are committed to git so the extension stays loadable from
 `extension/` without a build step. After editing any `src/` file, run
 `npm run build` (or `npm run dev`) and commit both the source change
 and the regenerated bundle.
+
+### CSS convention: `@import` page-shell.css from tokens.css
+
+Each page's `src/pages/<surface>/styles/tokens.css` should pull in the
+shared shell via `@import '$lib/styles/page-shell.css';` rather than
+having `main.ts` do `import '$lib/styles/page-shell.css'`. Why: with
+2+ entries doing the JS-side import, Vite dedups page-shell.css into
+a shared CSS asset whose name (`disclose-version.css`) lands at the
+extension root with no `<link>` referencing it — the pages render
+unstyled. Keeping the dependency at the CSS layer lets Vite inline
+the shell into each entry's `main.css` standalone.
 
 ---
 
