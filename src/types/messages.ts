@@ -22,14 +22,18 @@ export type LookupResponse =
   | LookupSuccess;
 
 // LookupSuccess is intentionally permissive — the overlay consumes specific
-// fields (`tokens`, `groups`, `unrelated`, `krXmls`, `odXml`, `lemma`, etc.)
-// and the precise shape is documented in extension/background.js. We expose
-// the fields the overlay reaches into; everything else passes through as
-// unknown.
+// fields (`tokens`, `tabs`, `unrelated`, `krXmls`, `odXml`, `lemma`,
+// `queryUsed`, etc.) and the precise shape is documented in
+// extension/background.js (handleLookup return). We expose the fields the
+// overlay reaches into; everything else passes through as unknown.
 export interface LookupSuccess {
   surface: string;
   lemma?: string;
+  queryUsed?: string | null;
   tokens?: unknown[];
+  /** Primary tab groups — the actual entries the user looked up. */
+  tabs?: unknown[];
+  /** Back-compat alias for `tabs`. Older payloads / tests used this name. */
   groups?: unknown[];
   unrelated?: unknown[];
   krXmls?: unknown[];

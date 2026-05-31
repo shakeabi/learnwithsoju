@@ -3,6 +3,7 @@
   import { materializeGroup, type MaterializedGroup } from './lib/entries';
   import { computePosition, type AnchorRect } from './lib/position';
   import SentenceBand from './SentenceBand.svelte';
+  import HeaderStrip from './HeaderStrip.svelte';
   import MorphemeBreakdown from './MorphemeBreakdown.svelte';
   import TabStrip from './TabStrip.svelte';
   import DictionaryTab from './DictionaryTab.svelte';
@@ -100,12 +101,24 @@
 
   async function materializeAll(payload: OverlayPayload) {
     const lookup: any = payload.lookup;
-    const groups = Array.isArray(lookup.groups) ? lookup.groups : [];
+    // background.js (handleLookup) emits `tabs` + `unrelated`. Accept `groups`
+    // too as a back-compat shim — the pre-Task-7 type definition mislabelled
+    // the field, and some tests + adapters still use the old name. New code
+    // should send `tabs`.
+    const tabs = Array.isArray(lookup.tabs)
+      ? lookup.tabs
+      : (Array.isArray(lookup.groups) ? lookup.groups : []);
     const unrelated = Array.isArray(lookup.unrelated) ? lookup.unrelated : [];
     const p: MaterializedGroup[] = [];
-    for (const g of groups) p.push(await materializeGroup(lookup, g));
+    for (const g of tabs) {
+      const mg = await materializeGroup(lookup, g);
+      if (mg.entries.length > 0) p.push(mg);
+    }
     const u: MaterializedGroup[] = [];
-    for (const g of unrelated) u.push(await materializeGroup(lookup, g));
+    for (const g of unrelated) {
+      const mg = await materializeGroup(lookup, g);
+      if (mg.entries.length > 0) u.push(mg);
+    }
     primaryGroups = p;
     unrelatedGroups = u;
     // Default expand: first entry of the first tab.
@@ -155,6 +168,30 @@
       next.set(tabId, idx);
     }
     expandedSectionByTab = next;
+  }
+
+  // EN/KR definition-language toggle. Writes the new value to
+  // chrome.storage.sync (key: defLang). The bridge picks the change up via
+  // storage.onChanged and forwards it as an update({ defLang }) patch — the
+  // current-frame patch above re-renders this overlay against the new
+  // value. Optimistically patches the current frame too so the toggle
+  // feels instant even before the storage roundtrip completes.
+  function onSetDefLang(lang: 'en' | 'ko') {
+    if (currentFrame?.kind === 'payload' && currentFrame.payload.defLang === lang) return;
+    if (currentFrame?.kind === 'payload') {
+      const p = currentFrame.payload;
+      currentFrame = {
+        kind: 'payload',
+        payload: { ...p, defLang: lang, reposition: false },
+      };
+    }
+    try {
+      chrome.storage.sync.set({ defLang: lang }).catch((err: unknown) => {
+        console.warn('[lws] overlay App: defLang storage.set failed', err);
+      });
+    } catch (err) {
+      console.warn('[lws] overlay App: defLang storage.set threw', err);
+    }
   }
 
   // Re-anchor on sentence-word click — we drive a new lookup via the
@@ -233,6 +270,12 @@
       />
     {:else if currentFrame.kind === 'payload'}
       {@const payload = currentFrame.payload}
+      <HeaderStrip
+        surface={(payload.lookup as any).surface || ''}
+        lemma={((payload.lookup as any).queryUsed ?? (payload.lookup as any).lemma) || null}
+        defLang={payload.defLang}
+        onSetDefLang={onSetDefLang}
+      />
       {#if payload.sentence}
         <SentenceBand
           sentence={payload.sentence}

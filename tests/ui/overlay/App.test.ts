@@ -9,12 +9,15 @@ import { render, fireEvent, cleanup } from '@testing-library/svelte';
 const sendMessageMock = vi.fn(async (msg: any) => {
   if (msg?.type === 'lookup') {
     // Sentence-word click path — return a minimal lookup response so the
-    // overlay can render the new payload.
-    return { surface: msg.surface, tokens: [], groups: [], unrelated: [] };
+    // overlay can render the new payload. Real background.js emits
+    // `tabs` (not `groups`), so this mirrors that shape.
+    return { surface: msg.surface, tokens: [], tabs: [], unrelated: [] };
   }
   if (msg?.type === 'lookupHanja') return { chars: msg.chars, hanjas: [] };
   return {};
 });
+
+const storageSetMock = vi.fn(async (_obj: any) => {});
 
 const chromeStub = {
   runtime: {
@@ -25,7 +28,7 @@ const chromeStub = {
   storage: {
     sync: {
       get: async () => ({}),
-      set: async () => {},
+      set: storageSetMock,
       remove: async () => {},
     },
     onChanged: {
@@ -57,14 +60,17 @@ function makePayload(opts: { dupAcrossQueries?: boolean } = {}): any {
     pronunciation: '학꾜',
     senses: [{ definition: '학생들이 공부하는 곳' }],
   };
-  // Two primary groups: one normal (1 entry), one with two sections that
-  // dedup to the same entry when dupAcrossQueries=true.
+  // Two primary tabs: one normal (1 entry), one with two sections that
+  // dedup to the same entry when dupAcrossQueries=true. `tabs` (not
+  // `groups`) is the real field name emitted by background.js handleLookup
+  // → pickTabsAndUnrelated — the overlay reads from there.
   const payload: any = {
     surface: '학교',
+    queryUsed: '학교',
     tokens: [{ surface: '학교', pos: '명사' }],
     krXmls: ['<x/>', '<x/>'],
     odXml: '<x/>',
-    groups: [
+    tabs: [
       { word: '학교', sections: [{ source: 'kr', queryIdx: 0, itemIdx: 0 }] },
       {
         word: '학교2',
@@ -118,6 +124,7 @@ describe('overlay App.svelte orchestration', () => {
 
   beforeEach(() => {
     sendMessageMock.mockClear();
+    storageSetMock.mockClear();
   });
 
   it('mounts and registers window.__lwsOverlay', async () => {
@@ -215,5 +222,101 @@ describe('overlay App.svelte orchestration', () => {
     // Exactly one section should render (dedup).
     const headers = document.querySelectorAll('.lws-section-header');
     expect(headers.length).toBe(1);
+  });
+
+  // ----- Regression coverage (svelte-rewrite 0beca0b → fix commit) -----
+  //
+  // The four behaviours below regressed when the popup was migrated to
+  // Svelte. Each test asserts the post-fix behaviour so a re-regression
+  // surfaces immediately instead of needing a manual smoke test.
+
+  it('regression: primary tabs render from payload.tabs (the real backend shape)', async () => {
+    // Pre-fix bug: App.svelte read `payload.lookup.groups`, but background.js
+    // emits `payload.lookup.tabs`. The result was an empty primary tab row.
+    const { default: App } = await import('../../../src/overlay/App.svelte');
+    render(App);
+    await new Promise((r) => setTimeout(r, 5));
+    const payload = makePayload();
+    (window as any).__lwsOverlay.show(makeFrame(payload));
+    await new Promise((r) => setTimeout(r, 30));
+    // Two primary tab buttons (excluding the related pill).
+    const primaryTabs = document.querySelectorAll('.lws-tabs > .lws-tab');
+    expect(primaryTabs.length).toBe(2);
+    // And at least one entry rendered in the active tab body.
+    const headers = document.querySelectorAll('.lws-section-header');
+    expect(headers.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('regression: focus word is rendered prominently at the top of the popup', async () => {
+    // Pre-fix bug: when the primary tabs disappeared (above), the headword
+    // disappeared with them — nothing else displayed the surface. The
+    // HeaderStrip now shows the focus word inline regardless of tab state.
+    const { default: App } = await import('../../../src/overlay/App.svelte');
+    render(App);
+    await new Promise((r) => setTimeout(r, 5));
+    const payload = makePayload();
+    (window as any).__lwsOverlay.show(makeFrame(payload));
+    await new Promise((r) => setTimeout(r, 30));
+    const focus = document.querySelector('.lws-strip-focus');
+    expect(focus).toBeTruthy();
+    expect(focus!.textContent).toBe('학교');
+  });
+
+  it('regression: morpheme breakdown starts collapsed (insights tab, not auto-expanded)', async () => {
+    // Pre-fix bug: MorphemeBreakdown rendered the morpheme rows unconditionally
+    // once tokens were present. Original buildInsightsNode kept them behind
+    // a click-to-expand insights tab (activeInsightTab=null by default).
+    const { default: App } = await import('../../../src/overlay/App.svelte');
+    render(App);
+    await new Promise((r) => setTimeout(r, 5));
+    // Need a token list of 2+ content morphemes for the insights tab to
+    // render at all. 학교 alone won't trigger it — give it 학생 too.
+    const payload = makePayload();
+    payload.tokens = [
+      { surface: '학교', pos: '명사' },
+      { surface: '학생', pos: '명사' },
+    ];
+    (window as any).__lwsOverlay.show(makeFrame(payload));
+    // Wait long enough for the grammar-glosses dynamic import to resolve
+    // (it fails in vitest — we fall through to the default isContentMorpheme
+    // = () => true, which still satisfies the >= 2 visibility check).
+    await new Promise((r) => setTimeout(r, 80));
+    const insightsTab = document.querySelector('.lws-insights-tab');
+    expect(insightsTab).toBeTruthy();
+    // The tab exists but is NOT pressed, and the .lws-decomp panel is absent.
+    expect(insightsTab!.getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector('.lws-decomp')).toBeNull();
+    // Click it to expand; the panel should appear.
+    await fireEvent.click(insightsTab as HTMLButtonElement);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(document.querySelector('.lws-decomp')).toBeTruthy();
+  });
+
+  it('regression: EN/KR language toggle writes defLang via chrome.storage.sync.set', async () => {
+    // Pre-fix bug: the toggle didn't exist. Restored via HeaderStrip.svelte.
+    // The toggle writes the key directly (not via the typed storage helper)
+    // because `defLang` lives in content.js's STORAGE_KEYS map, not the
+    // popup's Settings schema.
+    const { default: App } = await import('../../../src/overlay/App.svelte');
+    render(App);
+    await new Promise((r) => setTimeout(r, 5));
+    const payload = makePayload();
+    (window as any).__lwsOverlay.show(makeFrame(payload));
+    await new Promise((r) => setTimeout(r, 30));
+    const buttons = document.querySelectorAll('.lws-toggle-btn');
+    expect(buttons.length).toBe(2);
+    // Default frame defLang is 'en', so the 영어 button starts pressed.
+    expect(buttons[0].getAttribute('aria-pressed')).toBe('true');
+    expect(buttons[1].getAttribute('aria-pressed')).toBe('false');
+    // Click 한국어 → should call storage.set({ defLang: 'ko' }).
+    await fireEvent.click(buttons[1] as HTMLButtonElement);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(storageSetMock).toHaveBeenCalled();
+    const firstCallArg = storageSetMock.mock.calls[0][0];
+    expect(firstCallArg).toEqual({ defLang: 'ko' });
+    // And the UI patched optimistically so the button is pressed.
+    const after = document.querySelectorAll('.lws-toggle-btn');
+    expect(after[1].getAttribute('aria-pressed')).toBe('true');
+    expect(after[0].getAttribute('aria-pressed')).toBe('false');
   });
 });

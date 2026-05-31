@@ -17,12 +17,25 @@
         glossesReady = true;
       } catch (err) {
         console.warn('[lws] MorphemeBreakdown: grammar-glosses load failed', err);
+        // Still flip `glossesReady` so the breakdown renders against the
+        // defaults (isContentMorpheme = () => true, morphemeGloss = () => null).
+        // Better to show un-glossed morphemes than to hide the breakdown
+        // tab entirely on a transient load failure.
+        if (!cancelled) glossesReady = true;
       }
     })();
     return () => { cancelled = true; };
   });
 
   let { tokens, defLang }: { tokens: any[]; defLang: 'en' | 'ko' } = $props();
+
+  // Collapsed by default — matches the pre-Task-7 buildInsightsNode behaviour
+  // (activeInsightTab starts as null; user must click the tab to expand).
+  // Per-payload state lives in this component because the parent resets us
+  // on every new payload by changing the `tokens` prop (Svelte tears down
+  // and remounts the {#if Array.isArray(...)} block, so the open state
+  // doesn't bleed across lookups).
+  let open = $state(false);
 
   let morphemes = $derived.by(() => {
     if (!glossesReady) return [] as Array<{ form: string; pos: string }>;
@@ -40,30 +53,83 @@
   // Returns null if fewer than 2 content morphemes — the breakdown is
   // skipped (the headword section already shows that info).
   let visible = $derived(morphemes.length >= 2);
+
+  let tabLabel = $derived(defLang === 'ko' ? '형태소 분석' : 'Morpheme breakdown');
 </script>
 
 {#if visible}
-  <div class="lws-decomp">
-    <div class="lws-decomp-stack">
-      {#each morphemes as m, i (i)}
-        <div class="lws-morph-row">
-          {#if i > 0}<span class="lws-morph-op">+</span>{:else}<span class="lws-morph-op lws-morph-op-empty"></span>{/if}
-          <div class="lws-morph">
-            <span class="lws-morph-form">{m.form}</span>
-            <span class="lws-morph-sep">·</span>
-            <span class="lws-morph-tag">{m.pos}</span>
-            {#if glossFor(m)}
-              <span class="lws-morph-gloss">{glossFor(m)}</span>
-            {/if}
-          </div>
-        </div>
-      {/each}
+  <div class="lws-insights">
+    <div class="lws-insights-tabs">
+      <button
+        type="button"
+        class="lws-insights-tab"
+        aria-pressed={open ? 'true' : 'false'}
+        onclick={() => (open = !open)}
+      >{tabLabel}</button>
     </div>
+    {#if open}
+      <div class="lws-decomp">
+        <div class="lws-decomp-stack">
+          {#each morphemes as m, i (i)}
+            <div class="lws-morph-row">
+              {#if i > 0}<span class="lws-morph-op">+</span>{:else}<span class="lws-morph-op lws-morph-op-empty"></span>{/if}
+              <div class="lws-morph">
+                <span class="lws-morph-form">{m.form}</span>
+                <span class="lws-morph-sep">·</span>
+                <span class="lws-morph-tag">{m.pos}</span>
+                {#if glossFor(m)}
+                  <span class="lws-morph-gloss">{glossFor(m)}</span>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
   </div>
 {/if}
 
 <style>
-  /* Ported from extension/core/popup-shadow.css lines 218-291. */
+  /* Ported from extension/core/popup-shadow.css lines 175-291. The
+   * .lws-insights wrapper holds the click-to-expand tab; the .lws-decomp
+   * panel only renders when the tab is open. */
+  .lws-insights {
+    border-bottom: 1px solid var(--border);
+  }
+  .lws-insights-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 14px;
+    flex-wrap: wrap;
+  }
+  .lws-insights-tab {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    padding: 3px 10px;
+    cursor: pointer;
+    border-radius: 999px;
+    white-space: nowrap;
+    transition: background-color 0.12s ease, color 0.12s ease;
+  }
+  .lws-insights-tab:hover:not([aria-pressed="true"]) {
+    background: var(--soft);
+    color: var(--fg);
+  }
+  .lws-insights-tab[aria-pressed="true"] {
+    background: var(--chip-amber-bg);
+    color: var(--chip-amber-fg);
+    font-weight: 500;
+  }
+  /* When inside the .lws-insights wrapper, the .lws-decomp panel drops its
+   * own bottom border (the wrapper provides one) and tightens its top
+   * padding so it reads as a continuation of the tab strip. */
+  .lws-insights .lws-decomp {
+    border-bottom: 0;
+    padding-top: 2px;
+  }
   .lws-decomp {
     padding: 10px 16px 12px;
     border-bottom: 1px solid var(--border);
