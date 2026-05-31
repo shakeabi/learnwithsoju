@@ -6,12 +6,13 @@
   import CandidatesSection from './CandidatesSection.svelte';
 
   type ViewState =
-    | { kind: 'placeholder'; text: string }
+    | { kind: 'idle' }
+    | { kind: 'loading'; text: string }
     | { kind: 'error'; text: string }
     | { kind: 'results'; singlePath: MecabToken[]; nbestPaths: MecabNbestPath[]; candidates: string[] };
 
   let inputText = $state('');
-  let view = $state<ViewState>({ kind: 'placeholder', text: 'Enter Korean text to analyze.' });
+  let view = $state<ViewState>({ kind: 'idle' });
   let textareaEl: HTMLTextAreaElement | undefined;
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -21,6 +22,14 @@
   // Autofocus on mount, matching the original morpheme-inspector.js.
   $effect(() => {
     textareaEl?.focus();
+  });
+
+  // Cancel any pending timers when the component unmounts. Mostly inert in
+  // production (the inspector page lives for the user's session) but prevents
+  // the 500 ms NOT_READY retry from firing into a torn-down component in tests.
+  $effect(() => () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    if (retryTimer) clearTimeout(retryTimer);
   });
 
   function onInput(e: Event) {
@@ -33,10 +42,10 @@
     if (retryTimer) clearTimeout(retryTimer);
     const trimmed = text.trim();
     if (!trimmed) {
-      view = { kind: 'placeholder', text: 'Enter Korean text to analyze.' };
+      view = { kind: 'idle' };
       return;
     }
-    view = { kind: 'placeholder', text: 'Initializing mecab…' };
+    view = { kind: 'loading', text: 'Initializing mecab…' };
     const requestId = ++activeRequestId;
     let response;
     try {
@@ -92,7 +101,11 @@
     </label>
   </section>
 
-  {#if view.kind === 'placeholder'}
+  {#if view.kind === 'idle'}
+    <section class="inspector-section">
+      <p class="inspector-placeholder">Enter Korean text to analyze.</p>
+    </section>
+  {:else if view.kind === 'loading'}
     <section class="inspector-section">
       <p class="inspector-placeholder">{view.text}</p>
     </section>
