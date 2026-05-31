@@ -159,8 +159,8 @@ learnwithsoju/
 │   │   ├── grammar-glosses.js          ← morpheme form/POS → short English gloss for the breakdown chips (pure)
 │   │   ├── ai-providers.js             ← registry of "Ask AI" pill targets (ChatGPT, Claude, …)
 │   │   ├── site-configs.js             ← per-site sentence selectors + findVideo + adapter + popupModule paths
-│   │   ├── cache.js                    ← two-tier (in-mem LRU + storage adapter) cache factory; namespaced (pure)
-│   │   └── popup-shadow.css            ← stylesheet for the in-page hover popup (loaded into its Shadow DOM)
+│   │   └── cache.js                    ← two-tier (in-mem LRU + storage adapter) cache factory; namespaced (pure)
+│   ├── overlay/                        ← built Svelte bundle for the in-page hover popup (main.js + main.css; sources under src/overlay/)
 │   ├── adapters/                       ← per-site adapter packages
 │   │   ├── youtube/
 │   │   │   ├── adapter.js              ← content-script-side YouTube adapter; dual subs lifecycle

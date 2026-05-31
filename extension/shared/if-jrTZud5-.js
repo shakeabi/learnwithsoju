@@ -1,1 +1,0 @@
-import{p as h,h as i,a as t}from"./disclose-version-B_7wdSVK.js";function b(e,s,c=!1){var f=new t(e),l=c?i:0;function n(a,r){f.ensure(a,r)}h(()=>{var a=!1;s((r,o=0)=>{a=!0,n(o,r)}),a||n(-1,null)},l)}export{b as i};

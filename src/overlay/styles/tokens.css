@@ -1,0 +1,151 @@
+/* Overlay shadow-root tokens + popup container styles.
+ *
+ * Ported from extension/core/popup-shadow.css lines 1-92. The :host
+ * selector reaches the shadow-root host element; CSS variables defined
+ * there cascade into every component <style> block. Component-specific
+ * styles (sentence band, morpheme rows, tabs, entry cards, chips,
+ * hanja meanings, etc.) live in the per-component <style> blocks in
+ * the Svelte components — see Step 7.5 onward.
+ *
+ * Note: we deliberately do NOT @import the page-shell.css here. The
+ * overlay lives in a shadow root inside a content-script-injected host
+ * element on arbitrary pages — page-shell.css's page-level chrome
+ * (body padding, fonts, max-widths) is wrong for our purposes. The
+ * tokens that matter (colours, shadows) are duplicated here under
+ * :host so they cascade into the shadow tree. */
+
+:host, * {
+  box-sizing: border-box;
+}
+
+:host {
+  /* Light theme tokens (default) */
+  --bg: #ffffff;
+  --fg: #1a1a24;
+  --muted: #5b6172;
+  --soft: #eff1f6;
+  --border: #e3e5ec;
+  --border-strong: #d4d7e0;
+
+  --chip-amber-bg: #fde4c5;
+  --chip-amber-fg: #7a4a18;
+  --chip-cyan-bg: #cfe7ed;
+  --chip-cyan-fg: #1f5d68;
+  --chip-soft-bg: #eff1f6;
+  --chip-soft-fg: #5b6172;
+
+  --highlight-bg: #fde4c5;
+  --highlight-fg: #7a4a18;
+  --stars: #e5a230;
+
+  --popup-border: #b9c0d0;
+  --shadow: 0 8px 28px rgba(20, 24, 50, 0.12), 0 2px 4px rgba(20, 24, 50, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :host {
+    --bg: #1e1e2e;
+    --fg: #e8e8f0;
+    --muted: #97a0b8;
+    --soft: rgba(255, 255, 255, 0.04);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.14);
+
+    --chip-amber-bg: rgba(247, 198, 136, 0.18);
+    --chip-amber-fg: #f7c688;
+    --chip-cyan-bg: rgba(155, 213, 224, 0.15);
+    --chip-cyan-fg: #9bd5e0;
+    --chip-soft-bg: rgba(255, 255, 255, 0.06);
+    --chip-soft-fg: #b6bdcc;
+
+    --highlight-bg: rgba(247, 198, 136, 0.22);
+    --highlight-fg: #f7c688;
+    --stars: #f5c46a;
+
+    --popup-border: rgba(255, 255, 255, 0.18);
+    --shadow: 0 12px 36px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+}
+
+#lws-popup {
+  /* Page-anchored (not viewport-anchored): the popup is part of the
+     document and scrolls with the page. */
+  position: absolute;
+  width: max-content;
+  min-width: 380px;
+  max-width: min(520px, calc(100vw - 16px));
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--fg);
+  border: 2px solid var(--popup-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+#lws-popup::-webkit-scrollbar {
+  width: 8px;
+}
+#lws-popup::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+/* Popup-body / loading / error frames. These shared frame classes live
+ * in tokens.css because LoadingFrame and ErrorFrame are deliberately
+ * minimal — the chrome (bg, border) belongs to the popup itself, not
+ * the frame. */
+.lws-popup-body {
+  padding: 14px 16px;
+}
+.lws-loading {
+  color: var(--muted);
+  font-style: italic;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lws-loading-word {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--fg);
+}
+.lws-loading-status {
+  white-space: nowrap;
+}
+.lws-error {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lws-error-msg {
+  color: var(--fg);
+}
+.lws-error-detail {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: -2px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  word-break: break-word;
+  opacity: 0.8;
+}
+.lws-action-btn {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--soft);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.lws-action-btn:hover {
+  background: var(--border);
+}

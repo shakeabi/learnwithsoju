@@ -50,7 +50,6 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "core/popup-shadow.css",
         "core/parsers.js",
         "core/grammar-glosses.js",
         "core/site-configs.js",

@@ -1,4 +1,5 @@
 import { mount } from 'svelte';
+import './styles/tokens.css';
 import App from './App.svelte';
 import type { OverlayFrame, OverlayApi } from '$types/overlay';
 

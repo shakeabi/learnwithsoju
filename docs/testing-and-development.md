@@ -159,17 +159,19 @@ fetch cost, not the dict-inflate cost.
 | Add a new "Ask AI" provider (ChatGPT-style)        | One entry in `core/ai-providers.js` `AI_PROVIDERS`                                                          |
 | Add a new persistent setting                       | UI in `pages/options/options.html` / `options.js`; storage onChanged listener in the consumer               |
 | Hook a new dictionary API                          | `core/api.js` URL builder + `core/parsers.js` XML parser + `background.js` `handleLookup`                   |
-| Change in-page hover-popup look                    | `core/popup-shadow.css`, NOT `pages/popup/popup.css`                                                        |
+| Change in-page hover-popup look                    | `src/overlay/styles/tokens.css` (variables) + per-component `<style>` in `src/overlay/*.svelte`; rebuild → `extension/overlay/main.css`. NOT `pages/popup/popup.css` |
 | Change toolbar popup look                          | `pages/popup/popup.css`                                                                                     |
 | Change settings page look                          | `pages/options/options.css`                                                                                 |
 | Tweak word scanning (e.g. add a skip tag)          | `content.js` `SKIP_TAGS`                                                                                    |
 | Change the default "Ask AI" prompt                 | `DEFAULT_ASK_AI_PROMPT` in BOTH `content.js` and `pages/options/options.js` (kept in sync)                  |
 
 When in doubt, search the codebase for the user-facing string you
-see in the popup — almost all rendering goes through
-`buildResultNode`, `buildSectionNode`, `buildSenseNode`, `makeChip`,
-or `makeHanjaChip`. From there it's one or two hops back to
-whichever pure module produced the data.
+see in the popup — popup rendering lives in `src/overlay/`
+(App.svelte orchestrates; SentenceBand, MorphemeBreakdown,
+TabStrip, DictionaryTab, and EntrySection render the pieces).
+From a component, the data props point one or two hops back to
+whichever pure module produced them (most paths go through
+`extension/core/api.js`, `core/parsers.js`, or `core/lemmatizer.js`).
 
 ---
 
@@ -257,7 +259,10 @@ machines.
 The popup is mounted into a Shadow Root attached to a host div at
 `document.documentElement`. Its styles come from a
 `<link rel=stylesheet>` loaded from
-`chrome.runtime.getURL('core/popup-shadow.css')`.
+`chrome.runtime.getURL('overlay/main.css')` (built from
+`src/overlay/styles/tokens.css` + each component's scoped `<style>`
+block; the legacy `core/popup-shadow.css` was retired in commit
+`df2d07a`).
 
 Why Shadow DOM: page CSS leaks into anything in the light DOM.
 Sites that have aggressive `* { ... }` rules or that target
@@ -267,7 +272,9 @@ root gives us a clean styling context.
 Side effect: keyboard events bubble up through the shadow root as
 normal, so global page hotkeys still work. But CSS does NOT
 inherit through the shadow boundary — anything the popup needs
-has to be declared in `core/popup-shadow.css`.
+has to be declared in `src/overlay/styles/tokens.css` or in a
+component's scoped `<style>` (both end up in `overlay/main.css`
+in the shadow root).
 
 ### The video-pause flag dance
 
@@ -282,20 +289,24 @@ including our own programmatic `video.pause()` call. So:
   they want it stopped, so we set `resumeVideoOnHide = false` to
   skip the auto-resume.
 
-### core/popup-shadow.css `position: absolute`, not `fixed`
+### Overlay popup is `position: absolute`, not `fixed`
 
 The popup is `position: absolute` against the host div anchored at
-`(0, 0)` on `document.documentElement`. When the user scrolls the
-page, the popup scrolls with it — by design. If a tab click grows
-the popup past the viewport edge, the user can scroll the page to
-read the rest, instead of being stuck with content clipped off-
-screen.
+`(0, 0)` on `document.documentElement` (the rule lives in
+`src/overlay/styles/tokens.css` under `#lws-popup`). When the user
+scrolls the page, the popup scrolls with it — by design. If a tab
+click grows the popup past the viewport edge, the user can scroll the
+page to read the rest, instead of being stuck with content clipped
+off-screen.
 
-The flip side is that `positionPopup` has to compute viewport
-coords (for the initial fit clamps) and THEN convert to document
-coords (`+ window.scrollX/Y`) before writing. Get that wrong and
-the popup either lands in the wrong place or mysteriously moves on
-scroll.
+The flip side is that the overlay's positioning helper
+(`src/overlay/lib/position.ts`'s `computePosition`) has to do its
+viewport-edge clamps using `window.scrollX/Y`-adjusted anchor rects.
+content.js's `computeAnchorRect` does the viewport→document
+conversion (`+ scrollX/Y`) when capturing the hover target;
+`computePosition` then works entirely in document coords. Get the
+conversion wrong and the popup either lands in the wrong place or
+mysteriously moves on scroll.
 
 ### Multi-frame: only top-level frames are scanned
 

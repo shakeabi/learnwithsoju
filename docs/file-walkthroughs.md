@@ -37,8 +37,11 @@ MV3 manifest. Notable bits:
   `core/site-configs.js`, `core/ai-providers.js`,
   `adapters/youtube/adapter.js`, `adapters/youtube/page-hook.js`,
   `adapters/netflix/adapter.js`, `adapters/netflix/page-hook.js`),
-  plus `core/popup-shadow.css`. Accessed via
-  `chrome.runtime.getURL(...)`.
+  plus the overlay bundle (`overlay/main.js`, `overlay/main.css`).
+  Accessed via `chrome.runtime.getURL(...)`. (The popup's old
+  `core/popup-shadow.css` was retired in commit `df2d07a`; its
+  styling is now baked into `overlay/main.css` via the Svelte
+  components' scoped `<style>` blocks + `src/overlay/styles/tokens.css`.)
 - `action.default_popup: "pages/popup/popup.html"`,
   `options_page: "pages/options/options.html"` — the toolbar popup
   and the settings page live under `pages/`.
@@ -573,17 +576,27 @@ See [extension-surfaces.md](extension-surfaces.md).
 
 ---
 
-## `core/popup-shadow.css`
+## `overlay/main.css` (in-page hover popup styles)
 
-The stylesheet for the in-page hover popup. Lives in
-`web_accessible_resources` so it can be loaded into the shadow DOM.
-Uses CSS custom properties for theming and includes a
-`@media (prefers-color-scheme: dark)` block.
+The stylesheet for the in-page hover popup. Emitted by the Vite
+build from `src/overlay/` and committed to `extension/overlay/main.css`;
+lives in `web_accessible_resources` so `content.js`'s `ensurePopup`
+can inject it as a `<link>` into the popup's shadow root (shadow roots
+don't inherit the page's stylesheets).
 
-Sizing decisions: `min-width: 380px`,
-`max-width: min(520px, calc(100vw - 16px))`, `max-height: 70vh`
-with `overflow-y: auto`. `position: absolute` (not `fixed`) — the
-popup scrolls with the page.
+`src/overlay/styles/tokens.css` carries the `:host` CSS custom
+properties + `@media (prefers-color-scheme: dark)` overrides, the
+`#lws-popup` container chrome, and the loading/error frame styles.
+The rest of the styling (sentence band, morpheme rows, tabs, entry
+cards, chips, Hanja meanings) lives in each Svelte component's scoped
+`<style>` block and is rolled into the same `overlay/main.css` asset
+by Vite. This replaced the pre-Svelte `core/popup-shadow.css`
+in commit `df2d07a`.
+
+Sizing decisions (kept from the original `popup-shadow.css`):
+`min-width: 380px`, `max-width: min(520px, calc(100vw - 16px))`,
+`max-height: 70vh` with `overflow-y: auto`. `position: absolute`
+(not `fixed`) — the popup scrolls with the page.
 
 ---
 
@@ -591,7 +604,7 @@ popup scrolls with the page.
 
 Tiny — `.lws-word { cursor: help; border-bottom: 1px dashed ... }`
 and the hover background. The popup itself is in
-`core/popup-shadow.css`.
+`overlay/main.css` (built from `src/overlay/`).
 
 ---
 

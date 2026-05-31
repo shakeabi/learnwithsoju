@@ -38,12 +38,24 @@ export type OverlayFrame =
   | { kind: 'error'; message: string; details?: string; action?: { label: string; onClick: () => void }; anchor: OverlayPayload['anchor']; reposition: boolean }
   | { kind: 'payload'; payload: OverlayPayload };
 
+/** Partial state patch the bridge can push at any time (e.g. when a setting
+ *  changes and we want the active popup to reflect it without a re-fetch). */
+export interface OverlayUpdatePatch {
+  lookupStatus?: string;
+  defLang?: 'en' | 'ko';
+  secondaryLang?: string;
+  askAiPromptTemplate?: string;
+  askAiProvider?: string;
+  askAiChatGptTemporary?: boolean;
+}
+
 /** The window global content.js calls. */
 export interface OverlayApi {
   show(frame: OverlayFrame): void;
   hide(): void;
-  /** Partial state update — e.g. lookup-status text while loading. */
-  update(patch: { lookupStatus?: string }): void;
+  /** Partial state update — lookup-status text while loading, or
+   *  setting-driven patches (defLang / secondaryLang / askAi*). */
+  update(patch: OverlayUpdatePatch): void;
 }
 
 declare global {

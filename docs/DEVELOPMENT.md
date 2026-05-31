@@ -118,6 +118,29 @@ override).
 If you're catching up after time away, these are the big landings to
 skim first:
 
+- `df2d07a` — overlay full tree (commit 6b of the Svelte migration):
+  replaces the 6a skeleton with the 8-component overlay tree under
+  `src/overlay/` (App + SentenceBand, MorphemeBreakdown, TabStrip,
+  DictionaryTab, EntrySection + AskAiPanel/Footer stubs;
+  RelatedPills folded into TabStrip). App.svelte owns the per-payload
+  `$state` for the 4 invariants — tab switching, exclusive
+  expand-within-tab, two-stage related reveal, and entry-identity
+  dedup (preserved from f8afd99 via `lib/entries.ts`'s
+  `materializeGroup`). `extension/core/popup-shadow.css` (856L)
+  deleted; tokens moved into `src/overlay/styles/tokens.css` (and
+  load/error frame chrome alongside), per-component styling moved
+  into scoped `<style>` blocks. `web_accessible_resources` drops
+  the deleted CSS entry. content.js's storage.onChanged handlers now
+  patch `window.__lwsOverlay.update({defLang, secondaryLang,
+  askAi*})` so live setting changes reflect in an active popup
+  without a re-fetch. `pauseVideoIfApplicable` now receives the
+  active anchor again (Task 6 had passed null, which made the
+  caption-container guard fall through and auto-paused on any
+  Korean-word hover anywhere on a video page). The Task-6-staged
+  symbols (`POPUP_ID`, `lastPayload`, `lastSentence`, the pin
+  subsystem, `positionPopup`) were unused after 6a and have been
+  removed; the overlay component owns positioning via
+  `lib/position.ts`. (see [extension-surfaces.md](extension-surfaces.md))
 - `ec9f91c` — overlay infra (commit 6a of the Svelte migration):
   ~1000 lines of imperative DOM construction deleted from
   `extension/content.js` (sentence band, morpheme breakdown, insights
@@ -126,8 +149,8 @@ skim first:
   shadow host + a single `#lws-overlay-root` mount point, plus a
   `<link rel="stylesheet" href="overlay/main.css">` injected directly
   into the shadow root (shadow roots don't inherit page styles). A new
-  Svelte `src/overlay/App.svelte` (skeleton — placeholder text only,
-  full tree lands in 6b) mounts into that root and registers
+  Svelte `src/overlay/App.svelte` (skeleton in 6a; full tree in 6b
+  above) mounts into that root and registers
   `window.__lwsOverlay = { show(frame), hide(), update(patch) }`.
   content.js's `showPopup` becomes a thin proxy: dynamic-imports
   `chrome.runtime.getURL('overlay/main.js')` once (idempotent
