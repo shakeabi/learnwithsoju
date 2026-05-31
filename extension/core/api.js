@@ -134,6 +134,46 @@ export function groupByWord(words) {
 }
 
 /**
+ * Stable-sort `tabs` so that:
+ *   - priority 0: tab.word equals the user-hovered `surface`
+ *   - priority 1: tab.word equals any mecab-produced lemma in `lemmas`
+ *                 (and is not already priority 0)
+ *   - priority 2: everything else
+ *
+ * Within each priority bucket, existing relative ordering is preserved
+ * (built on top of a Schwartzian transform so the sort is stable across
+ * engines whose Array.prototype.sort isn't formally guaranteed stable).
+ *
+ * If both `surface` and `lemmas` are absent/empty, returns `tabs`
+ * untouched — there's nothing to prioritize against.
+ *
+ * @param {{ word: string }[]} tabs
+ * @param {string | null | undefined} surface
+ * @param {string[] | null | undefined} lemmas
+ * @returns {{ word: string }[]} a new array (input not mutated)
+ */
+export function prioritizeTabsByMatch(tabs, surface, lemmas) {
+  if (!Array.isArray(tabs) || tabs.length <= 1) return Array.isArray(tabs) ? tabs.slice() : [];
+  const surf = typeof surface === 'string' ? surface.trim() : '';
+  const lemmaSet = new Set();
+  if (Array.isArray(lemmas)) {
+    for (const l of lemmas) {
+      if (typeof l === 'string' && l.trim()) lemmaSet.add(l.trim());
+    }
+  }
+  if (!surf && lemmaSet.size === 0) return tabs.slice();
+  const decorated = tabs.map((tab, idx) => {
+    const w = tab && typeof tab.word === 'string' ? tab.word : '';
+    let priority = 2;
+    if (surf && w === surf) priority = 0;
+    else if (lemmaSet.has(w)) priority = 1;
+    return { tab, idx, priority };
+  });
+  decorated.sort((a, b) => (a.priority - b.priority) || (a.idx - b.idx));
+  return decorated.map((d) => d.tab);
+}
+
+/**
  * The five-step result-merging algorithm. Inputs are per-query headword
  * lists (no parsed entries — just `word` strings in item order, computed
  * by `extractItemWords`). Output is a grouping plan `{tabs, unrelated}`
@@ -148,6 +188,12 @@ export function groupByWord(words) {
  *   4. Across-query consolidation: any later group whose word matches an
  *      existing tab folds into that tab.
  *   5. Everything left over becomes unrelated, grouped by word.
+ *   6. Priority re-sort of tabs: surface-form match first, then any
+ *      mecab-lemma match, then the rest. Within each bucket the
+ *      pre-existing order from steps 1–5 is preserved. Only runs when
+ *      `surface` or `lemmas` is provided by the caller (background.js
+ *      always supplies both; pure-unit tests can omit them to exercise
+ *      the raw grouping output).
  *
  * OpenDict (when KRDict was entirely empty) is treated as one additional
  * query at the tail of the queue with source = 'od'.
@@ -157,13 +203,15 @@ export function groupByWord(words) {
  *   krWordsPerQuery: string[][],
  *   odQuery?: string | null,
  *   odWords?: string[],
+ *   surface?: string | null,
+ *   lemmas?: string[] | null,
  * }} input
  * @returns {{
  *   tabs: { word: string, sections: { source: 'kr'|'od', queryIdx: number, itemIdx: number }[] }[],
  *   unrelated: { word: string, sections: { source: 'kr'|'od', queryIdx: number, itemIdx: number }[] }[],
  * }}
  */
-export function pickTabsAndUnrelated({ krQueries, krWordsPerQuery, odQuery, odWords }) {
+export function pickTabsAndUnrelated({ krQueries, krWordsPerQuery, odQuery, odWords, surface, lemmas }) {
   const groupsPerQuery = [];
   const sources = [];
   if (Array.isArray(krQueries) && krQueries.length > 0) {
@@ -230,7 +278,8 @@ export function pickTabsAndUnrelated({ krQueries, krWordsPerQuery, odQuery, odWo
     }
   }
 
-  return { tabs, unrelated };
+  const orderedTabs = prioritizeTabsByMatch(tabs, surface, lemmas);
+  return { tabs: orderedTabs, unrelated };
 }
 
 /**

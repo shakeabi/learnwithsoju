@@ -298,11 +298,22 @@ async function handleLookup(surface) {
   // sections all reference odXml.
   const krWordsPerQuery = krXmls.map((xml) => extractItemWords(xml));
   const odWords = odXml ? extractItemWords(odXml) : [];
+  // Pass the user's hovered surface + every mecab-produced lemma
+  // candidate so pickTabsAndUnrelated can prioritize the tab matching
+  // the surface (exact hover) first, then any morpheme-root match, then
+  // the rest. Log loudly if either is missing — the popup would silently
+  // surface the wrong tab order otherwise.
+  if (!surface) console.warn('[lws] pickTabsAndUnrelated: empty surface; skipping priority sort');
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    console.warn('[lws] pickTabsAndUnrelated: no lemma candidates; surface-only priority sort');
+  }
   const { tabs, unrelated } = pickTabsAndUnrelated({
     krQueries: parallelQueue,
     krWordsPerQuery,
     odQuery,
     odWords,
+    surface,
+    lemmas: candidates,
   });
 
   // queriesUsed retained for diagnostics and the popup's lemma chip — the

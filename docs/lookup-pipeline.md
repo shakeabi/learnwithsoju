@@ -228,6 +228,19 @@ is `{source: 'kr' | 'od', queryIdx, itemIdx}`.
 5. **Unrelated bucket**: every group whose word is neither a primary
    tab nor folded becomes an `unrelated[]` entry, also grouped by
    word, in query-then-item order.
+6. **Priority sort of tabs** (`prioritizeTabsByMatch`): with the
+   final tab set in hand, float matches to the front so the user
+   sees the most-relevant tab first:
+   - priority 0 → `tab.word === surface` (the exact 어절 hovered)
+   - priority 1 → `tab.word` is in the mecab-produced lemma list
+     (any candidate, not just the 1-best)
+   - priority 2 → everything else
+   Within each priority bucket, the pre-existing order from steps
+   1–5 is preserved (stable sort over a Schwartzian decoration). A
+   tab that matches BOTH surface and a lemma gets priority 0 only —
+   no double-counting. `background.js` always supplies `surface` +
+   `candidates`; the pure unit-test call sites that omit them get
+   the raw step-1-through-5 ordering.
 
 ### Worked example — `살이었지`
 
@@ -251,6 +264,19 @@ After grouping:
 - (queries 살이 / 살이었지 contribute nothing — empty)
 - **Tab 사다** ← query 사다 picks `사다`.
 - **Unrelated 살-** ← left over from query 살.
+
+Step 6 priority sort: surface `살이었지` is not any tab's word; all
+three tabs match a lemma (priority 1); order is preserved. Final
+tab list: `[살, 살다, 사다]`.
+
+### Worked example — `깜박깜박`
+
+Surface `깜박깜박`; mecab lemma list `[깜박]`; KRDict returns tab
+candidates in document order `[깜박, 깜, 깜박깜박]`. Step 6 assigns
+priorities: `깜박깜박 → 0` (surface match), `깜박 → 1` (lemma
+match), `깜 → 2` (no match). Final tab order: `[깜박깜박, 깜박,
+깜]` — the exact-hover entry first, the morpheme root second, the
+broad-match leftover last.
 
 Net rendering: 3 visible tabs + 1 unrelated entry. Tab `살` opens
 with section 0 expanded; sections 1 and 2 are collapsed. Only one

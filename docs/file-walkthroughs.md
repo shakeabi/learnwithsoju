@@ -375,6 +375,10 @@ Exports:
 - `groupByWord(words)`, `pickTabsAndUnrelated(perQueryWords)` —
   the grouping algorithm; see
   [lookup-pipeline.md](lookup-pipeline.md).
+- `prioritizeTabsByMatch(tabs, surface, lemmas)` — final tab sort
+  step: surface match → priority 0, any mecab-lemma match → 1, rest
+  → 2, stable within each bucket. Invoked by `pickTabsAndUnrelated`
+  when the caller supplies `surface` + `lemmas`.
 
 ---
 

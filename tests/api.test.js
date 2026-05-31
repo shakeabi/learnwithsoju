@@ -11,6 +11,7 @@ import {
   extractItemWords,
   groupByWord,
   pickTabsAndUnrelated,
+  prioritizeTabsByMatch,
   entryIdentity,
 } from '../extension/core/api.js';
 
@@ -278,6 +279,130 @@ test('pickTabsAndUnrelated: query with no new word skips, picks no tab', () => {
   // Query 1's 먹다 folds into the existing 먹다 tab (cross-query consolidation).
   assert.equal(result.tabs[0].sections.length, 2);
   assert.deepEqual(result.unrelated.map((u) => u.word), ['먹이']);
+});
+
+// prioritizeTabsByMatch — surface-then-lemma tab ordering
+
+test('prioritizeTabsByMatch: surface match floats to position 0, lemma match to 1, rest preserved', () => {
+  // Repro: user hovers 깜박깜박; mecab lemma is [깜박]; KRDict-grouped tabs
+  // arrive as [깜박, 깜, 깜박깜박]. Expected output: surface first, lemma next.
+  const tabs = [
+    { word: '깜박', sections: [] },
+    { word: '깜', sections: [] },
+    { word: '깜박깜박', sections: [] },
+  ];
+  const out = prioritizeTabsByMatch(tabs, '깜박깜박', ['깜박']);
+  assert.deepEqual(out.map((t) => t.word), ['깜박깜박', '깜박', '깜']);
+});
+
+test('prioritizeTabsByMatch: surface match wins over lemma match when both exist as groups', () => {
+  // Surface 가다 IS also a lemma candidate (가다, 가). Both tabs match — surface
+  // still wins position 0; the other lemma-only tab moves to position 1; the
+  // unrelated tab stays at position 2.
+  const tabs = [
+    { word: '먹다', sections: [] },
+    { word: '가', sections: [] },
+    { word: '가다', sections: [] },
+  ];
+  const out = prioritizeTabsByMatch(tabs, '가다', ['가다', '가']);
+  assert.deepEqual(out.map((t) => t.word), ['가다', '가', '먹다']);
+});
+
+test('prioritizeTabsByMatch: surface IS the lemma — exactly one priority-0 slot, no duplication', () => {
+  // User hovers 깜박, which is both the surface AND a mecab lemma. The tab
+  // for 깜박 should appear exactly once, at position 0; it must not get
+  // double-counted into priority 1 as well.
+  const tabs = [
+    { word: '깜', sections: [] },
+    { word: '깜박', sections: [] },
+    { word: '깜박이다', sections: [] },
+  ];
+  const out = prioritizeTabsByMatch(tabs, '깜박', ['깜박']);
+  assert.deepEqual(out.map((t) => t.word), ['깜박', '깜', '깜박이다']);
+  assert.equal(out.length, tabs.length, 'no tab is added or removed');
+});
+
+test('prioritizeTabsByMatch: within each priority bucket, existing relative order is preserved', () => {
+  // Two priority-1 tabs (both match a lemma) — they must keep their original
+  // ordering after the sort, not flip.
+  const tabs = [
+    { word: 'b', sections: [] }, // lemma match
+    { word: 'c', sections: [] }, // no match
+    { word: 'a', sections: [] }, // lemma match
+  ];
+  const out = prioritizeTabsByMatch(tabs, null, ['a', 'b']);
+  assert.deepEqual(out.map((t) => t.word), ['b', 'a', 'c']);
+});
+
+test('prioritizeTabsByMatch: any of multiple lemma candidates triggers priority 1', () => {
+  // mecab n-best can produce several lemma candidates; matching ANY one
+  // (not just the first) bumps a tab to priority 1.
+  const tabs = [
+    { word: 'x', sections: [] },
+    { word: 'second_lemma', sections: [] },
+    { word: 'y', sections: [] },
+  ];
+  const out = prioritizeTabsByMatch(tabs, null, ['first_lemma', 'second_lemma', 'third_lemma']);
+  assert.deepEqual(out.map((t) => t.word), ['second_lemma', 'x', 'y']);
+});
+
+test('prioritizeTabsByMatch: no surface and no lemmas returns input order untouched', () => {
+  const tabs = [{ word: 'a' }, { word: 'b' }, { word: 'c' }];
+  const out = prioritizeTabsByMatch(tabs, null, null);
+  assert.deepEqual(out.map((t) => t.word), ['a', 'b', 'c']);
+  // Returned array is a new array (not the input itself), so caller mutations
+  // can't leak back into the source.
+  assert.notEqual(out, tabs);
+});
+
+test('prioritizeTabsByMatch: handles empty / single-tab arrays safely', () => {
+  assert.deepEqual(prioritizeTabsByMatch([], 's', ['l']), []);
+  const single = [{ word: 'x' }];
+  const out = prioritizeTabsByMatch(single, 's', ['l']);
+  assert.deepEqual(out.map((t) => t.word), ['x']);
+});
+
+test('prioritizeTabsByMatch: lemma-only match (no surface match present) still works', () => {
+  // Repro from the field: surface 깜박깜박 had no dict entry; tabs are just
+  // [깜박, 깜]. Lemma is [깜박]. 깜박 should float to top via priority 1.
+  const tabs = [
+    { word: '깜', sections: [] },
+    { word: '깜박', sections: [] },
+  ];
+  const out = prioritizeTabsByMatch(tabs, '깜박깜박', ['깜박']);
+  assert.deepEqual(out.map((t) => t.word), ['깜박', '깜']);
+});
+
+test('pickTabsAndUnrelated: surface + lemmas reorder the final tab list', () => {
+  // Integration check — exercise the bridge from input plumbing to the
+  // priority sort. Three queries each producing one distinct tab, in
+  // document order [깜박, 깜, 깜박깜박]; expected output order with
+  // surface=깜박깜박 + lemma=깜박 is [깜박깜박, 깜박, 깜].
+  const result = pickTabsAndUnrelated({
+    krQueries: ['깜박', '깜', '깜박깜박'],
+    krWordsPerQuery: [
+      ['깜박'],
+      ['깜'],
+      ['깜박깜박'],
+    ],
+    surface: '깜박깜박',
+    lemmas: ['깜박'],
+  });
+  assert.deepEqual(result.tabs.map((t) => t.word), ['깜박깜박', '깜박', '깜']);
+});
+
+test('pickTabsAndUnrelated: omitting surface/lemmas leaves the pre-priority order intact', () => {
+  // Pure grouping-only call (no surface/lemmas) — existing tests rely on
+  // this raw ordering and must keep working.
+  const result = pickTabsAndUnrelated({
+    krQueries: ['깜박', '깜', '깜박깜박'],
+    krWordsPerQuery: [
+      ['깜박'],
+      ['깜'],
+      ['깜박깜박'],
+    ],
+  });
+  assert.deepEqual(result.tabs.map((t) => t.word), ['깜박', '깜', '깜박깜박']);
 });
 
 // entryIdentity dedup helper tests
