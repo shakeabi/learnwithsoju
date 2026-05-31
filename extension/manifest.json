@@ -58,7 +58,9 @@
         "adapters/youtube/adapter.js",
         "adapters/youtube/page-hook.js",
         "adapters/netflix/adapter.js",
-        "adapters/netflix/page-hook.js"
+        "adapters/netflix/page-hook.js",
+        "overlay/main.js",
+        "overlay/main.css"
       ],
       "matches": ["<all_urls>"]
     }

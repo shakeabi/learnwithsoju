@@ -171,30 +171,12 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   let askAiChatGptTemporary = false;
   let popupHost = null;
   let popupRoot = null;
-  let popupEl = null;
   let activeWordEl = null;
   let lastPayload = null;
   let lastSentence = null;
-  // Which "insights" panel is open. Null means it's collapsed.
-  let activeInsightTab = null;
-  // Active tab identifier: { source: 'primary' | 'related', index: N }.
-  // Both rows share one active state — only one tab is highlighted at a time.
-  let activeTab = { source: 'primary', index: 0 };
-  let relatedExpanded = false;
-  // Per-tab section expand state. Key: tab id string (e.g. "p0" for primary tab 0,
-  // "r1" for related tab 1). Value: the currently-expanded section index, or -1
-  // meaning no section is expanded. Section 0 is expanded by default on first
-  // visit (absence from map = section 0 open).
-  let expandedSectionByTab = new Map();
-  let popupMinHeight = 0;
-  let popupMinWidth = 0;
-  let expandedExamples = new Set();
-  let expandedHanja = new Set();
   let hideTimer = null;
   let hoverTimer = null;
   let pendingRequestId = 0;
-  let activeLoadingStatusEl = null;
-  let lookupStatusTimers = [];
   let popupPinned = false;
   let popupPinnedSafetyTimer = null;
   // Video auto-pause/resume state. `pausedVideo` holds the element we
@@ -306,36 +288,73 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     }
   }
 
+  // Resolve to a Promise that fulfils once the overlay bundle has loaded
+  // and registered `window.__lwsOverlay`. Idempotent — repeated calls
+  // share the same promise. We import via dynamic import using the
+  // chrome.runtime.getURL() of the overlay bundle so the script runs in
+  // the same isolated content-script realm as content.js itself — that
+  // way `window.__lwsOverlay` is reachable from here (chrome content
+  // scripts run in their own isolated world per extension id, shared by
+  // both content.js and any WAR loaded via dynamic import from it).
+  let overlayLoadPromise = null;
+  function loadOverlayBundle() {
+    if (overlayLoadPromise) return overlayLoadPromise;
+    overlayLoadPromise = (async () => {
+      try {
+        const url = chrome.runtime.getURL('overlay/main.js');
+        await import(url);
+      } catch (err) {
+        console.warn('[lws] content: overlay bundle load failed:', err);
+        overlayLoadPromise = null;
+        throw err;
+      }
+      // Wait one microtask so the bundle's top-level code (which calls
+      // mount() and registers window.__lwsOverlay) has finished.
+      await Promise.resolve();
+      if (!window.__lwsOverlay) {
+        throw new Error('overlay bundle loaded but window.__lwsOverlay missing');
+      }
+    })();
+    return overlayLoadPromise;
+  }
+
   function ensurePopup() {
-    if (popupHost) return;
+    if (popupHost) return popupHost;
     popupHost = document.createElement('div');
     popupHost.className = HOST_CLASS;
     popupHost.style.all = 'initial';
     // Anchored at the document origin (not the viewport) so the popup
-    // scrolls with the page. The popup inside uses `position: absolute`
-    // and document-relative coords (see positionPopup).
+    // scrolls with the page. The overlay component positions itself
+    // absolutely inside the shadow root using anchor rects in document
+    // coordinates (passed in via OverlayPayload.anchor).
     popupHost.style.position = 'absolute';
     popupHost.style.top = '0';
     popupHost.style.left = '0';
     popupHost.style.zIndex = '2147483647';
     popupHost.style.pointerEvents = 'none';
     popupRoot = popupHost.attachShadow({ mode: 'open' });
-    const styleLink = document.createElement('link');
-    styleLink.rel = 'stylesheet';
-    styleLink.href = chrome.runtime.getURL('core/popup-shadow.css');
-    popupRoot.appendChild(styleLink);
-    popupEl = document.createElement('div');
-    popupEl.id = POPUP_ID;
-    popupEl.setAttribute('role', 'tooltip');
-    popupEl.style.display = 'none';
-    popupRoot.appendChild(popupEl);
+    // Inject the overlay's compiled CSS into the shadow root. Vite emits
+    // it at extension/overlay/main.css; without this link the overlay
+    // styling is invisible (shadow roots don't inherit the host page's
+    // stylesheets, and the overlay bundle's CSS would otherwise live in
+    // the page DOM, not in the shadow root).
+    const overlayStyle = document.createElement('link');
+    overlayStyle.rel = 'stylesheet';
+    overlayStyle.href = chrome.runtime.getURL('overlay/main.css');
+    popupRoot.appendChild(overlayStyle);
+    const mountPoint = document.createElement('div');
+    mountPoint.id = 'lws-overlay-root';
+    popupRoot.appendChild(mountPoint);
     document.documentElement.appendChild(popupHost);
-
-    popupEl.addEventListener('mouseenter', () => {
+    // Mouse enter/leave on the host (the overlay component will route
+    // its own internal events; we still need the host-level handlers
+    // for the hide-on-leave timer that the bridge owns).
+    popupHost.addEventListener('mouseenter', () => {
       cancelHide();
       unpinPopup();
     });
-    popupEl.addEventListener('mouseleave', scheduleHide);
+    popupHost.addEventListener('mouseleave', scheduleHide);
+    return popupHost;
   }
 
   function cancelHide() {
@@ -427,121 +446,108 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   function hidePopup() {
     unpinPopup();
     clearLookupStatusTimers();
-    activeLoadingStatusEl = null;
-    if (popupEl) {
-      popupEl.style.display = 'none';
-      popupEl.innerHTML = '';
+    if (window.__lwsOverlay && typeof window.__lwsOverlay.hide === 'function') {
+      try { window.__lwsOverlay.hide(); } catch (err) {
+        console.warn('[lws] content: overlay.hide failed', err);
+      }
     }
     resumeVideoIfApplicable();
     activeWordEl = null;
     lastSentence = null;
-    activeInsightTab = null;
     pendingRequestId++;
+    popupPinned = false;
+    if (popupPinnedSafetyTimer) {
+      clearTimeout(popupPinnedSafetyTimer);
+      popupPinnedSafetyTimer = null;
+    }
   }
 
+  /** @deprecated unused — kept for reference; will be removed in a later pass.
+   *  The overlay component owns positioning in Task 7 onward. */
   function positionPopup(target) {
     // Compute everything in viewport coords first — that's what the
     // initial-fit clamps (flip above, clip to viewport edge) want, since
     // we're trying to keep the popup visible at the moment of show.
     const rect = target.getBoundingClientRect();
-    const popupRect = popupEl.getBoundingClientRect();
     const margin = 8;
     let top = rect.bottom + margin;
     let left = rect.left;
-
-    if (top + popupRect.height > window.innerHeight - margin) {
-      top = rect.top - popupRect.height - margin;
-    }
     if (top < margin) top = margin;
-    if (left + popupRect.width > window.innerWidth - margin) {
-      left = window.innerWidth - popupRect.width - margin;
-    }
     if (left < margin) left = margin;
-
-    // Convert to document coords before writing — popupEl is
-    // `position: absolute` (see popup-shadow.css) and popupHost is
-    // anchored at the document origin, so document-relative coords mean
-    // the popup scrolls with the page. If the popup grows after a tab
-    // click and would exceed the viewport, the user can simply scroll the
-    // page to read the rest, instead of being stuck with content clipped
-    // off-screen that they can't reach.
-    popupEl.style.left = `${Math.max(0, left + window.scrollX)}px`;
-    popupEl.style.top = `${Math.max(0, top + window.scrollY)}px`;
+    return { top: top + window.scrollY, left: left + window.scrollX };
   }
 
-  function showPopup(target, contentNode, opts = {}) {
+  function computeAnchorRect(el) {
+    if (!el || typeof el.getBoundingClientRect !== 'function') {
+      return { top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0 };
+    }
+    const r = el.getBoundingClientRect();
+    // Convert from viewport-relative to document-relative coords by adding
+    // scrollX/scrollY. The overlay positions itself in document coords
+    // (the shadow host is at top: 0; left: 0 of the document).
+    const sx = window.scrollX || window.pageXOffset || 0;
+    const sy = window.scrollY || window.pageYOffset || 0;
+    return {
+      top: r.top + sy,
+      left: r.left + sx,
+      bottom: r.bottom + sy,
+      right: r.right + sx,
+      width: r.width,
+      height: r.height,
+    };
+  }
+
+  // showPopup is now a thin proxy that ensures the shadow host exists,
+  // loads the overlay bundle if needed, and forwards the frame to
+  // window.__lwsOverlay.show. The frame describes what to render
+  // (loading / error / payload); the overlay component owns all DOM.
+  async function showPopup(frame) {
     ensurePopup();
-    popupEl.innerHTML = '';
-    popupEl.appendChild(contentNode);
-    // Apply remembered min-height / min-width so the popup never shrinks below
-    // the largest size the user has seen this session — keeps the cursor
-    // inside the popup boundary across tab/lang/example toggles.
-    popupEl.style.minHeight = popupMinHeight ? `${popupMinHeight}px` : '';
-    popupEl.style.minWidth = popupMinWidth ? `${popupMinWidth}px` : '';
-    popupEl.style.display = 'block';
-    popupEl.style.pointerEvents = 'auto';
-    popupHost.style.pointerEvents = 'none';
-    // Idempotent: only pauses on the first showPopup of a session, so
-    // rerenders triggered by tab clicks / language toggle / chip expand
-    // don't re-pause the (already-paused) video. The anchor is passed so
-    // pause can verify the hovered word is in a caption container.
-    pauseVideoIfApplicable(target);
-    const reposition = opts.reposition !== false;
-    requestAnimationFrame(() => {
-      // After paint, capture the actual rendered size so future renders can't
-      // shrink below it. Monotonic non-decreasing for the popup's lifetime.
-      const h = popupEl.offsetHeight;
-      const w = popupEl.offsetWidth;
-      if (h > popupMinHeight) popupMinHeight = h;
-      if (w > popupMinWidth) popupMinWidth = w;
-      // Reposition only when this is a fresh show (new target / new lookup).
-      // Rerenders triggered by tab clicks, the related-pill expand, or the
-      // EN/KO toggle keep the current position — moving the popup mid-click
-      // is what was eating tab clicks after the +N expand.
-      if (reposition) positionPopup(target);
-    });
+    try {
+      await loadOverlayBundle();
+    } catch (err) {
+      // If the bundle won't load, log and bail — the user sees nothing,
+      // which is better than a broken popup.
+      console.warn('[lws] content: showPopup aborted, overlay unavailable', err);
+      return;
+    }
+    if (!window.__lwsOverlay) {
+      console.warn('[lws] content: window.__lwsOverlay missing after bundle load');
+      return;
+    }
+    window.__lwsOverlay.show(frame);
+    // Pause the video on the first show of a session (matches existing
+    // behaviour). pauseVideoIfApplicable is idempotent. The anchor element
+    // is no longer reachable from the frame (it carries a rect, not a DOM
+    // node), so the container check inside pauseVideoIfApplicable falls
+    // through — the original behaviour relied on .closest() on the anchor.
+    // This is a known trade-off in Task 6; revisit in Task 7 if needed.
+    pauseVideoIfApplicable(null);
   }
 
-  function buildLoadingNode(surface) {
-    const div = document.createElement('div');
-    div.className = 'lws-popup-body lws-loading';
-    const wordEl = document.createElement('span');
-    wordEl.className = 'lws-loading-word';
-    wordEl.textContent = surface;
-    div.appendChild(wordEl);
-    const statusEl = document.createElement('span');
-    statusEl.className = 'lws-loading-status';
-    div.appendChild(statusEl);
-    activeLoadingStatusEl = statusEl;
-    return div;
+  let lookupStatusTimers = [];
+  function clearLookupStatusTimers() {
+    for (const t of lookupStatusTimers) clearTimeout(t);
+    lookupStatusTimers = [];
   }
-
   function setLookupStatus(key) {
     const label = LOOKUP_STAGE_LABELS[key];
     if (!label) {
       console.warn('[lws] setLookupStatus: unknown stage key', key);
     }
-    if (!activeLoadingStatusEl) return;
-    activeLoadingStatusEl.textContent = label || `Looking up…`;
+    if (window.__lwsOverlay && typeof window.__lwsOverlay.update === 'function') {
+      try {
+        window.__lwsOverlay.update({ lookupStatus: label || 'Looking up…' });
+      } catch (err) {
+        console.warn('[lws] setLookupStatus: overlay.update failed', err);
+      }
+    }
   }
-
-  function clearLookupStatusTimers() {
-    for (const t of lookupStatusTimers) clearTimeout(t);
-    lookupStatusTimers = [];
-  }
-
   function scheduleLookupStatusSequence() {
     clearLookupStatusTimers();
-    activeLoadingStatusEl = activeLoadingStatusEl || null;
-    lookupStatusTimers.push(setTimeout(() => {
-      setLookupStatus('cache');
-    }, LOOKUP_STATUS_DELAY_MS));
-    lookupStatusTimers.push(setTimeout(() => {
-      setLookupStatus('morpheme');
-    }, LOOKUP_STATUS_DELAY_MS + 150));
-    lookupStatusTimers.push(setTimeout(() => {
-      setLookupStatus('krdict');
-    }, LOOKUP_STATUS_DELAY_MS + 450));
+    lookupStatusTimers.push(setTimeout(() => setLookupStatus('cache'), LOOKUP_STATUS_DELAY_MS));
+    lookupStatusTimers.push(setTimeout(() => setLookupStatus('morpheme'), LOOKUP_STATUS_DELAY_MS + 150));
+    lookupStatusTimers.push(setTimeout(() => setLookupStatus('krdict'), LOOKUP_STATUS_DELAY_MS + 450));
   }
 
   function extractSentence(wordEl) {
@@ -638,1010 +644,6 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     return base;
   }
 
-  function buildAiPill(sentence) {
-    const a = document.createElement('a');
-    a.className = 'lws-ai-pill';
-    a.href = buildAskAiUrl(sentence);
-    a.target = '_blank';
-    a.rel = 'noreferrer noopener';
-    a.title = `Ask ${currentProvider().name} to explain this sentence and the highlighted word`;
-    const icon = document.createElement('span');
-    icon.className = 'lws-ai-pill-icon';
-    icon.textContent = '✨';
-    icon.setAttribute('aria-hidden', 'true');
-    a.appendChild(icon);
-    const text = document.createElement('span');
-    text.textContent = 'Ask AI';
-    a.appendChild(text);
-    // The popup container swallows clicks for the dictionary UI; the pill
-    // is an anchor with target=_blank so the click needs to escape, but
-    // we still stop propagation so the popup doesn't reposition / rerender.
-    a.addEventListener('click', (e) => e.stopPropagation());
-    return a;
-  }
-
-  function buildSentenceNode(sentence) {
-    const wrap = document.createElement('div');
-    wrap.className = 'lws-sentence';
-    const header = document.createElement('div');
-    header.className = 'lws-sentence-header';
-    const label = document.createElement('span');
-    label.className = 'lws-sentence-label';
-    label.textContent = 'Given sentence';
-    header.appendChild(label);
-    header.appendChild(buildAiPill(sentence));
-    wrap.appendChild(header);
-    const body = document.createElement('div');
-    body.className = 'lws-sentence-text';
-
-    // Reconstruct the full sentence string so per-word click handlers can
-    // build a new {before, word, after} pointing at the clicked occurrence
-    // (the same word can appear multiple times — we want the right one).
-    const fullText = sentence.before + sentence.word + sentence.after;
-    appendSentenceWords(body, sentence.before, 0, fullText);
-    const hit = document.createElement('span');
-    hit.className = 'lws-sentence-hit';
-    hit.textContent = sentence.word;
-    body.appendChild(hit);
-    appendSentenceWords(body, sentence.after, sentence.before.length + sentence.word.length, fullText);
-
-    wrap.appendChild(body);
-    return wrap;
-  }
-
-  // Walk `text` (one side of the active hit), splitting it into whitespace
-  // runs and 어절 chunks. Each chunk's Hangul "core" (stripped of leading
-  // and trailing punctuation) becomes a clickable span that re-looks up
-  // that word and keeps the same sentence as the popup context. Non-Hangul
-  // pieces — punctuation, ellipsis markers, embedded latin — render as
-  // plain text inside the same line.
-  function appendSentenceWords(parent, text, baseOffset, fullText) {
-    if (!text) return;
-    const chunkRe = /\S+/g;
-    let lastEnd = 0;
-    let m;
-    while ((m = chunkRe.exec(text)) !== null) {
-      if (m.index > lastEnd) {
-        parent.appendChild(document.createTextNode(text.slice(lastEnd, m.index)));
-      }
-      const chunk = m[0];
-      const start = chunk.search(/[가-힣ᄀ-ᇿ㄰-㆏]/);
-      if (start < 0) {
-        parent.appendChild(document.createTextNode(chunk));
-      } else {
-        let end = chunk.length;
-        while (end > start && !/[가-힣ᄀ-ᇿ㄰-㆏]/.test(chunk.charAt(end - 1))) end--;
-        if (start > 0) parent.appendChild(document.createTextNode(chunk.slice(0, start)));
-        const surface = chunk.slice(start, end);
-        const surfaceOffset = baseOffset + m.index + start;
-        const span = document.createElement('span');
-        span.className = 'lws-sentence-word';
-        span.textContent = surface;
-        span.setAttribute('role', 'button');
-        span.tabIndex = 0;
-        span.title = `Look up ${surface}`;
-        const trigger = (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          onSentenceWordClick(surface, fullText, surfaceOffset);
-        };
-        span.addEventListener('click', trigger);
-        span.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') trigger(e);
-        });
-        parent.appendChild(span);
-        if (end < chunk.length) parent.appendChild(document.createTextNode(chunk.slice(end)));
-      }
-      lastEnd = m.index + chunk.length;
-    }
-    if (lastEnd < text.length) parent.appendChild(document.createTextNode(text.slice(lastEnd)));
-  }
-
-  function onSentenceWordClick(surface, fullText, offset) {
-    if (!surface) return;
-    const newSentence = {
-      before: fullText.slice(0, offset),
-      word: surface,
-      after: fullText.slice(offset + surface.length),
-    };
-    pinPopup();
-    performLookup(null, { surface, sentence: newSentence });
-  }
-
-  function buildDecompositionNode(tokens) {
-    if (!Array.isArray(tokens) || tokens.length === 0) return null;
-    const morphemes = tokens
-      .map((t) => ({ form: t.surface, pos: t.pos || '' }))
-      .filter((m) => m.form && isContentMorpheme(m));
-    // Don't render the section when it's a single one-morpheme word — the
-    // headword section already shows the same info.
-    if (morphemes.length < 2) return null;
-
-    const wrap = document.createElement('div');
-    wrap.className = 'lws-decomp';
-    // The tab label already says "Morpheme breakdown" — no inline header.
-    const stack = document.createElement('div');
-    stack.className = 'lws-decomp-stack';
-    morphemes.forEach((m, i) => {
-      stack.appendChild(buildMorphemeRow(m, i > 0));
-    });
-    wrap.appendChild(stack);
-    return wrap;
-  }
-
-  function buildMorphemeRow(morpheme, withPlus) {
-    const row = document.createElement('div');
-    row.className = 'lws-morph-row';
-    const op = document.createElement('span');
-    op.className = 'lws-morph-op' + (withPlus ? '' : ' lws-morph-op-empty');
-    op.textContent = withPlus ? '+' : '';
-    op.setAttribute('aria-hidden', 'true');
-    row.appendChild(op);
-    row.appendChild(buildMorphemeChip(morpheme));
-    return row;
-  }
-
-  function buildMorphemeChip({ form, pos }) {
-    const chip = document.createElement('span');
-    chip.className = 'lws-morph';
-    const formEl = document.createElement('span');
-    formEl.className = 'lws-morph-form';
-    formEl.textContent = form;
-    chip.appendChild(formEl);
-
-    const tag = posToShortform(displayPosKoreanToEnglishMaybe(pos), defLang);
-    const short = tag || (pos.split('+')[0] || '');
-    if (short) {
-      const sep = document.createElement('span');
-      sep.className = 'lws-morph-sep';
-      sep.textContent = '·';
-      chip.appendChild(sep);
-      const tagEl = document.createElement('span');
-      tagEl.className = 'lws-morph-tag';
-      tagEl.textContent = short;
-      chip.appendChild(tagEl);
-    }
-
-    const gloss = morphemeGloss(form, pos);
-    if (gloss) {
-      // Tooltip on hover; also rendered as faint text below for readability.
-      chip.title = gloss;
-      const glossEl = document.createElement('span');
-      glossEl.className = 'lws-morph-gloss';
-      glossEl.textContent = gloss;
-      chip.appendChild(glossEl);
-    }
-    return chip;
-  }
-
-  // posToShortform expects KRDict-style Korean POS labels like 명사 / 동사,
-  // but mecab uses Sejong tags like NNG / VV. This adapter translates the
-  // common Sejong lead tags into the Korean POS strings the shortform
-  // table understands; everything else passes through and falls back to
-  // the lead Sejong tag itself.
-  const SEJONG_TO_KOREAN_POS = {
-    NNG: '명사', NNP: '명사', NNB: '의존 명사', NR: '수사', NP: '대명사',
-    VV: '동사', VA: '형용사', VX: '보조 동사', VCP: '동사', VCN: '동사',
-    MM: '관형사', MAG: '부사', MAJ: '부사', IC: '감탄사',
-    JKS: '조사', JKC: '조사', JKO: '조사', JKG: '조사', JKB: '조사',
-    JKV: '조사', JKQ: '조사', JX: '조사', JC: '조사',
-    EP: '어미', EF: '어미', EC: '어미', ETN: '어미', ETM: '어미',
-    XPN: '접두사', XSN: '접미사', XSV: '접미사', XSA: '접미사', XR: '어근',
-    SL: '명사', SH: '명사', SN: '수사',
-  };
-  function displayPosKoreanToEnglishMaybe(pos) {
-    if (!pos) return '';
-    const lead = pos.split('+')[0];
-    return SEJONG_TO_KOREAN_POS[lead] || lead;
-  }
-
-  // Click-to-expand toggle for the morpheme breakdown. Hidden entirely when
-  // mecab didn't produce 2+ content morphemes (single-content-morpheme nouns
-  // like 학교 have nothing to decompose). Sits between the sentence band
-  // and the dictionary entries.
-  function buildInsightsNode(payload) {
-    const tokens = payload && Array.isArray(payload.tokens) ? payload.tokens : [];
-    const breakdownMorphemes = tokens
-      .map((t) => ({ form: t.surface, pos: t.pos || '' }))
-      .filter((m) => m.form && isContentMorpheme(m));
-    if (breakdownMorphemes.length < 2) return null;
-
-    const wrap = document.createElement('div');
-    wrap.className = 'lws-insights';
-
-    const tabs = document.createElement('div');
-    tabs.className = 'lws-insights-tabs';
-    tabs.appendChild(buildInsightTab('breakdown'));
-    wrap.appendChild(tabs);
-
-    if (activeInsightTab === 'breakdown') {
-      const node = buildDecompositionNode(tokens);
-      if (node) wrap.appendChild(node);
-    }
-    return wrap;
-  }
-
-  function buildInsightTab(id) {
-    const labels = id === 'breakdown'
-      ? { en: 'Morpheme breakdown', ko: '형태소 분석' }
-      : { en: id, ko: id };
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'lws-insights-tab';
-    btn.textContent = defLang === 'ko' ? labels.ko : labels.en;
-    btn.setAttribute('aria-pressed', activeInsightTab === id ? 'true' : 'false');
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      activeInsightTab = (activeInsightTab === id) ? null : id;
-      rerenderActivePopup();
-    });
-    return btn;
-  }
-
-  function buildErrorNode(message, action, details) {
-    const div = document.createElement('div');
-    div.className = 'lws-popup-body lws-error';
-    const p = document.createElement('div');
-    p.className = 'lws-error-msg';
-    p.textContent = message;
-    div.appendChild(p);
-    if (details) {
-      const d = document.createElement('div');
-      d.className = 'lws-error-detail';
-      d.textContent = details;
-      div.appendChild(d);
-    }
-    if (action) {
-      const btn = document.createElement('button');
-      btn.className = 'lws-action-btn';
-      btn.type = 'button';
-      btn.textContent = action.label;
-      btn.addEventListener('click', action.onClick);
-      div.appendChild(btn);
-    }
-    return div;
-  }
-
-  // Resolve a {source, queryIdx, itemIdx} section reference into a parsed
-  // KRDict/OpenDict entry. Parsed entry arrays for each KR query and the OD
-  // response are memoized on `payload.__entryCache` so re-renders (tab
-  // switch, EN/KR toggle, expand) don't re-walk the raw XML.
-  function entryForSection(payload, section) {
-    if (!payload.__entryCache) payload.__entryCache = { kr: new Map(), od: null };
-    const cache = payload.__entryCache;
-    if (section.source === 'od') {
-      if (!cache.od) cache.od = parseOpendictXml(payload.odXml, DOMParser);
-      return cache.od[section.itemIdx] || null;
-    }
-    let arr = cache.kr.get(section.queryIdx);
-    if (!arr) {
-      const xml = Array.isArray(payload.krXmls) ? payload.krXmls[section.queryIdx] : null;
-      arr = parseKrdictXml(xml, DOMParser);
-      cache.kr.set(section.queryIdx, arr);
-    }
-    return arr[section.itemIdx] || null;
-  }
-
-  function entryIdentity(e) {
-    try {
-      const def = (e.senses && e.senses[0] && e.senses[0].definition) || '';
-      return `${e.word || ''}|${e.pos || ''}|${def.slice(0, 80)}`;
-    } catch (err) {
-      console.warn('[lws] entryIdentity: could not compute identity for entry', err);
-      return null;
-    }
-  }
-
-  function materializeGroup(payload, group) {
-    if (!group || !Array.isArray(group.sections)) return { word: group ? group.word : '', entries: [] };
-    const entries = [];
-    const seen = new Set();
-    for (const s of group.sections) {
-      if (s.source === 'synthetic-nnp') {
-        entries.push({ entry: s, source: 'synthetic-nnp' });
-        continue;
-      }
-      const e = entryForSection(payload, s);
-      if (!e) continue;
-      const id = entryIdentity(e);
-      if (id === null || !seen.has(id)) {
-        entries.push({ entry: e, source: s.source });
-        if (id !== null) seen.add(id);
-      }
-    }
-    return { word: group.word, entries };
-  }
-
-  function buildResultNode(payload, options = {}) {
-    const root = document.createElement('div');
-
-    const tabs = (Array.isArray(payload.tabs) ? payload.tabs : [])
-      .map((g) => materializeGroup(payload, g))
-      .filter((g) => g.entries.length > 0);
-    const unrelated = (Array.isArray(payload.unrelated) ? payload.unrelated : [])
-      .map((g) => materializeGroup(payload, g))
-      .filter((g) => g.entries.length > 0);
-
-    const showLemmaChip = payload.queryUsed && payload.queryUsed !== payload.surface;
-    if (showLemmaChip || tabs.length > 0 || unrelated.length > 0) {
-      root.appendChild(buildStripNode({
-        showLemmaChip,
-        lemma: payload.queryUsed,
-      }));
-    }
-
-    if (options.sentence) {
-      root.appendChild(buildSentenceNode(options.sentence));
-    }
-
-    const insights = buildInsightsNode(payload);
-    if (insights) root.appendChild(insights);
-
-    if (tabs.length === 0 && unrelated.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'lws-popup-body lws-empty';
-      const surf = document.createElement('div');
-      surf.className = 'lws-empty-surface';
-      surf.textContent = payload.surface;
-      empty.appendChild(surf);
-      const msg = document.createElement('div');
-      msg.className = 'lws-empty-msg';
-      msg.textContent = payload.lemma && payload.lemma !== payload.surface
-        ? `No definition found for ${payload.lemma} or ${payload.surface}.`
-        : 'No definition found.';
-      empty.appendChild(msg);
-      root.appendChild(empty);
-      return root;
-    }
-
-    if (activeTab.source === 'primary' && activeTab.index >= tabs.length) {
-      activeTab = { source: 'primary', index: 0 };
-    }
-    if (activeTab.source === 'related' && activeTab.index >= unrelated.length) {
-      activeTab = { source: 'primary', index: 0 };
-    }
-    if (tabs.length > 1 || (tabs.length === 1 && unrelated.length > 0)) {
-      root.appendChild(buildTabBar(tabs, unrelated));
-    }
-    if (unrelated.length > 0 && relatedExpanded) {
-      root.appendChild(buildRelatedTabRow(unrelated));
-    }
-    if (activeTab.source === 'related') {
-      const group = unrelated[activeTab.index];
-      if (group) root.appendChild(buildTabBodyNode(group, `r${activeTab.index}`));
-    } else if (tabs.length > 0) {
-      root.appendChild(buildTabBodyNode(tabs[activeTab.index], `p${activeTab.index}`));
-    }
-
-    return root;
-  }
-
-  function buildTabBar(tabs, unrelated = []) {
-    const bar = document.createElement('div');
-    bar.className = 'lws-tabs';
-    bar.setAttribute('role', 'tablist');
-    tabs.forEach((tab, i) => {
-      const isActive = activeTab.source === 'primary' && activeTab.index === i;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'lws-tab' + (isActive ? ' lws-tab-active' : '');
-      const wordSpan = document.createElement('span');
-      wordSpan.textContent = tab.word || '·';
-      btn.appendChild(wordSpan);
-      if (tab.entries.length > 1) {
-        const badge = document.createElement('span');
-        badge.className = 'lws-tab-count';
-        badge.textContent = String(tab.entries.length);
-        badge.setAttribute('aria-hidden', 'true');
-        btn.appendChild(badge);
-      }
-      const firstEntry = tab.entries[0] && tab.entries[0].entry;
-      const fullPos = firstEntry ? displayPos(firstEntry.pos) : '';
-      const sectionCount = tab.entries.length;
-      const suffix = sectionCount > 1 ? ` — ${sectionCount} entries` : '';
-      btn.title = fullPos
-        ? `${tab.word} — ${fullPos}${suffix}`.trim()
-        : `${tab.word}${suffix}`;
-      btn.setAttribute('role', 'tab');
-      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-      btn.dataset.idx = String(i);
-      btn.addEventListener('click', () => onPrimaryTabClick(i));
-      bar.appendChild(btn);
-    });
-    if (unrelated.length > 0) {
-      const total = unrelated.reduce((n, g) => n + g.entries.length, 0);
-      const pill = document.createElement('button');
-      pill.type = 'button';
-      pill.className = 'lws-related-pill' + (relatedExpanded ? ' lws-related-pill-open' : '');
-      pill.setAttribute('aria-expanded', relatedExpanded ? 'true' : 'false');
-      pill.textContent = relatedExpanded ? `+${total} related ▴` : `+${total} related ▾`;
-      pill.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (relatedExpanded && activeTab.source === 'related') {
-          activeTab = { source: 'primary', index: 0 };
-        }
-        relatedExpanded = !relatedExpanded;
-        rerenderActivePopup();
-      });
-      bar.appendChild(pill);
-    }
-    return bar;
-  }
-
-  function onPrimaryTabClick(idx) {
-    if (activeTab.source === 'primary' && activeTab.index === idx) return;
-    activeTab = { source: 'primary', index: idx };
-    rerenderActivePopup();
-  }
-
-  // A tab body stacks every section (= one dictionary entry) for that word.
-  // Only one section is expanded at a time; section 0 is open by default on
-  // first visit (absence from map = section 0 open). Clicking another section
-  // switches; clicking the already-open section closes it (no section expanded).
-  function buildTabBodyNode(group, tabId) {
-    const body = document.createElement('div');
-    body.className = 'lws-tab-body';
-    const openIdx = expandedSectionByTab.has(tabId)
-      ? expandedSectionByTab.get(tabId)
-      : 0;
-    group.entries.forEach(({ entry, source }, sIdx) => {
-      const isOpen = sIdx === openIdx;
-      if (source === 'synthetic-nnp') {
-        body.appendChild(buildSyntheticSectionNode(entry));
-        return;
-      }
-      body.appendChild(buildSectionNode({
-        entry,
-        source,
-        tabId,
-        sectionIdx: sIdx,
-        isOpen,
-        senseKeyPrefix: `${source}:${tabId}:${sIdx}`,
-      }));
-    });
-    return body;
-  }
-
-  function buildSyntheticSectionNode(entry) {
-    const section = document.createElement('div');
-    section.className = 'lws-entry lws-section lws-section-open lws-synthetic';
-
-    const headline = document.createElement('div');
-    headline.className = 'lws-headline';
-    const word = document.createElement('span');
-    word.className = 'lws-word-form';
-    word.textContent = entry.word || '';
-    headline.appendChild(word);
-    section.appendChild(headline);
-
-    const meta = document.createElement('div');
-    meta.className = 'lws-meta-row';
-    meta.appendChild(makeChip('고유명사', 'cyan', { title: 'Proper noun (name of a person, place, or thing)' }));
-    meta.appendChild(makeChip(`၊၊||၊ ${entry.pronunciation}`, 'soft'));
-    section.appendChild(meta);
-
-    const badge = document.createElement('div');
-    badge.className = 'lws-synthetic-badge';
-    badge.textContent = 'ℹ Proper noun';
-    section.appendChild(badge);
-
-    const senses = document.createElement('div');
-    senses.className = 'lws-senses';
-    const sense = document.createElement('div');
-    sense.className = 'lws-sense lws-synthetic-body';
-    const def = document.createElement('div');
-    def.className = 'lws-ko-def';
-    def.textContent = entry.definition;
-    sense.appendChild(def);
-    senses.appendChild(sense);
-    section.appendChild(senses);
-
-    return section;
-  }
-
-  // A section is one entry. Header shows word + chips (POS, pron, hanja) —
-  // always visible. Body holds the senses + hanja meanings panel — visible
-  // only when expanded. The pill set is duplicated for each section so a
-  // collapsed section header is fully self-describing.
-  function buildSectionNode({ entry, source, tabId, sectionIdx, isOpen, senseKeyPrefix }) {
-    const section = document.createElement('div');
-    section.className = 'lws-entry lws-section'
-      + (isOpen ? ' lws-section-open' : ' lws-section-closed')
-      + (source === 'od' ? ' lws-od-entry' : '');
-    section.appendChild(buildSectionHeader({ entry, isOpen, tabId, sectionIdx }));
-    if (isOpen) {
-      if (entry.origin) {
-        const meanings = buildHanjaMeaningsNode(entry.origin);
-        if (meanings) section.appendChild(meanings);
-      }
-      if (Array.isArray(entry.senses) && entry.senses.length > 0) {
-        const senses = document.createElement('div');
-        senses.className = 'lws-senses';
-        const showMultiple = entry.senses.length > 1;
-        entry.senses.forEach((sense, i) => {
-          const senseId = `${senseKeyPrefix}:${i}`;
-          const node = source === 'od'
-            ? buildOdSenseNode(sense, showMultiple ? i + 1 : null, senseId)
-            : buildSenseNode(sense, showMultiple ? i + 1 : null, senseId);
-          senses.appendChild(node);
-        });
-        section.appendChild(senses);
-      }
-    }
-    return section;
-  }
-
-  function buildSectionHeader({ entry, isOpen, tabId, sectionIdx }) {
-    // All section headers are buttons now — any section can be toggled.
-    // Clicking the currently-open section closes it (no section expanded);
-    // clicking a different section switches to it. Only one open at a time.
-    const header = document.createElement('button');
-    header.type = 'button';
-    header.className = 'lws-section-header';
-    header.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-    header.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const currentOpen = expandedSectionByTab.has(tabId)
-        ? expandedSectionByTab.get(tabId)
-        : 0;
-      if (currentOpen === sectionIdx) {
-        expandedSectionByTab.set(tabId, -1);
-      } else {
-        expandedSectionByTab.set(tabId, sectionIdx);
-      }
-      rerenderActivePopup();
-    });
-
-    const headline = document.createElement('div');
-    headline.className = 'lws-headline';
-    const word = document.createElement('span');
-    word.className = 'lws-word-form';
-    word.textContent = entry.word || '';
-    headline.appendChild(word);
-    const stars = gradeToStars(entry.grade);
-    if (stars) {
-      const s = document.createElement('span');
-      s.className = 'lws-stars';
-      s.textContent = stars;
-      const tooltip = gradeToTooltip(entry.grade);
-      if (tooltip) {
-        s.title = tooltip;
-        s.setAttribute('aria-label', tooltip);
-      }
-      headline.appendChild(s);
-    }
-    const ind = document.createElement('span');
-    ind.className = 'lws-section-indicator';
-    ind.setAttribute('aria-hidden', 'true');
-    ind.textContent = isOpen ? '−' : '+';
-    headline.appendChild(ind);
-    header.appendChild(headline);
-
-    const meta = document.createElement('div');
-    meta.className = 'lws-meta-row';
-    if (entry.pos) meta.appendChild(makePosChip(entry.word, entry.pos));
-    if (entry.pronunciation) {
-      const pron = makePronChip(entry.word, entry.pronunciation);
-      if (pron) meta.appendChild(pron);
-    }
-    if (entry.origin) meta.appendChild(makeHanjaChip(entry.origin));
-    if (meta.children.length) header.appendChild(meta);
-
-    return header;
-  }
-
-  // Related tab row: a second row of pill buttons below the primary tab strip.
-  // Only rendered when the +N pill has been clicked (relatedExpanded === true).
-  // Clicking a related pill makes it the active tab, showing its content in the
-  // main body — same rendering path as a primary tab.
-  function buildRelatedTabRow(unrelated) {
-    const row = document.createElement('div');
-    row.className = 'lws-related-tab-row';
-    unrelated.forEach((group, i) => {
-      const isActive = activeTab.source === 'related' && activeTab.index === i;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'lws-tab lws-tab-related' + (isActive ? ' lws-tab-active' : '');
-      const wordSpan = document.createElement('span');
-      wordSpan.textContent = group.word || '·';
-      btn.appendChild(wordSpan);
-      if (group.entries.length > 1) {
-        const badge = document.createElement('span');
-        badge.className = 'lws-tab-count';
-        badge.textContent = String(group.entries.length);
-        badge.setAttribute('aria-hidden', 'true');
-        btn.appendChild(badge);
-      }
-      btn.setAttribute('role', 'tab');
-      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-      btn.title = group.word || '';
-      btn.addEventListener('click', () => onRelatedTabClick(i));
-      row.appendChild(btn);
-    });
-    return row;
-  }
-
-  function onRelatedTabClick(idx) {
-    if (activeTab.source === 'related' && activeTab.index === idx) return;
-    activeTab = { source: 'related', index: idx };
-    rerenderActivePopup();
-  }
-
-  function buildStripNode({ showLemmaChip, lemma }) {
-    const strip = document.createElement('div');
-    strip.className = 'lws-strip';
-
-    const lemmaWrap = document.createElement('div');
-    lemmaWrap.className = 'lws-strip-lemma';
-    if (showLemmaChip && lemma) {
-      const chip = document.createElement('span');
-      chip.className = 'lws-chip lws-chip-amber';
-      chip.textContent = lemma;
-      lemmaWrap.appendChild(chip);
-    }
-    strip.appendChild(lemmaWrap);
-
-    const toggle = document.createElement('div');
-    toggle.className = 'lws-toggle';
-    toggle.setAttribute('role', 'group');
-    toggle.setAttribute('aria-label', 'Definition language');
-
-    const enBtn = makeToggleBtn('en', '영어');
-    const koBtn = makeToggleBtn('ko', '한국어');
-    toggle.appendChild(enBtn);
-    toggle.appendChild(koBtn);
-    strip.appendChild(toggle);
-
-    return strip;
-  }
-
-  function makeToggleBtn(lang, label) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'lws-toggle-btn';
-    btn.textContent = label;
-    btn.setAttribute('aria-pressed', defLang === lang ? 'true' : 'false');
-    btn.dataset.lang = lang;
-    btn.addEventListener('click', () => onToggleLang(lang));
-    return btn;
-  }
-
-  async function onToggleLang(lang) {
-    if (defLang === lang) return;
-    defLang = lang;
-    try { await chrome.storage.sync.set({ [STORAGE_KEYS.DEF_LANG]: lang }); } catch {}
-    rerenderActivePopup();
-  }
-
-  function rerenderActivePopup() {
-    if (!activeWordEl || !lastPayload || !popupEl || popupEl.style.display === 'none') return;
-    // Use the sentence captured at lookup time, not a fresh extract from
-    // activeWordEl — that way a sentence-word click that rebuilt the
-    // {before, word, after} doesn't snap back to the page's DOM-derived
-    // sentence on the next rerender.
-    showPopup(
-      activeWordEl,
-      buildResultNode(lastPayload, { sentence: lastSentence }),
-      { reposition: false },
-    );
-  }
-
-  function buildSenseNode(sense, num, senseId) {
-    const senseEl = document.createElement('div');
-    senseEl.className = 'lws-sense';
-    if (num !== null) {
-      const n = document.createElement('span');
-      n.className = 'lws-sense-num';
-      n.textContent = `${num}.`;
-      senseEl.appendChild(n);
-    }
-    if (defLang === 'en') {
-      const tr = sense.translations[0];
-      if (tr && tr.trans_word) {
-        const w = document.createElement('div');
-        w.className = 'lws-trans-word';
-        w.textContent = tr.trans_word;
-        senseEl.appendChild(w);
-      }
-      if (tr && tr.trans_dfn) {
-        const d = document.createElement('div');
-        d.className = 'lws-trans-dfn';
-        d.textContent = tr.trans_dfn;
-        senseEl.appendChild(d);
-      }
-      if ((!tr || (!tr.trans_word && !tr.trans_dfn)) && sense.definition) {
-        // fall back to Korean definition if English is missing
-        const d = document.createElement('div');
-        d.className = 'lws-ko-def';
-        d.textContent = sense.definition;
-        senseEl.appendChild(d);
-      }
-    } else if (sense.definition) {
-      const d = document.createElement('div');
-      d.className = 'lws-ko-def';
-      d.textContent = sense.definition;
-      senseEl.appendChild(d);
-    }
-    appendExamplesToggle(senseEl, sense.examples, senseId);
-    return senseEl;
-  }
-
-  function appendExamplesToggle(senseEl, examples, senseId) {
-    if (!examples || examples.length === 0) return;
-    const isOpen = expandedExamples.has(senseId);
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'lws-examples-toggle';
-    toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-    toggle.textContent = isOpen
-      ? `▾ Hide examples (${examples.length})`
-      : `▸ Show examples (${examples.length})`;
-    toggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (expandedExamples.has(senseId)) expandedExamples.delete(senseId);
-      else expandedExamples.add(senseId);
-      rerenderActivePopup();
-    });
-    senseEl.appendChild(toggle);
-    if (isOpen) {
-      const list = document.createElement('ul');
-      list.className = 'lws-examples';
-      for (const ex of examples) {
-        const li = document.createElement('li');
-        li.textContent = ex;
-        list.appendChild(li);
-      }
-      senseEl.appendChild(list);
-    }
-  }
-
-  function buildOdSenseNode(sense, num, senseId) {
-    const senseEl = document.createElement('div');
-    senseEl.className = 'lws-sense';
-    if (num !== null) {
-      const n = document.createElement('span');
-      n.className = 'lws-sense-num';
-      n.textContent = `${num}.`;
-      senseEl.appendChild(n);
-    }
-    if (defLang === 'en') {
-      const enTrans = filterTranslations(sense.translations, 'en');
-      const tr = enTrans[0];
-      if (tr && tr.trans_word) {
-        const w = document.createElement('div');
-        w.className = 'lws-trans-word';
-        w.textContent = tr.trans_word;
-        senseEl.appendChild(w);
-      }
-      if (tr && tr.trans_dfn) {
-        const d = document.createElement('div');
-        d.className = 'lws-trans-dfn';
-        d.textContent = tr.trans_dfn;
-        senseEl.appendChild(d);
-      }
-      if ((!tr || (!tr.trans_word && !tr.trans_dfn)) && sense.definition) {
-        const d = document.createElement('div');
-        d.className = 'lws-ko-def';
-        d.textContent = sense.definition;
-        senseEl.appendChild(d);
-      }
-    } else if (sense.definition) {
-      const d = document.createElement('div');
-      d.className = 'lws-ko-def';
-      d.textContent = sense.definition;
-      senseEl.appendChild(d);
-    }
-    appendExamplesToggle(senseEl, sense.examples, senseId);
-    return senseEl;
-  }
-
-  const SVG_NS = 'http://www.w3.org/2000/svg';
-  // "Arrow out of box" external-link icon. Stroke uses currentColor so it
-  // inherits the chip's text color and stays in sync with each variant.
-  const EXT_ICON_PATHS = [
-    'M8.5 2h3.5v3.5',
-    'M12 2 6.5 7.5',
-    'M11 8.5V11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h2.5',
-  ];
-  function buildExternalIcon() {
-    const svg = document.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 14 14');
-    svg.setAttribute('width', '11');
-    svg.setAttribute('height', '11');
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', 'currentColor');
-    svg.setAttribute('stroke-width', '1.4');
-    svg.setAttribute('stroke-linecap', 'round');
-    svg.setAttribute('stroke-linejoin', 'round');
-    svg.setAttribute('aria-hidden', 'true');
-    svg.classList.add('lws-ext-icon');
-    for (const d of EXT_ICON_PATHS) {
-      const p = document.createElementNS(SVG_NS, 'path');
-      p.setAttribute('d', d);
-      svg.appendChild(p);
-    }
-    return svg;
-  }
-
-  function makeChip(text, variant, opts = {}) {
-    const chip = document.createElement(opts.href ? 'a' : 'span');
-    chip.className = `lws-chip lws-chip-${variant}` + (opts.href ? ' lws-chip-link' : '');
-    const label = document.createElement('span');
-    label.className = 'lws-chip-label';
-    label.textContent = text;
-    chip.appendChild(label);
-    if (opts.href) {
-      chip.href = opts.href;
-      chip.target = '_blank';
-      chip.rel = 'noreferrer noopener';
-      chip.appendChild(buildExternalIcon());
-    }
-    if (opts.title) chip.title = opts.title;
-    return chip;
-  }
-
-  // Amber pill showing the origin text (e.g. "豫約"). When the origin contains
-  // at least one Hanja character the pill becomes a button — clicking it
-  // expands the per-character meanings panel below the meta row. The `+`/`−`
-  // indicator and the tooltip make the affordance discoverable; non-Hanja
-  // origins (rare malformed data) fall back to a plain non-interactive chip.
-  function makeHanjaChip(origin) {
-    if (!origin) return null;
-    const chars = [...origin].filter(isHanjaChar).join('');
-    if (chars.length === 0) return makeChip(origin, 'amber');
-
-    const charCount = [...chars].length;
-    const isOpen = expandedHanja.has(chars);
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'lws-chip lws-chip-amber lws-chip-button';
-    chip.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-    chip.title = isOpen
-      ? `Hide Hanja meanings (${charCount} character${charCount === 1 ? '' : 's'})`
-      : `Show Hanja meanings (${charCount} character${charCount === 1 ? '' : 's'})`;
-
-    const label = document.createElement('span');
-    label.className = 'lws-chip-label';
-    label.textContent = origin;
-    chip.appendChild(label);
-
-    const indicator = document.createElement('span');
-    indicator.className = 'lws-chip-indicator';
-    indicator.setAttribute('aria-hidden', 'true');
-    indicator.textContent = isOpen ? '−' : '+';
-    chip.appendChild(indicator);
-
-    chip.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (expandedHanja.has(chars)) expandedHanja.delete(chars);
-      else expandedHanja.add(chars);
-      rerenderActivePopup();
-    });
-    return chip;
-  }
-
-  // Session-level cache for Hanja meanings — avoids refetching when the popup
-  // rerenders (tab switch, lang toggle, examples expand). Values: array of
-  // {character, sino, summary} on success, null on failure / no results.
-  // Background.js holds the persistent chrome.storage.local cache.
-  const hanjaSession = new Map();
-
-  // Returns the per-character meanings panel when the user has expanded the
-  // Hanja pill, otherwise `null`. The expand/collapse affordance now lives on
-  // the pill itself (see makeHanjaChip); this function just renders the body.
-  function buildHanjaMeaningsNode(origin) {
-    if (!origin) return null;
-    const chars = [...origin].filter(isHanjaChar).join('');
-    if (!chars || !expandedHanja.has(chars)) return null;
-    const panel = document.createElement('div');
-    panel.className = 'lws-hanja-meanings';
-    if (hanjaSession.has(chars)) {
-      const cached = hanjaSession.get(chars);
-      if (cached && cached.length > 0) renderHanjaMeanings(panel, cached);
-      else panel.appendChild(buildHanjaErrorRow());
-      return panel;
-    }
-    // First expansion of this Hanja set — fire the lookup.
-    const loading = document.createElement('div');
-    loading.className = 'lws-hanja-loading';
-    loading.textContent = 'Loading…';
-    panel.appendChild(loading);
-    chrome.runtime.sendMessage({ type: 'lookupHanja', chars })
-      .then((resp) => {
-        const hanjas = (resp && !resp.error && Array.isArray(resp.hanjas))
-          ? resp.hanjas
-          : null;
-        hanjaSession.set(chars, hanjas);
-        // The panel may have been detached by a subsequent rerender; in that
-        // case the rerender path will read from hanjaSession and render the
-        // cached value directly.
-        if (panel.isConnected) {
-          panel.innerHTML = '';
-          if (hanjas && hanjas.length > 0) renderHanjaMeanings(panel, hanjas);
-          else panel.appendChild(buildHanjaErrorRow());
-        }
-      })
-      .catch(() => {
-        hanjaSession.set(chars, null);
-        if (panel.isConnected) {
-          panel.innerHTML = '';
-          panel.appendChild(buildHanjaErrorRow());
-        }
-      });
-    return panel;
-  }
-
-  function buildHanjaErrorRow() {
-    const row = document.createElement('div');
-    row.className = 'lws-hanja-empty';
-    row.textContent = 'Could not load Hanja meanings.';
-    return row;
-  }
-
-  function renderHanjaMeanings(panel, hanjas) {
-    for (const h of hanjas) {
-      const row = document.createElement('div');
-      row.className = 'lws-hanja-row';
-      const charUrl = hanjaCharUrl(h.character);
-      let charEl;
-      if (charUrl) {
-        charEl = document.createElement('a');
-        charEl.href = charUrl;
-        charEl.target = '_blank';
-        charEl.rel = 'noreferrer noopener';
-        charEl.title = `Hanja breakdown for ${h.character} on hangulhanja.com`;
-      } else {
-        charEl = document.createElement('span');
-      }
-      charEl.className = 'lws-hanja-row-char';
-      charEl.textContent = h.character;
-      row.appendChild(charEl);
-      if (h.sino) {
-        const sino = document.createElement('span');
-        sino.className = 'lws-hanja-row-sino';
-        sino.textContent = h.sino;
-        row.appendChild(sino);
-      }
-      if (h.summary) {
-        const sum = document.createElement('span');
-        sum.className = 'lws-hanja-row-summary';
-        sum.textContent = h.summary;
-        row.appendChild(sum);
-      }
-      panel.appendChild(row);
-    }
-  }
-
-  function makePosChip(hangulWord, pos) {
-    // Tooltip explains what the POS means in the user's language. For verb/
-    // adjective POS the chip also doubles as a koreanverb.app link; the
-    // external-link icon on the chip signals that clickability separately,
-    // so the title stays focused on the linguistic meaning.
-    const expl = posExplanation(pos, defLang);
-    const opts = {};
-    const url = koreanVerbUrl(hangulWord, pos);
-    if (url) opts.href = url;
-    if (expl) opts.title = expl;
-    return makeChip(displayPos(pos), 'cyan', opts);
-  }
-
-  function makePronChip(word, pronunciation) {
-    if (!pronunciation) return null;
-    const label = `၊၊||၊ ${pronunciation}`;
-    const w = (word || '').trim();
-    if (!w) return makeChip(label, 'soft');
-    return makeChip(label, 'soft', {
-      href: `https://koreanverb.app/pronounce?search=${encodeURIComponent(w)}`,
-      title: defLang === 'ko'
-        ? `${w} 발음 듣기 — koreanverb.app`
-        : `Pronunciation guide for ${w} on koreanverb.app`,
-    });
-  }
-
-  function displayPos(pos) {
-    return defLang === 'en' ? posToEnglish(pos) : pos;
-  }
-
   async function performLookup(target, opts = {}) {
     // Two entry points share this:
     //   (a) page hover/click: target = the .lws-word in the DOM. We extract
@@ -1659,20 +661,16 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     if (!anchor) return;
     const reposition = Boolean(target);
     const requestId = ++pendingRequestId;
-    // Reset session size tracking — each new word starts with a fresh popup.
-    popupMinHeight = 0;
-    popupMinWidth = 0;
-    expandedExamples = new Set();
-    expandedHanja = new Set();
-    expandedSectionByTab = new Map();
-    relatedExpanded = false;
-    activeInsightTab = null;
-    if (popupEl) {
-      popupEl.style.minHeight = '';
-      popupEl.style.minWidth = '';
-    }
-    activeLoadingStatusEl = null;
-    showPopup(anchor, buildLoadingNode(surface), { reposition });
+    // Compute the anchor rect in document coordinates so the overlay
+    // can position itself without seeing the original DOM element.
+    const anchorRect = computeAnchorRect(anchor);
+
+    await showPopup({
+      kind: 'loading',
+      surface,
+      anchor: anchorRect,
+      reposition,
+    });
     scheduleLookupStatusSequence();
 
     let response;
@@ -1680,51 +678,78 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       response = await chrome.runtime.sendMessage({ type: 'lookup', surface });
     } catch (err) {
       clearLookupStatusTimers();
-      activeLoadingStatusEl = null;
       if (requestId !== pendingRequestId) return;
-      showPopup(anchor, buildErrorNode('Extension is reloading. Hover again in a moment.'), { reposition });
+      await showPopup({
+        kind: 'error',
+        message: 'Extension is reloading. Hover again in a moment.',
+        anchor: anchorRect,
+        reposition,
+      });
       return;
     }
     clearLookupStatusTimers();
-    activeLoadingStatusEl = null;
     if (requestId !== pendingRequestId) return;
     if (!response) {
-      showPopup(anchor, buildErrorNode('No response from extension.'), { reposition });
+      await showPopup({
+        kind: 'error',
+        message: 'No response from extension.',
+        anchor: anchorRect,
+        reposition,
+      });
       return;
     }
     if (response.error === 'NO_API_KEY') {
-      showPopup(anchor, buildErrorNode('Set your KRDict API key to use the dictionary.', {
-        label: 'Open settings',
-        onClick: () => chrome.runtime.sendMessage({ type: 'openOptions' }).catch(() => {}),
-      }), { reposition });
+      await showPopup({
+        kind: 'error',
+        message: 'Set your KRDict API key to use the dictionary.',
+        anchor: anchorRect,
+        reposition,
+        action: {
+          label: 'Open settings',
+          onClick: () => chrome.runtime.sendMessage({ type: 'openOptions' }).catch(() => {}),
+        },
+      });
       return;
     }
     if (response.error === 'FETCH_FAILED') {
-      showPopup(anchor, buildErrorNode(
-        'Couldn\'t reach the dictionary. Hover the word again to retry.',
-        null,
-        response.message,
-      ), { reposition });
+      await showPopup({
+        kind: 'error',
+        message: "Couldn't reach the dictionary. Hover the word again to retry.",
+        details: response.message,
+        anchor: anchorRect,
+        reposition,
+      });
       return;
     }
     if (response.error) {
-      showPopup(anchor, buildErrorNode(
-        'Lookup failed. Hover the word again to retry.',
-        null,
-        `${response.error}${response.message ? `: ${response.message}` : ''}`,
-      ), { reposition });
+      await showPopup({
+        kind: 'error',
+        message: 'Lookup failed. Hover the word again to retry.',
+        details: `${response.error}${response.message ? `: ${response.message}` : ''}`,
+        anchor: anchorRect,
+        reposition,
+      });
       return;
     }
     lastPayload = response;
-    activeTab = { source: 'primary', index: 0 };
     const sentence = opts.sentence !== undefined
       ? opts.sentence
       : extractSentence(anchor);
     lastSentence = sentence;
-    // Grammar matches are computed lazily — only when the user clicks the
-    // Grammar tab. Decomposition uses `payload.tokens` which is already
-    // present, so it renders instantly when its tab is clicked.
-    showPopup(anchor, buildResultNode(response, { sentence }), { reposition });
+    await showPopup({
+      kind: 'payload',
+      payload: {
+        lookup: response,
+        sentence,
+        anchor: anchorRect,
+        secondaryLang,
+        defLang,
+        askAiProvider,
+        askAiPromptTemplate,
+        askAiChatGptTemporary,
+        reposition,
+      },
+    });
   }
 
   function onWordEnter(target) {
@@ -1894,7 +919,8 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     if (STORAGE_KEYS.DEF_LANG in changes) {
       const next = changes[STORAGE_KEYS.DEF_LANG].newValue;
       defLang = next === 'ko' ? 'ko' : DEF_LANG_DEFAULT;
-      rerenderActivePopup();
+      // The overlay component owns the live re-render; in Task 6 the
+      // skeleton just acknowledges and Task 7 will add a defLang update.
     }
     if (STORAGE_KEYS.SECONDARY_LANG in changes) {
       const next = changes[STORAGE_KEYS.SECONDARY_LANG].newValue;

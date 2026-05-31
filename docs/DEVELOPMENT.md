@@ -118,6 +118,26 @@ override).
 If you're catching up after time away, these are the big landings to
 skim first:
 
+- `ec9f91c` — overlay infra (commit 6a of the Svelte migration):
+  ~1000 lines of imperative DOM construction deleted from
+  `extension/content.js` (sentence band, morpheme breakdown, insights
+  tab, tab strip, dictionary entry builders, related-pills, Hanja
+  meanings, chip helpers). `ensurePopup()` shrinks to creating the
+  shadow host + a single `#lws-overlay-root` mount point, plus a
+  `<link rel="stylesheet" href="overlay/main.css">` injected directly
+  into the shadow root (shadow roots don't inherit page styles). A new
+  Svelte `src/overlay/App.svelte` (skeleton — placeholder text only,
+  full tree lands in 6b) mounts into that root and registers
+  `window.__lwsOverlay = { show(frame), hide(), update(patch) }`.
+  content.js's `showPopup` becomes a thin proxy: dynamic-imports
+  `chrome.runtime.getURL('overlay/main.js')` once (idempotent
+  `loadOverlayBundle()`), then forwards a typed `OverlayFrame`
+  (`{kind: 'loading'|'error'|'payload'}`) over the bridge.
+  `computeAnchorRect()` snapshots the anchor in document coords so
+  the overlay can position without seeing the DOM node. Realm note:
+  MV3 isolated worlds share `window` per-extension, so content.js and
+  the WAR-loaded overlay bundle see the same global. (see
+  [extension-surfaces.md](extension-surfaces.md))
 - `d958287` — per-NNP-run synthesis: `extractNnpRuns` collects runs of
   consecutive NNP tokens; for each run not already covered by a real dict
   tab, a synthetic "고유명사" tab is prepended at position 0. Replaces the
