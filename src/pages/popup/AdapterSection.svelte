@@ -19,7 +19,8 @@
       try {
         const mod = await import(/* @vite-ignore */ chrome.runtime.getURL('core/site-configs.js'));
         findSiteConfig = mod.findSiteConfig;
-      } catch {
+      } catch (err) {
+        console.warn('[lws] popup AdapterSection: site-configs import failed', err);
         return;
       }
       const cfg = findSiteConfig(host);
@@ -27,7 +28,8 @@
       let popupMod;
       try {
         popupMod = await import(/* @vite-ignore */ chrome.runtime.getURL(cfg.popupModule));
-      } catch {
+      } catch (err) {
+        console.warn('[lws] popup AdapterSection: adapter popup module import failed', err);
         return;
       }
       if (!popupMod || typeof popupMod.renderSection !== 'function') return;
