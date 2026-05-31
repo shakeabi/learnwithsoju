@@ -3,23 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <title>Morpheme inspector</title>
-  <link rel="stylesheet" href="../options/options.css" />
-  <link rel="stylesheet" href="morpheme-inspector.css" />
+  <link rel="stylesheet" href="main.css" />
 </head>
 <body>
-  <main>
-    <header>
-      <h1>Morpheme inspector</h1>
-      <p class="subtitle">Tokenize Korean text and inspect every mecab field</p>
-    </header>
-    <section class="card">
-      <label class="field">
-        <span class="label">Input</span>
-        <textarea id="inspector-input" rows="4" spellcheck="false" placeholder="Paste or type Korean text — analysis updates live."></textarea>
-      </label>
-    </section>
-    <section id="inspector-results"></section>
-  </main>
-  <script src="morpheme-inspector.js"></script>
+  <div id="lws-inspector-root"></div>
+  <script type="module" src="./main.js"></script>
 </body>
 </html>

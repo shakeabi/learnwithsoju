@@ -199,12 +199,18 @@ everything.
 
 ---
 
-## Morpheme inspector (`pages/morpheme-inspector/morpheme-inspector.html` / `.js` / `.css`)
+## Morpheme inspector (`pages/morpheme-inspector/morpheme-inspector.html` + built `main.js` / `main.css`)
 
 Developer / curious-learner tool reached from the options page's
-Advanced section. A single textarea drives a live analysis (200 ms
-debounce) that sends `{ type: 'mecab-inspect', text, nbest: 5 }` to
-the background service worker. The response carries three fields:
+Advanced section. Svelte 5 sources live at `src/pages/morpheme-inspector/`
+(`App.svelte` + 4 components: `TokenTable.svelte`, `SinglePathSection.svelte`,
+`NbestSection.svelte`, `CandidatesSection.svelte`) and build to
+`extension/pages/morpheme-inspector/main.js` + `main.css`; the HTML is
+a thin mount shell over `#lws-inspector-root`. A single textarea drives
+a live analysis (200 ms debounce, 500 ms retry on `NOT_READY`) that
+sends `{ type: 'mecab-inspect', text, nbest: 5 }` to the background
+service worker via the `mecabInspect()` wrapper in `src/lib/messages.ts`.
+The response carries three fields:
 
 - `singlePath` — the 1-best tokenization
 - `nbestPaths` — up to 5 alternative paths with cost

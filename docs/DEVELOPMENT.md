@@ -82,10 +82,12 @@ Bundles land at:
 
 - `extension/pages/<surface>/main.js` + `main.css` for the 4 pages
 - `extension/overlay/main.js` + `main.css` for the in-page overlay
-- `extension/shared/disclose-version-<hash>.js` — Svelte runtime,
-  auto-extracted by Rollup once 2+ entries share it; each page's
-  main.js imports it relatively (`../../shared/...`). The hash changes
-  only when the Svelte runtime itself changes, so churn is low.
+- `extension/shared/<module>-<hash>.js` — shared modules (Svelte
+  runtime via `disclose-version-<hash>.js`, plus other modules like
+  `messages-<hash>.js` once enough pages import them) auto-extracted
+  by Rollup once 2+ entries share them; each page's main.js imports
+  them relatively (`../../shared/...`). When the hash changes, `git rm`
+  the old file and commit the new one so exactly one of each remains.
 
 These files are committed to git so the extension stays loadable from
 `extension/` without a build step. After editing any `src/` file, run

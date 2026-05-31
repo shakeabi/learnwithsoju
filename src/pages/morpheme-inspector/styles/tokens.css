@@ -1,3 +1,14 @@
+/* Morpheme-inspector-specific styles on top of page-shell.css tokens.
+ * Ported verbatim from extension/pages/morpheme-inspector/morpheme-inspector.css. */
+
+/* @import the shared shell CSS so Vite inlines it into this entry's
+ * main.css rather than hoisting it into a shared chunk. Importing
+ * page-shell.css from main.ts triggers Rollup to dedupe it across the
+ * page entries and emit an orphan disclose-version.css at the
+ * extension root with no <link> referencing it; @import keeps the CSS
+ * dependency local to this entry. */
+@import '$lib/styles/page-shell.css';
+
 .inspector-section {
   background: var(--card);
   border: 1px solid var(--border);
