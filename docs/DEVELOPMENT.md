@@ -4,8 +4,17 @@
 webpage with Korean text into a hover dictionary. It runs entirely
 client-side (KRDict + OpenDict + hangulhanja.com are the only
 network calls, all with user-supplied keys), uses a vendored fork of
-`mecab-ko-wasm` for morphological analysis, and has no build step —
-the contents of `extension/` are what get loaded into the browser.
+`mecab-ko-wasm` for morphological analysis. The contents of
+`extension/` are what get loaded into the browser; everything under
+`extension/` (background.js, content.js, adapters, vendor/) is hand-
+written JS with no transpile step. The 4 UI pages and the in-page
+hover popup are mid-migration from vanilla JS to Svelte 5 +
+TypeScript on the `svelte-rewrite` branch — when a surface migrates,
+its source moves under `src/` and Vite emits the built bundle back
+into `extension/<surface>/main.js`. The Vite build (`npm run build`)
+is a no-op on `main`; the distribution zips are now built by
+`npm run package` (`npm run build` / `build:chrome` / `build:firefox`
+on `main` were renamed when Vite took over the `build` script name).
 On YouTube and Netflix the extension also replaces the host's native
 captions with a dual-language overlay (Korean + secondary language).
 
