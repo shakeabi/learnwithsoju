@@ -1,8 +1,7 @@
 // Default Ask-AI prompt template. Mirrored from extension/content.js
-// (DEFAULT_ASK_AI_PROMPT, lines 39-73) and extension/pages/options/options.js
-// (DEFAULT_ASK_AI_PROMPT, lines 14-49). The three copies must stay in sync;
-// content.js is plain JS so we can't share this constant across the
-// JS/TS boundary without restructuring. When editing one, edit all three.
+// (DEFAULT_ASK_AI_PROMPT). The two copies must stay in sync; content.js is
+// plain JS so we can't share this constant across the JS/TS boundary without
+// restructuring. When editing one, edit both.
 //
 // Placeholders: {sentence}, {word}, {language}.
 
