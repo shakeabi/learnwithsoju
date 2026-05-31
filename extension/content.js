@@ -1,7 +1,7 @@
 (async () => {
   const HANGUL_RE = /[가-힣ᄀ-ᇿ㄰-㆏]+/g;
   const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'CODE', 'PRE', 'NOSCRIPT', 'IFRAME', 'CANVAS', 'SVG']);
-  const POPUP_ID = 'lws-popup';
+  const POPUP_ID = 'lws-popup'; // TODO Task 7: shadow host id, may be needed
   const HOST_CLASS = 'lws-host';
   const WORD_CLASS = 'lws-word';
   const GAP_CLASS = 'lws-gap';
@@ -170,15 +170,15 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   let askAiProvider = DEFAULT_ASK_AI_PROVIDER;
   let askAiChatGptTemporary = false;
   let popupHost = null;
-  let popupRoot = null;
+  let popupRoot = null; // TODO Task 7: needed module-wide for shadow access
   let activeWordEl = null;
-  let lastPayload = null;
-  let lastSentence = null;
+  let lastPayload = null; // TODO Task 7: read for resize/reposition
+  let lastSentence = null; // TODO Task 7: read for resize/reposition
   let hideTimer = null;
   let hoverTimer = null;
   let pendingRequestId = 0;
-  let popupPinned = false;
-  let popupPinnedSafetyTimer = null;
+  let popupPinned = false; // TODO Task 7: pin subsystem, reconnect via overlay action-menu
+  let popupPinnedSafetyTimer = null; // TODO Task 7: pin subsystem
   // Video auto-pause/resume state. `pausedVideo` holds the element we
   // paused; `resumeOnHide` is the consent flag (cleared if the user
   // manually pauses again after our auto-pause); `suppressNextPause` lets
@@ -188,6 +188,11 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   let resumeVideoOnHide = false;
   let suppressNextPauseEvent = false;
   let videoPauseListener = null;
+
+  // TODO Task 7: the following symbols are staged for Task 7 reconnection.
+  // Inline `// TODO Task 7:` markers identify each. Remove this comment block
+  // and the inline markers once Task 7 wires them up (or delete the symbols
+  // if Task 7 chooses a different approach).
 
   function isSkippableNode(node) {
     let p = node.parentNode;
@@ -312,6 +317,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       // mount() and registers window.__lwsOverlay) has finished.
       await Promise.resolve();
       if (!window.__lwsOverlay) {
+        overlayLoadPromise = null;
         throw new Error('overlay bundle loaded but window.__lwsOverlay missing');
       }
     })();
@@ -370,6 +376,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     hideTimer = setTimeout(hidePopup, HIDE_DELAY_MS);
   }
 
+  // TODO Task 7: reconnect on overlay action-menu engagement
   function pinPopup() {
     popupPinned = true;
     cancelHide();
@@ -464,6 +471,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
 
   /** @deprecated unused — kept for reference; will be removed in a later pass.
    *  The overlay component owns positioning in Task 7 onward. */
+  // TODO Task 7: may delegate positioning to overlay or remove
   function positionPopup(target) {
     // Compute everything in viewport coords first — that's what the
     // initial-fit clamps (flip above, clip to viewport edge) want, since
