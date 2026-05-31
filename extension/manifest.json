@@ -59,7 +59,8 @@
         "adapters/netflix/adapter.js",
         "adapters/netflix/page-hook.js",
         "overlay/main.js",
-        "overlay/main.css"
+        "overlay/main.css",
+        "shared/*.js"
       ],
       "matches": ["<all_urls>"]
     }

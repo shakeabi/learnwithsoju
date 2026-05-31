@@ -88,6 +88,11 @@ Bundles land at:
   by Rollup once 2+ entries share them; each page's main.js imports
   them relatively (`../../shared/...`). When the hash changes, `git rm`
   the old file and commit the new one so exactly one of each remains.
+  These are listed in `manifest.json` `web_accessible_resources` as
+  `shared/*.js` (wildcard so hash rotations don't require manifest
+  edits) — the overlay bundle is dynamic-imported from the content
+  script, so Chrome must be able to fetch its shared-chunk imports
+  from any page origin.
 
 These files are committed to git so the extension stays loadable from
 `extension/` without a build step. After editing any `src/` file, run
