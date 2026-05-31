@@ -39,7 +39,7 @@ To debug the service worker: `about:debugging` → the extension's
 ## 2. Build a distributable .zip for AMO submission
 
 ```sh
-npm run build:firefox
+npm run package:firefox
 ```
 
 This invokes `scripts/build-firefox.sh`, which:
@@ -54,8 +54,8 @@ This invokes `scripts/build-firefox.sh`, which:
 4. Prints the first ~20 entries of the resulting zip so you can
    eyeball the layout.
 
-For Chrome the parallel script is `npm run build:chrome` (output:
-`dist/learnwithsoju-chrome-<version>.zip`). `npm run build` runs both.
+For Chrome the parallel script is `npm run package:chrome` (output:
+`dist/learnwithsoju-chrome-<version>.zip`). `npm run package` runs both.
 
 `dist/` is gitignored.
 
@@ -82,7 +82,7 @@ let AMO surface any issues.
 
 ### Smoke-test in a real Firefox
 
-After `npm run build:firefox`:
+After `npm run package:firefox`:
 
 1. Unzip the build to a temp dir (e.g. `/tmp/lws-firefox`).
 2. Load the unzipped dir as a temporary add-on (Section 1).
@@ -97,7 +97,7 @@ After `npm run build:firefox`:
 Prerequisite: you have a Firefox Account and have completed Developer
 Hub onboarding at <https://addons.mozilla.org/developers/>.
 
-1. Run `npm run build:firefox`. Note the output path.
+1. Run `npm run package:firefox`. Note the output path.
 2. Sign in at <https://addons.mozilla.org/developers/>.
 3. Click **Submit a New Add-on**.
 4. Choose **On this site** for distribution (AMO-listed).

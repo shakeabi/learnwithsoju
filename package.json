@@ -19,6 +19,7 @@
     "dev": "vite build --watch",
     "test": "node --test 'tests/**/*.test.js'",
     "test:ui": "vitest run",
+    "check": "svelte-check",
     "package:chrome": "bash scripts/build-chrome.sh",
     "package:firefox": "bash scripts/build-firefox.sh",
     "package": "npm run package:chrome && npm run package:firefox"
