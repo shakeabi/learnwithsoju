@@ -3,6 +3,14 @@
  * options-specific and live here rather than in page-shell.css.
  * Ported from extension/pages/options/options.css lines 150-190. */
 
+/* @import the shared shell CSS so Vite inlines it into this entry's
+ * main.css rather than hoisting it into a shared chunk. Importing
+ * page-shell.css from main.ts triggers Rollup to dedupe it across the
+ * two page entries and emit an orphan disclose-version.css at the
+ * extension root with no <link> referencing it; @import keeps the CSS
+ * dependency local to this entry. */
+@import '$lib/styles/page-shell.css';
+
 .advanced {
   /* `details.card` — keep card chrome but reset the disclosure widget
    * so the summary feels like a section header instead of a list item. */

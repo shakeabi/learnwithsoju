@@ -1,5 +1,4 @@
 import { mount } from 'svelte';
-import '$lib/styles/page-shell.css';
 import './styles/tokens.css';
 import App from './App.svelte';
 
