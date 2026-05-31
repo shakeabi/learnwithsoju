@@ -2,38 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <link rel="stylesheet" href="popup.css" />
+  <link rel="stylesheet" href="main.css" />
 </head>
 <body>
-  <header>
-    <span class="brand">learnwithsoju</span>
-  </header>
-
-  <div class="row" id="site-row" hidden>
-    <label class="switch">
-      <input type="checkbox" id="site-toggle" autocomplete="off" />
-      <span class="slider"></span>
-    </label>
-    <span class="row-label">Enable on <span id="site-host" class="site-host"></span></span>
-  </div>
-
-  <section id="site-adapter-section" class="adapter-section" hidden></section>
-
-  <section class="links-row">
-    <a id="notepad-link" class="link-icon" title="Notepad — paste text to hover-look-up">
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15z"/><path d="M8 2v20M12 7h6M12 11h6M12 15h4"/></svg>
-    </a>
-    <button type="button" id="open-options-icon" class="link-icon" title="Open settings">
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-    </button>
-  </section>
-
-  <a id="kofi-banner" class="kofi-banner kofi-banner--disabled"
-     aria-disabled="true" title="Support on Ko-fi — coming soon">
-    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 8h1a4 4 0 0 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg>
-    <span>Support on Ko-fi</span>
-  </a>
-
-  <script src="popup.js"></script>
+  <div id="lws-popup-root"></div>
+  <script type="module" src="./main.js"></script>
 </body>
 </html>

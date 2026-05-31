@@ -13,54 +13,69 @@ Related reading:
 
 ---
 
-## Toolbar popup (`pages/popup/popup.html` / `popup.js` / `popup.css`)
+## Toolbar popup (`pages/popup/popup.html` + built `main.js` / `main.css`)
 
 The panel that opens when the user clicks the extension's toolbar
-icon. Four sections, top to bottom:
+icon. Svelte 5 sources live at `src/pages/popup/` (`App.svelte` + 4
+child components: `SiteToggleRow.svelte`, `AdapterSection.svelte`,
+`LinksRow.svelte`, `KofiBanner.svelte`) and build to
+`extension/pages/popup/main.js` + `main.css`; the HTML is a thin
+mount shell over `#lws-popup-root`. Popup-specific tokens live in
+`src/pages/popup/styles/tokens.css` (260px-wide layout — does NOT
+import `page-shell.css`). External link URLs (`github`, `discord`,
+`kofi`) live in `src/pages/popup/links.ts`.
+
+Four sections, top to bottom:
 
 ### Per-site toggle
 
-Shown only on `http(s):` pages. `resolveActiveSite()` reads the
-active tab's hostname via `chrome.tabs.query` first, falling back
-to a `lws-site-info` message to the content script (which always
-knows `window.location`). The toggle reads/writes membership in
-`disabledHosts` (a `chrome.storage.local` array). When flipped, the
-content script's `onChanged` listener for `disabledHosts`
-activates/deactivates immediately; site adapters react too. There
-is no global hover-dictionary toggle — for "off everywhere", use
-`chrome://extensions`.
+Shown only on `http(s):` pages. `App.svelte`'s `resolveActiveSite()`
+reads the active tab's hostname via `chrome.tabs.query` first,
+falling back to a `lws-site-info` message to the content script
+(which always knows `window.location`). `SiteToggleRow.svelte`
+reads/writes membership in `disabledHosts` (a `chrome.storage.local`
+array). When flipped, the content script's `onChanged` listener for
+`disabledHosts` activates/deactivates immediately; site adapters
+react too. There is no global hover-dictionary toggle — for "off
+everywhere", use `chrome://extensions`.
 
 ### Per-site adapter section
 
-Generic shell. `loadAdapterSection()` resolves the active tab's
+Generic shell. `AdapterSection.svelte` resolves the active tab's
 hostname against `findSiteConfig(...)` from `core/site-configs.js`,
 and if the matched config declares a `popupModule`, dynamic-imports
 that module and calls `renderSection({ tab, href, container })`.
-The module owns all DOM under `<section id="site-adapter-section">`
-and is responsible for `container.hidden = false`. Currently:
+The module owns all DOM under the section element and the Svelte
+component flips `hidden` once `renderSection` resolves. Currently:
 
 - `adapters/youtube/popup.js` for `youtube.com`
 - `adapters/netflix/popup.js` for `netflix.com`
 
+The adapter `popup.js` files remain plain JS — they're dynamic-
+imported by the Svelte component, so the `renderSection` contract
+is unchanged.
+
 ### Links row
 
-Left-aligned inline-SVG icons at the bottom of the popup. Always-
-present icons baked into `popup.html`:
+Left-aligned inline-SVG icons at the bottom of the popup, rendered
+by `LinksRow.svelte`. Always-present icons:
 
-- **Notepad** — `href` resolved at popup-open time via
+- **Notepad** — `href` resolved at mount via
   `chrome.runtime.getURL('pages/notepad/notepad.html')`.
 - **Settings** — gear `<button>` wired to
-  `chrome.runtime.openOptionsPage()`.
+  `chrome.runtime.openOptionsPage()` followed by `window.close()`.
 
-External links (GitHub, Discord) live in a `LINKS` dict at the top
-of `popup.js`: a non-empty URL renders an active `<a>`, an empty
-string renders a greyed placeholder.
+External links (GitHub, Discord) live in `src/pages/popup/links.ts`
+(`LINKS` dict + `LINK_META` for the SVG markup): a non-empty URL
+renders an active `<a>`, an empty string renders a greyed
+placeholder with a "coming soon" tooltip.
 
 ### Ko-fi support banner
 
-Full-width red button below the links row. Gated by `LINKS.kofi`:
-empty string leaves it dimmed and non-interactive; setting a URL
-flips it to an active link.
+Full-width red button below the links row, rendered by
+`KofiBanner.svelte`. Gated by `LINKS.kofi` from `links.ts`: empty
+string leaves it dimmed and non-interactive; setting a URL flips it
+to an active link.
 
 ### `adapters/youtube/popup.js`
 

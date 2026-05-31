@@ -10,6 +10,7 @@ const inputs: Record<string, string> = {
   'pages/options/options': resolve(__dirname, 'src/pages/options/main.ts'),
   'pages/notepad/notepad': resolve(__dirname, 'src/pages/notepad/main.ts'),
   'pages/morpheme-inspector/morpheme-inspector': resolve(__dirname, 'src/pages/morpheme-inspector/main.ts'),
+  'pages/popup/popup': resolve(__dirname, 'src/pages/popup/main.ts'),
 };
 
 // Map of entry basename → output directory, derived once from `inputs`.

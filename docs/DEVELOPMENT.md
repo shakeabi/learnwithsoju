@@ -105,6 +105,12 @@ extension root with no `<link>` referencing it — the pages render
 unstyled. Keeping the dependency at the CSS layer lets Vite inline
 the shell into each entry's `main.css` standalone.
 
+**Exception:** the toolbar popup (`src/pages/popup/`) is a 260px-wide
+fixed-size panel and deliberately does NOT import `page-shell.css`.
+Its `styles/tokens.css` is fully self-contained (own palette, own
+`body { width: 260px }`, own `[hidden] { display: none !important }`
+override).
+
 ---
 
 ## Recent commits worth reading
