@@ -46,6 +46,50 @@ you only need a getting-started recipe, read
 
 ---
 
+## Build (Svelte / Vite)
+
+The extension's UI (4 pages and the in-page overlay) is built from
+Svelte + TypeScript sources under `src/` and emitted into `extension/`.
+Vendor JS in `extension/` (background.js, content.js, adapters, mecab-ko)
+is plain JS and untouched by the build.
+
+### Scripts
+
+| Script | Purpose |
+|---|---|
+| `npm run build` | One-shot Vite build, emits `extension/<surface>/main.js` |
+| `npm run dev` | Vite build in `--watch` mode (rebuilds on source change) |
+| `npm test` | Node test harness — covers plain-JS code in `extension/` |
+| `npm run test:ui` | Vitest — covers Svelte components and `src/lib` |
+| `npm run package:chrome` | Zip extension/ for Chrome Web Store submission |
+| `npm run package:firefox` | Zip extension/ for AMO submission |
+| `npm run package` | Both store zips |
+
+### Source layout
+
+```
+src/
+├── types/        Shared TS types (message contracts, settings schema, overlay payload)
+├── lib/          Reusable modules — typed message wrappers, settings store, cache helpers
+│   └── styles/   Shared page-shell tokens (CSS variables + base form styles)
+├── pages/        One subfolder per extension page (options, notepad, etc.)
+└── overlay/      In-page shadow-DOM lookup popup
+```
+
+### Build output
+
+Bundles land at:
+
+- `extension/pages/<surface>/main.js` + `main.css` for the 4 pages
+- `extension/overlay/main.js` + `main.css` for the in-page overlay
+
+These files are committed to git so the extension stays loadable from
+`extension/` without a build step. After editing any `src/` file, run
+`npm run build` (or `npm run dev`) and commit both the source change
+and the regenerated bundle.
+
+---
+
 ## Recent commits worth reading
 
 If you're catching up after time away, these are the big landings to

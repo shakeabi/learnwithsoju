@@ -7,34 +7,47 @@ export default defineConfig({
   // Each surface becomes a self-contained bundle emitted into
   // extension/<surface>/main.js (or extension/pages/<surface>/main.js for the
   // 4 pages). emptyOutDir is critical false — we must not wipe extension/.
-  //
-  // Task 1 note: outDir is temporarily 'dist' (gitignored) while only the
-  // __placeholder entry exists. Task 2 swaps it back to 'extension' as soon
-  // as the first real surface (options) lands.
   build: {
-    outDir: 'dist',
+    outDir: 'extension',
     emptyOutDir: false,
     assetsDir: '',
     cssCodeSplit: true,
-    sourcemap: true,
+    // Sourcemaps disabled: the built bundle is committed to extension/ so the
+    // user can load the extension from the repo without a build step. Shipping
+    // .map files inflates the commit by ~9× per source change. Re-enable
+    // locally if needed when debugging.
+    sourcemap: false,
     rollupOptions: {
-      // Entries are added per surface in later tasks (options, notepad,
-      // morpheme-inspector, popup, overlay). For Task 1 a placeholder keeps
-      // rollup happy until a real surface lands; the output is emitted to
-      // dist/ (gitignored) so nothing lands under extension/.
-      input: { __placeholder: resolve(__dirname, 'src/__placeholder.ts') },
+      input: {
+        'pages/options/options': resolve(__dirname, 'src/pages/options/main.ts'),
+      },
       output: {
-        // Each entry chunk lands at its surface's main.js path. Shared chunks
-        // (Svelte runtime, lib/*) get inlined into each entry because we want
-        // each surface bundle to be self-contained — Chrome MV3 can't share
-        // ES modules across pages cleanly without listing them as
-        // web_accessible_resources.
-        entryFileNames: '[name]/main.js',
-        chunkFileNames: '[name]/[name]-[hash].js',
+        // The input key is used as the chunk name; with `[name]/main.js` we
+        // get extension/pages/options/options/main.js — wrong. Use `[name].js`
+        // instead and bake the path into the input key (without trailing
+        // basename), then override the basename in a hook.
+        entryFileNames: (chunk) => {
+          // chunk.name is the input key, e.g. 'pages/options/options'.
+          // Strip the trailing basename and emit 'main.js' in that dir.
+          const parts = chunk.name.split('/');
+          parts.pop();
+          return `${parts.join('/')}/main.js`;
+        },
+        chunkFileNames: (chunk) => {
+          const parts = (chunk.name || 'shared').split('/');
+          parts.pop();
+          const dir = parts.join('/') || 'shared';
+          return `${dir}/[name]-[hash].js`;
+        },
         assetFileNames: (assetInfo) => {
-          // CSS imported by a component lands next to that surface's main.js.
-          if (assetInfo.name?.endsWith('.css')) return '[name]/main.css';
-          return '[name]/[name][extname]';
+          if (assetInfo.name?.endsWith('.css')) {
+            // Emit alongside main.js. Vite's CSS-per-entry mode means each
+            // entry gets one css asset; we route it to the entry's dir.
+            // We can't read the entry from assetInfo directly, so we use the
+            // file basename mapping — the css filename matches the entry name.
+            return 'pages/options/main.css';
+          }
+          return '[name][extname]';
         },
         manualChunks: undefined,
         inlineDynamicImports: false,

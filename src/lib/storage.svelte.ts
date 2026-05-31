@@ -4,7 +4,7 @@ import { SETTINGS_DEFAULTS, SETTINGS_KEYS, SETTINGS_AREA, type Settings } from '
  * Reactive settings store backed by chrome.storage.sync.
  *
  * Usage from a Svelte component:
- *   import { settings, setSetting } from '$lib/storage';
+ *   import { settings, setSetting } from '$lib/storage.svelte';
  *   const s = settings.value;        // reactive read (re-runs in $effect)
  *   await setSetting('secondaryLang', 'ja');
  *

@@ -1,0 +1,53 @@
+/* Options-page-specific styles (on top of page-shell.css tokens).
+ * The `.advanced` <details> styling and the cache-button layout are
+ * options-specific and live here rather than in page-shell.css.
+ * Ported from extension/pages/options/options.css lines 150-190. */
+
+.advanced {
+  /* `details.card` — keep card chrome but reset the disclosure widget
+   * so the summary feels like a section header instead of a list item. */
+}
+.advanced > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.advanced > summary::-webkit-details-marker { display: none; }
+.advanced > summary > h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.advanced > summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 12px;
+  transition: transform 0.15s ease;
+}
+.advanced[open] > summary::before {
+  transform: rotate(90deg);
+}
+.advanced[open] > summary {
+  margin-bottom: 14px;
+}
+
+.cache-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.cache-everything-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.cache-everything-details > summary::-webkit-details-marker { display: none; }
+.cache-everything-details[open] > summary {
+  margin-bottom: 6px;
+}
