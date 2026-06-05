@@ -1,10 +1,4 @@
-// When publishing or you have invites ready, fill these in and the
-// corresponding icons appear in the popup. Leave empty to hide.
-const LINKS = {
-  github: '', // e.g. 'https://github.com/abishake/learnwithsoju'
-  discord: '', // e.g. 'https://discord.gg/xxxxxxx'
-  kofi: '', // e.g. 'https://ko-fi.com/learnwithsoju'
-};
+// External link URLs live in ../../core/links.js (LINKS dict).
 
 const LINK_META = {
   github: {
@@ -154,8 +148,8 @@ loadSiteSection();
 loadAdapterSection();
 
 // The notepad link can't bake the extension ID into HTML, so resolve
-// at popup-open time. External links (GitHub, Discord) live in the
-// LINKS dict at the top of this file — empty string renders a greyed
+// at popup-open time. External links (GitHub, Discord) live in
+// ../../core/links.js — empty string renders a greyed
 // placeholder, a real URL renders an active link.
 const notepadLink = document.getElementById('notepad-link');
 if (notepadLink) {

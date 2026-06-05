@@ -352,4 +352,16 @@ if (inspectorLink) {
   inspectorLink.rel = 'noopener noreferrer';
 }
 
+const githubLink = document.getElementById('github-link');
+const githubPlaceholder = document.getElementById('github-placeholder');
+if (githubLink && githubPlaceholder) {
+  const url = LINKS.github;
+  if (url) {
+    githubLink.href = url;
+    githubLink.textContent = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    githubLink.hidden = false;
+    githubPlaceholder.hidden = true;
+  }
+}
+
 load();
