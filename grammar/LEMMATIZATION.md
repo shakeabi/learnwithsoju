@@ -1,6 +1,7 @@
 # Grammar catalog → grammar identification & lemmatization
 
-Status: research / design note. No code committed against this yet.
+Status: Phase 1 v0 in progress — experimental grammar tab behind opt-in toggle.
+Phase 2+ (rule-based lemmatizer) still design-only.
 
 This directory holds a curated catalog of Korean grammar and a plan for putting
 it to work in the extension. Two goals, one near-term and one strategic:
@@ -74,7 +75,31 @@ the thing worth attacking.
 
 ## 2. Use A — grammar identification (near-term, low-risk)
 
-The catalog's first, easiest payoff is feeding `grammar-glosses.js`.
+**Status:** v0 shipped behind **Settings → Experimental grammar resolution**
+(opt-in). See `extension/core/grammar-match.js`.
+
+**Target architecture:** [`GRAMMAR_RESOLUTION.md`](GRAMMAR_RESOLUTION.md) —
+composable fundamentals, sentence context, cross-word spans, compiled catalog.
+
+The catalog's first, easiest payoff is feeding `grammar-glosses.js` and a
+dedicated **Grammar** tab in the popup.
+
+### Compositional matching
+
+Mecab often splits endings that learners read as one unit — `어` + `요`, `지`
++ `요`, `었` + `어요`. The experimental resolver **merges fundamentals into
+one named pattern** instead of listing each morpheme separately:
+
+| mecab tail | merged pattern |
+|---|---|
+| `었` + `어요` | ~았/었어요 — past tense, polite |
+| `어` + `요` / `어요` | ~아/어요 — polite present |
+| `지` + `요` / `죠` | ~죠 / ~지요 — confirming |
+| `기` + `때문` + `에` | ~기 때문에 — because |
+
+Each hit can optionally show **fundamentals** (the building blocks) beneath
+the composed gloss, so learners see both the textbook pattern name and how
+mecab carved it up.
 
 - **Single morphemes:** the catalog already covers (with richer meanings) most
   of what's hand-curated today, plus hundreds more particles/endings the popup

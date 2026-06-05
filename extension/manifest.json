@@ -53,6 +53,7 @@
         "core/popup-shadow.css",
         "core/parsers.js",
         "core/grammar-glosses.js",
+        "core/grammar-match.js",
         "core/hanja-levels.js",
         "core/hanja-levels-data.js",
         "core/site-configs.js",

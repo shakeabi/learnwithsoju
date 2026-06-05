@@ -30,6 +30,7 @@
     ASK_AI_PROVIDER: 'askAiProvider',
     ASK_AI_CHATGPT_TEMPORARY: 'askAiChatGptTemporary',
     SHOW_HANJA_PILL: 'showHanjaPill',
+    EXPERIMENTAL_GRAMMAR: 'experimentalGrammarResolution',
   };
   // Per-site disable list lives in chrome.storage.local (see popup.js for
   // rationale — sync was dropping per-site writes).
@@ -171,6 +172,12 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   let enabled = true;
   let defLang = DEF_LANG_DEFAULT;
   let showHanjaPill = false;
+  let experimentalGrammarResolution = false;
+  let cachedGrammarMatches = null;
+  let cachedGrammarKey = '';
+  let grammarResolvePending = null;
+  /** @type {((tokens: object[]) => object[]) | null} */
+  let resolveGrammarFn = null;
   // Cached at init + kept current via storage.onChanged. Read by the
   // "Ask AI" pill on every sentence render — fetching from storage each
   // time would force buildSentenceNode to become async.
@@ -853,27 +860,165 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     const breakdownMorphemes = tokens
       .map((t) => ({ form: t.surface, pos: t.pos || '' }))
       .filter((m) => m.form && isContentMorpheme(m));
-    if (breakdownMorphemes.length < 2) return null;
+    const showBreakdown = breakdownMorphemes.length >= 2;
+    const showGrammar = experimentalGrammarResolution;
+    if (!showBreakdown && !showGrammar) return null;
 
     const wrap = document.createElement('div');
     wrap.className = 'lws-insights';
 
     const tabs = document.createElement('div');
     tabs.className = 'lws-insights-tabs';
-    tabs.appendChild(buildInsightTab('breakdown'));
+    if (showBreakdown) tabs.appendChild(buildInsightTab('breakdown'));
+    if (showGrammar) tabs.appendChild(buildInsightTab('grammar'));
     wrap.appendChild(tabs);
 
-    if (activeInsightTab === 'breakdown') {
+    if (activeInsightTab === 'breakdown' && showBreakdown) {
       const node = buildDecompositionNode(tokens);
       if (node) wrap.appendChild(node);
     }
+    if (activeInsightTab === 'grammar' && showGrammar) {
+      if (cachedGrammarMatches === null && payload?.surface) {
+        wrap.appendChild(buildGrammarLoadingNode());
+        kickoffGrammarResolve(payload);
+      } else {
+        wrap.appendChild(buildGrammarNode(cachedGrammarMatches));
+      }
+    }
     return wrap;
+  }
+
+  function buildGrammarLoadingNode() {
+    const el = document.createElement('div');
+    el.className = 'lws-grammar lws-grammar-loading';
+    el.textContent = defLang === 'ko' ? '문법 패턴 분석 중…' : 'Resolving grammar patterns…';
+    return el;
+  }
+
+  function buildGrammarNode(matches) {
+    const wrap = document.createElement('div');
+    wrap.className = 'lws-grammar';
+
+    if (!Array.isArray(matches) || matches.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'lws-grammar-empty';
+      empty.textContent = defLang === 'ko'
+        ? '인식된 문법 패턴 없음'
+        : 'No grammar patterns recognized.';
+      wrap.appendChild(empty);
+    } else {
+      const list = document.createElement('div');
+      list.className = 'lws-grammar-list';
+      for (const match of matches) {
+        list.appendChild(buildGrammarCard(match));
+      }
+      wrap.appendChild(list);
+    }
+
+    const note = document.createElement('p');
+    note.className = 'lws-grammar-experimental-note';
+    note.textContent = defLang === 'ko'
+      ? '실험 기능 — 결과가 불완전하거나 부정확할 수 있습니다.'
+      : 'Experimental — results may be incomplete or wrong.';
+    wrap.appendChild(note);
+    return wrap;
+  }
+
+  function buildGrammarCard(match) {
+    const card = document.createElement('article');
+    card.className = 'lws-grammar-card';
+
+    const head = document.createElement('div');
+    head.className = 'lws-grammar-card-head';
+    const pattern = document.createElement('span');
+    pattern.className = 'lws-grammar-pattern';
+    pattern.textContent = match.display || '';
+    head.appendChild(pattern);
+    if (match.surface) {
+      const surface = document.createElement('span');
+      surface.className = 'lws-grammar-surface';
+      surface.textContent = match.surface;
+      head.appendChild(surface);
+    }
+    card.appendChild(head);
+
+    if (match.gloss) {
+      const gloss = document.createElement('p');
+      gloss.className = 'lws-grammar-gloss';
+      gloss.textContent = match.gloss;
+      card.appendChild(gloss);
+    }
+
+    if (Array.isArray(match.fundamentals) && match.fundamentals.length > 0) {
+      const fund = document.createElement('ul');
+      fund.className = 'lws-grammar-fundamentals';
+      for (const part of match.fundamentals) {
+        const li = document.createElement('li');
+        const label = document.createElement('span');
+        label.className = 'lws-grammar-fund-label';
+        label.textContent = part.label;
+        li.appendChild(label);
+        if (part.gloss) {
+          const sep = document.createElement('span');
+          sep.className = 'lws-grammar-fund-sep';
+          sep.textContent = ' — ';
+          li.appendChild(sep);
+          const g = document.createElement('span');
+          g.className = 'lws-grammar-fund-gloss';
+          g.textContent = part.gloss;
+          li.appendChild(g);
+        }
+        fund.appendChild(li);
+      }
+      card.appendChild(fund);
+    }
+
+    if (match.link) {
+      const link = document.createElement('a');
+      link.className = 'lws-grammar-link';
+      link.href = match.link;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = match.lesson
+        ? (defLang === 'ko' ? `HTSK Lesson ${match.lesson}` : `HTSK Lesson ${match.lesson}`)
+        : (defLang === 'ko' ? 'HTSK 참고' : 'HTSK reference');
+      card.appendChild(link);
+    }
+
+    return card;
+  }
+
+  async function ensureGrammarResolver() {
+    if (!resolveGrammarFn) {
+      const mod = await import(chrome.runtime.getURL('core/grammar-match.js'));
+      resolveGrammarFn = mod.resolveGrammar;
+    }
+    return resolveGrammarFn;
+  }
+
+  function kickoffGrammarResolve(payload) {
+    const key = payload?.surface || '';
+    if (!key || grammarResolvePending === key) return;
+    grammarResolvePending = key;
+    ensureGrammarResolver()
+      .then((fn) => {
+        if (lastPayload?.surface !== key) return;
+        cachedGrammarMatches = fn(payload.tokens || []);
+        cachedGrammarKey = key;
+        grammarResolvePending = null;
+        rerenderActivePopup();
+      })
+      .catch(() => {
+        grammarResolvePending = null;
+      });
   }
 
   function buildInsightTab(id) {
     const labels = id === 'breakdown'
       ? { en: 'Morpheme breakdown', ko: '형태소 분석' }
-      : { en: id, ko: id };
+      : id === 'grammar'
+        ? { en: 'Grammar', ko: '문법' }
+        : { en: id, ko: id };
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'lws-insights-tab';
@@ -1695,6 +1840,9 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     expandedSectionByTab = new Map();
     relatedExpanded = false;
     activeInsightTab = null;
+    cachedGrammarMatches = null;
+    cachedGrammarKey = '';
+    grammarResolvePending = null;
     if (popupEl) {
       popupEl.style.minHeight = '';
       popupEl.style.minWidth = '';
@@ -1871,6 +2019,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
         STORAGE_KEYS.ASK_AI_PROVIDER,
         STORAGE_KEYS.ASK_AI_CHATGPT_TEMPORARY,
         STORAGE_KEYS.SHOW_HANJA_PILL,
+        STORAGE_KEYS.EXPERIMENTAL_GRAMMAR,
       ]),
       chrome.storage.local.get(DISABLED_HOSTS_KEY),
     ]);
@@ -1888,6 +2037,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       : DEFAULT_ASK_AI_PROVIDER;
     askAiChatGptTemporary = syncData[STORAGE_KEYS.ASK_AI_CHATGPT_TEMPORARY] === true;
     showHanjaPill = syncData[STORAGE_KEYS.SHOW_HANJA_PILL] === true;
+    experimentalGrammarResolution = syncData[STORAGE_KEYS.EXPERIMENTAL_GRAMMAR] === true;
     console.log('[lws] content init', { host: currentHost, hostDisabled, enabled, disabledList });
     await loadSecondaryLang();
     if (!document.body) {
@@ -1953,6 +2103,13 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     }
     if (STORAGE_KEYS.SHOW_HANJA_PILL in changes) {
       showHanjaPill = changes[STORAGE_KEYS.SHOW_HANJA_PILL].newValue === true;
+      rerenderActivePopup();
+    }
+    if (STORAGE_KEYS.EXPERIMENTAL_GRAMMAR in changes) {
+      experimentalGrammarResolution = changes[STORAGE_KEYS.EXPERIMENTAL_GRAMMAR].newValue === true;
+      cachedGrammarMatches = null;
+      cachedGrammarKey = '';
+      grammarResolvePending = null;
       rerenderActivePopup();
     }
   });

@@ -235,6 +235,96 @@
   padding-top: 2px;
 }
 
+/* Experimental grammar resolution panel */
+.lws-insights .lws-grammar {
+  border-bottom: 0;
+  padding: 10px 16px 12px;
+}
+
+.lws-grammar-loading {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lws-grammar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lws-grammar-card {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--soft);
+}
+
+.lws-grammar-card-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-bottom: 4px;
+}
+
+.lws-grammar-pattern {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--chip-amber-fg);
+}
+
+.lws-grammar-surface {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lws-grammar-surface::before {
+  content: '→ ';
+}
+
+.lws-grammar-gloss {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fg);
+}
+
+.lws-grammar-fundamentals {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.lws-grammar-fund-label {
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.lws-grammar-link {
+  font-size: 11px;
+  color: var(--chip-cyan-fg);
+  text-decoration: none;
+}
+
+.lws-grammar-link:hover {
+  text-decoration: underline;
+}
+
+.lws-grammar-empty {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lws-grammar-experimental-note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+
 /* Morpheme decomposition row — only rendered when mecab returned 2+
    content tokens and the user clicked the Breakdown tab. */
 .lws-decomp {
