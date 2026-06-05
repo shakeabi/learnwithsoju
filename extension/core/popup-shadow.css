@@ -589,6 +589,17 @@ a.lws-hanja-row-char:hover {
    different POS or different definition row). First section is expanded;
    the rest collapse to a header row whose pill set is duplicated so the
    user can scan POS labels without expanding everything. */
+.lws-section {
+  border-radius: 6px;
+  transition: background-color 0.12s ease;
+}
+.lws-section-closed:hover {
+  background: var(--soft);
+}
+.lws-entry + .lws-entry.lws-section-closed:hover {
+  border-top-color: transparent;
+}
+
 .lws-section-header {
   display: flex;
   flex-direction: column;
@@ -604,13 +615,6 @@ a.lws-hanja-row-char:hover {
 }
 button.lws-section-header {
   cursor: pointer;
-  border-radius: 6px;
-  padding: 2px 4px;
-  margin: -2px -4px 0;
-  transition: background-color 0.12s ease;
-}
-button.lws-section-header:hover {
-  background: var(--soft);
 }
 
 .lws-section-closed .lws-section-header {
