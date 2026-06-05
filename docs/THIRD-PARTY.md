@@ -2,6 +2,13 @@
 
 ## Vendored components
 
+### Hanja proficiency levels (한국어문회 배정한자)
+
+- **Path:** `extension/core/hanja-levels-data.js` (generated), `extension/core/hanja-levels.js` (lookup helpers)
+- **Source:** [rycont/hanja-grade-dataset](https://github.com/rycont/hanja-grade-dataset) — CSV derived from the official 한국어문회 전국한자능력검정시험 character list (5,978 characters)
+- **License:** not stated in upstream repo; data originates from 공식 학습자료 published by [사단법인 한국어문회](https://www.hanja.re.kr/). Regenerate with `npm run build:hanja-levels`.
+- **Usage:** bundled char → level lookup shown next to Hanja in the popup (no network).
+
 ### mecab-ko-wasm (forked)
 
 - **Path:** `extension/vendor/mecab-ko/mecab_ko_wasm{.js,.d.ts,_bg.wasm,_bg.wasm.d.ts}`

@@ -22,6 +22,16 @@
   --highlight-fg: #7a4a18;
   --stars: #e5a230;
 
+  --hanja-lv-8: #15803d;
+  --hanja-lv-7: #16a34a;
+  --hanja-lv-6: #4d7c0f;
+  --hanja-lv-5: #65a30d;
+  --hanja-lv-4: #a16207;
+  --hanja-lv-3: #c2410c;
+  --hanja-lv-2: #dc2626;
+  --hanja-lv-1: #b91c1c;
+  --hanja-lv-0: #7f1d1d;
+
   --popup-border: #b9c0d0;
   --shadow: 0 8px 28px rgba(20, 24, 50, 0.12), 0 2px 4px rgba(20, 24, 50, 0.08);
 }
@@ -45,6 +55,16 @@
     --highlight-bg: rgba(247, 198, 136, 0.22);
     --highlight-fg: #f7c688;
     --stars: #f5c46a;
+
+    --hanja-lv-8: #4ade80;
+    --hanja-lv-7: #86efac;
+    --hanja-lv-6: #a3e635;
+    --hanja-lv-5: #bef264;
+    --hanja-lv-4: #facc15;
+    --hanja-lv-3: #fb923c;
+    --hanja-lv-2: #f87171;
+    --hanja-lv-1: #ef4444;
+    --hanja-lv-0: #fca5a5;
 
     --popup-border: rgba(255, 255, 255, 0.18);
     --shadow: 0 12px 36px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
@@ -404,6 +424,10 @@
 .lws-chip-button[aria-expanded="true"] .lws-chip-indicator {
   opacity: 1;
 }
+.lws-chip-hanja-static {
+  cursor: default;
+  opacity: 0.88;
+}
 
 .lws-ext-icon {
   flex: 0 0 auto;
@@ -443,6 +467,42 @@
   min-width: 1.2em;
   text-decoration: none;
   cursor: pointer;
+}
+.lws-hanja-level {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  font-feature-settings: "tnum" 1;
+  cursor: help;
+}
+.lws-hanja-level-8 { color: var(--hanja-lv-8); }
+.lws-hanja-level-7 { color: var(--hanja-lv-7); }
+.lws-hanja-level-6 { color: var(--hanja-lv-6); }
+.lws-hanja-level-5 { color: var(--hanja-lv-5); }
+.lws-hanja-level-4 { color: var(--hanja-lv-4); }
+.lws-hanja-level-3 { color: var(--hanja-lv-3); }
+.lws-hanja-level-2 { color: var(--hanja-lv-2); }
+.lws-hanja-level-1 { color: var(--hanja-lv-1); }
+.lws-hanja-level-0 { color: var(--hanja-lv-0); }
+.lws-hanja-level-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  opacity: 0.92;
+  padding-left: 1px;
+}
+.lws-hanja-level-sep {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+  opacity: 0.7;
+  padding: 0 1px;
+}
+.lws-chip-button:hover .lws-hanja-level-chip,
+.lws-chip-button[aria-expanded="true"] .lws-hanja-level-chip {
+  opacity: 1;
 }
 a.lws-hanja-row-char:hover {
   text-decoration: underline;

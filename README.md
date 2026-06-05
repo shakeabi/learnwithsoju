@@ -16,7 +16,7 @@ Free, open-source, MV3 — runs entirely in your browser. The only network calls
 - **Top-5 n-best candidate fan-out** — when mecab's most-likely parse is wrong, the next-best parses still get a chance to surface the right lemma.
 - **Proper-noun fallback** — when KRDict has no entry for a name / place / brand, a synthesized "고유명사" tab is shown at position 0 so the user still gets confirmation that mecab recognized it.
 - **Click-to-expand morpheme breakdown** — every chunk of the hovered word with its part of speech and a short grammar gloss (subject marker, past tense, polite ending, …). Token-aware: `을/JKO` (object marker) gets a different gloss than `을/ETM` (future-tense modifier).
-- **Per-character Hanja breakdown** for Sino-Korean words — Sino reading + English gloss per character, lazy-fetched on click from hangulhanja.com and cached locally.
+- **Per-character Hanja breakdown** for Sino-Korean words — Sino reading, English gloss, and 한자능력검정 급수 per character, lazy-fetched on click from hangulhanja.com and cached locally.
 - **English / Korean definition toggle** with persistence; KRDict examples hidden by default and revealed per-sense.
 - **"Ask AI" pill** — one-click link that opens ChatGPT / Claude / Gemini in a new tab with a structured grammar deep-dive prompt pre-filled. Ephemeral-chat option for ChatGPT. Fully customizable prompt template in Options → Advanced.
 - **Notepad page** for pasting Korean text and hovering inline — wraps the text live as you type.

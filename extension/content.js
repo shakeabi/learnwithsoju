@@ -29,6 +29,7 @@
     ASK_AI_PROMPT: 'askAiPrompt',
     ASK_AI_PROVIDER: 'askAiProvider',
     ASK_AI_CHATGPT_TEMPORARY: 'askAiChatGptTemporary',
+    SHOW_HANJA_PILL: 'showHanjaPill',
   };
   // Per-site disable list lives in chrome.storage.local (see popup.js for
   // rationale — sync was dropping per-site writes).
@@ -116,6 +117,13 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   const glosses = await import(chrome.runtime.getURL('core/grammar-glosses.js'));
   const { morphemeGloss, isContentMorpheme } = glosses;
 
+  const hanjaLevels = await import(chrome.runtime.getURL('core/hanja-levels.js'));
+  const {
+    lookupHanjaLevel,
+    makeHanjaLevelSummaryGroup,
+    makeHanjaLevelBadge,
+  } = hanjaLevels;
+
   const sites = await import(chrome.runtime.getURL('core/site-configs.js'));
   const { findSiteConfig } = sites;
 
@@ -162,6 +170,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   let hostDisabled = false;
   let enabled = true;
   let defLang = DEF_LANG_DEFAULT;
+  let showHanjaPill = false;
   // Cached at init + kept current via storage.onChanged. Read by the
   // "Ask AI" pill on every sentence render — fetching from storage each
   // time would force buildSentenceNode to become async.
@@ -1096,6 +1105,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
         tabId,
         sectionIdx: sIdx,
         isOpen,
+        multiSection: group.entries.length > 1,
         senseKeyPrefix: `${source}:${tabId}:${sIdx}`,
       }));
     });
@@ -1143,14 +1153,14 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   // always visible. Body holds the senses + hanja meanings panel — visible
   // only when expanded. The pill set is duplicated for each section so a
   // collapsed section header is fully self-describing.
-  function buildSectionNode({ entry, source, tabId, sectionIdx, isOpen, senseKeyPrefix }) {
+  function buildSectionNode({ entry, source, tabId, sectionIdx, isOpen, multiSection, senseKeyPrefix }) {
     const section = document.createElement('div');
     section.className = 'lws-entry lws-section'
       + (isOpen ? ' lws-section-open' : ' lws-section-closed')
       + (source === 'od' ? ' lws-od-entry' : '');
-    section.appendChild(buildSectionHeader({ entry, isOpen, tabId, sectionIdx }));
+    section.appendChild(buildSectionHeader({ entry, isOpen, tabId, sectionIdx, multiSection }));
     if (isOpen) {
-      if (entry.origin) {
+      if (showHanjaPill && entry.origin) {
         const meanings = buildHanjaMeaningsNode(entry.origin);
         if (meanings) section.appendChild(meanings);
       }
@@ -1171,7 +1181,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     return section;
   }
 
-  function buildSectionHeader({ entry, isOpen, tabId, sectionIdx }) {
+  function buildSectionHeader({ entry, isOpen, tabId, sectionIdx, multiSection }) {
     // All section headers are buttons now — any section can be toggled.
     // Clicking the currently-open section closes it (no section expanded);
     // clicking a different section switches to it. Only one open at a time.
@@ -1224,7 +1234,11 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       const pron = makePronChip(entry.word, entry.pronunciation);
       if (pron) meta.appendChild(pron);
     }
-    if (entry.origin) meta.appendChild(makeHanjaChip(entry.origin));
+    if (showHanjaPill && entry.origin) {
+      meta.appendChild(makeHanjaChip(entry.origin, {
+        interactive: !multiSection || isOpen,
+      }));
+    }
     if (meta.children.length) header.appendChild(meta);
 
     return header;
@@ -1482,41 +1496,53 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
 
   // Amber pill showing the origin text (e.g. "豫約"). When the origin contains
   // at least one Hanja character the pill becomes a button — clicking it
-  // expands the per-character meanings panel below the meta row. The `+`/`−`
+  // expands the per-character meanings panel below the meta row. In tabs with
+  // multiple sections the pill is static until that section is expanded, so
+  // collapsed headers stay scannable without firing Hanja lookups. The `+`/`−`
   // indicator and the tooltip make the affordance discoverable; non-Hanja
   // origins (rare malformed data) fall back to a plain non-interactive chip.
-  function makeHanjaChip(origin) {
+  function makeHanjaChip(origin, { interactive = true } = {}) {
     if (!origin) return null;
     const chars = [...origin].filter(isHanjaChar).join('');
     if (chars.length === 0) return makeChip(origin, 'amber');
 
     const charCount = [...chars].length;
-    const isOpen = expandedHanja.has(chars);
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'lws-chip lws-chip-amber lws-chip-button';
-    chip.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-    chip.title = isOpen
-      ? `Hide Hanja meanings (${charCount} character${charCount === 1 ? '' : 's'})`
-      : `Show Hanja meanings (${charCount} character${charCount === 1 ? '' : 's'})`;
+    const meaningsOpen = interactive && expandedHanja.has(chars);
+    const chip = document.createElement(interactive ? 'button' : 'span');
+    chip.className = 'lws-chip lws-chip-amber'
+      + (interactive ? ' lws-chip-button' : ' lws-chip-hanja-static');
+    if (interactive) {
+      chip.type = 'button';
+      chip.setAttribute('aria-expanded', meaningsOpen ? 'true' : 'false');
+      chip.title = meaningsOpen
+        ? `Hide Hanja meanings (${charCount} character${charCount === 1 ? '' : 's'})`
+        : `Show Hanja meanings (${charCount} character${charCount === 1 ? '' : 's'})`;
+    } else {
+      chip.title = `Expand this entry to show Hanja meanings (${charCount} character${charCount === 1 ? '' : 's'})`;
+    }
 
     const label = document.createElement('span');
     label.className = 'lws-chip-label';
     label.textContent = origin;
     chip.appendChild(label);
 
-    const indicator = document.createElement('span');
-    indicator.className = 'lws-chip-indicator';
-    indicator.setAttribute('aria-hidden', 'true');
-    indicator.textContent = isOpen ? '−' : '+';
-    chip.appendChild(indicator);
+    const levelGroup = makeHanjaLevelSummaryGroup(document, chars);
+    if (levelGroup) chip.appendChild(levelGroup);
 
-    chip.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (expandedHanja.has(chars)) expandedHanja.delete(chars);
-      else expandedHanja.add(chars);
-      rerenderActivePopup();
-    });
+    if (interactive) {
+      const indicator = document.createElement('span');
+      indicator.className = 'lws-chip-indicator';
+      indicator.setAttribute('aria-hidden', 'true');
+      indicator.textContent = meaningsOpen ? '−' : '+';
+      chip.appendChild(indicator);
+
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (expandedHanja.has(chars)) expandedHanja.delete(chars);
+        else expandedHanja.add(chars);
+        rerenderActivePopup();
+      });
+    }
     return chip;
   }
 
@@ -1596,6 +1622,8 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       charEl.className = 'lws-hanja-row-char';
       charEl.textContent = h.character;
       row.appendChild(charEl);
+      const level = lookupHanjaLevel(h.character);
+      if (level != null) row.appendChild(makeHanjaLevelBadge(document, level, h.character));
       if (h.sino) {
         const sino = document.createElement('span');
         sino.className = 'lws-hanja-row-sino';
@@ -1837,7 +1865,13 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
   async function init() {
     chrome.runtime.sendMessage({ type: 'warmup' }).catch(() => {});
     const [syncData, localData] = await Promise.all([
-      chrome.storage.sync.get([STORAGE_KEYS.DEF_LANG, STORAGE_KEYS.ASK_AI_PROMPT, STORAGE_KEYS.ASK_AI_PROVIDER, STORAGE_KEYS.ASK_AI_CHATGPT_TEMPORARY]),
+      chrome.storage.sync.get([
+        STORAGE_KEYS.DEF_LANG,
+        STORAGE_KEYS.ASK_AI_PROMPT,
+        STORAGE_KEYS.ASK_AI_PROVIDER,
+        STORAGE_KEYS.ASK_AI_CHATGPT_TEMPORARY,
+        STORAGE_KEYS.SHOW_HANJA_PILL,
+      ]),
       chrome.storage.local.get(DISABLED_HOSTS_KEY),
     ]);
     const disabledList = Array.isArray(localData[DISABLED_HOSTS_KEY]) ? localData[DISABLED_HOSTS_KEY] : [];
@@ -1853,6 +1887,7 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
       ? syncData[STORAGE_KEYS.ASK_AI_PROVIDER]
       : DEFAULT_ASK_AI_PROVIDER;
     askAiChatGptTemporary = syncData[STORAGE_KEYS.ASK_AI_CHATGPT_TEMPORARY] === true;
+    showHanjaPill = syncData[STORAGE_KEYS.SHOW_HANJA_PILL] === true;
     console.log('[lws] content init', { host: currentHost, hostDisabled, enabled, disabledList });
     await loadSecondaryLang();
     if (!document.body) {
@@ -1915,6 +1950,10 @@ No greeting, no "let me know if...", no recap. Be ready for follow-up questions.
     if (STORAGE_KEYS.ASK_AI_CHATGPT_TEMPORARY in changes) {
       askAiChatGptTemporary = changes[STORAGE_KEYS.ASK_AI_CHATGPT_TEMPORARY].newValue === true;
       // No rerender — pill href is rebuilt on next render.
+    }
+    if (STORAGE_KEYS.SHOW_HANJA_PILL in changes) {
+      showHanjaPill = changes[STORAGE_KEYS.SHOW_HANJA_PILL].newValue === true;
+      rerenderActivePopup();
     }
   });
 

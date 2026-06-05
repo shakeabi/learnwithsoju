@@ -7,6 +7,7 @@ const KEYS = {
   ASK_AI_PROMPT: 'askAiPrompt',
   ASK_AI_PROVIDER: 'askAiProvider',
   ASK_AI_CHATGPT_TEMPORARY: 'askAiChatGptTemporary',
+  SHOW_HANJA_PILL: 'showHanjaPill',
 };
 
 // Default Ask-AI prompt. Kept in sync with the fallback in content.js
@@ -52,6 +53,7 @@ const krInput = document.getElementById('krdict-key');
 const odInput = document.getElementById('opendict-key');
 const dualSubsToggle = document.getElementById('dualsubs-toggle');
 const dualSubsNxToggle = document.getElementById('dualsubs-toggle-netflix');
+const showHanjaPillToggle = document.getElementById('show-hanja-pill-toggle');
 const secondaryLangSelect = document.getElementById('secondary-lang');
 const askAiPromptInput = document.getElementById('ask-ai-prompt');
 const askAiProviderSelect = document.getElementById('ask-ai-provider');
@@ -127,11 +129,13 @@ async function load() {
     KEYS.ASK_AI_PROMPT,
     KEYS.ASK_AI_PROVIDER,
     KEYS.ASK_AI_CHATGPT_TEMPORARY,
+    KEYS.SHOW_HANJA_PILL,
   ]);
   krInput.value = data[KEYS.KRDICT_KEY] || '';
   odInput.value = data[KEYS.OPENDICT_KEY] || '';
   if (dualSubsToggle) dualSubsToggle.checked = data[KEYS.DUAL_SUBS_YT] !== false;
   if (dualSubsNxToggle) dualSubsNxToggle.checked = data[KEYS.DUAL_SUBS_NX] !== false;
+  if (showHanjaPillToggle) showHanjaPillToggle.checked = data[KEYS.SHOW_HANJA_PILL] === true;
   if (secondaryLangSelect) secondaryLangSelect.value = data[KEYS.SECONDARY_LANG] || 'en';
   if (askAiPromptInput) {
     askAiPromptInput.value = typeof data[KEYS.ASK_AI_PROMPT] === 'string' && data[KEYS.ASK_AI_PROMPT]
@@ -200,6 +204,11 @@ if (dualSubsToggle) {
 if (dualSubsNxToggle) {
   dualSubsNxToggle.addEventListener('change', () => {
     chrome.storage.sync.set({ [KEYS.DUAL_SUBS_NX]: dualSubsNxToggle.checked });
+  });
+}
+if (showHanjaPillToggle) {
+  showHanjaPillToggle.addEventListener('change', () => {
+    chrome.storage.sync.set({ [KEYS.SHOW_HANJA_PILL]: showHanjaPillToggle.checked });
   });
 }
 if (secondaryLangSelect) {

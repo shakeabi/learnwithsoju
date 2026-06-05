@@ -53,6 +53,8 @@
         "core/popup-shadow.css",
         "core/parsers.js",
         "core/grammar-glosses.js",
+        "core/hanja-levels.js",
+        "core/hanja-levels-data.js",
         "core/site-configs.js",
         "core/ai-providers.js",
         "adapters/youtube/adapter.js",
